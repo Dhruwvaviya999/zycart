@@ -49,3 +49,6 @@ export const syncUserDeletion = inngest.createFunction(
     })
   }
 );
+
+
+// TODO: Deploy the project into vercel and past ethe live link into inngest dashboard.
