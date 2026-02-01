@@ -14,7 +14,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <ClerkProvider>
-      <html lang="en">
+      <html suppressHydrationWarning="true" lang="en">
         <body className={`${outfit.className} antialiased`}>
           <StoreProvider>
             <Toaster />
