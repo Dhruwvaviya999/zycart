@@ -2,12 +2,13 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { Check, Plus } from 'lucide-react';
+import { Check, Loader2, Plus, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import { Price } from '@/components/product/price';
 import { ProductBadgeChip } from '@/components/product/product-badge';
 import { Rating } from '@/components/product/rating';
 import { WishlistButton } from '@/components/product/wishlist-button';
+import { QuickAddDialog } from '@/components/product/quick-add-dialog';
 import { useCartStore } from '@/store/cart-store';
 import { imageAlt, isInStock, productBadge } from '@/lib/product';
 import type { ProductSummary } from '@/types/product';
@@ -37,19 +38,39 @@ export function ProductCard({
 }: ProductCardProps) {
   const add = useCartStore((state) => state.add);
   const [justAdded, setJustAdded] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [picking, setPicking] = useState(false);
 
   const [primary, secondary] = product.images;
   const badge = productBadge(product);
   const inStock = isInStock(product);
 
-  function handleQuickAdd(event: React.MouseEvent) {
-    event.preventDefault();
-    add(product.id, {
-      size: product.sizes.find((option) => option.inStock)?.label,
-      color: product.colors[0]?.name,
-    });
+  // A product with options is never added on a guess: the button opens the
+  // picker instead, and says so.
+  const needsVariant = product.colors.length > 0 || product.sizes.length > 0;
+
+  function confirmAdded() {
     setJustAdded(true);
     window.setTimeout(() => setJustAdded(false), 1600);
+  }
+
+  async function handleQuickAdd(event: React.MouseEvent) {
+    event.preventDefault();
+
+    if (needsVariant) {
+      setPicking(true);
+      return;
+    }
+
+    setAdding(true);
+    try {
+      await add({ productId: product.id, quantity: 1 });
+      confirmAdded();
+    } catch {
+      // The store holds the message; the card stays quiet rather than shouting.
+    } finally {
+      setAdding(false);
+    }
   }
 
   return (
@@ -111,8 +132,10 @@ export function ProductCard({
           <button
             type="button"
             onClick={handleQuickAdd}
-            disabled={!inStock}
-            aria-label={`Add ${product.name} to cart`}
+            disabled={!inStock || adding}
+            aria-label={
+              needsVariant ? `Choose options for ${product.name}` : `Add ${product.name} to cart`
+            }
             className={cn(
               'focus-ring absolute right-2.5 bottom-2.5 z-20 inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[0.8125rem] font-semibold shadow-md transition-all duration-300 ease-(--ease-brand)',
               'translate-y-2 opacity-0 group-hover/card:translate-y-0 group-hover/card:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100',
@@ -123,8 +146,16 @@ export function ProductCard({
               'disabled:pointer-events-none disabled:opacity-0',
             )}
           >
-            {justAdded ? <Check className="size-4" /> : <Plus className="size-4" />}
-            <span>{justAdded ? 'Added' : 'Add'}</span>
+            {adding ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : justAdded ? (
+              <Check className="size-4" />
+            ) : needsVariant ? (
+              <SlidersHorizontal className="size-4" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            <span>{justAdded ? 'Added' : needsVariant ? 'Options' : 'Add'}</span>
           </button>
         )}
       </div>
@@ -157,6 +188,15 @@ export function ProductCard({
         {/* Sits above the stretched link so its controls stay clickable. */}
         {footer && <div className="relative z-10 mt-3.5">{footer}</div>}
       </div>
+
+      {needsVariant && (
+        <QuickAddDialog
+          product={product}
+          open={picking}
+          onOpenChange={setPicking}
+          onAdded={confirmAdded}
+        />
+      )}
     </article>
   );
 }

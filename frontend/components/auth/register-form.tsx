@@ -12,6 +12,7 @@ import { PasswordField } from '@/components/auth/password-field';
 import { register } from '@/services/auth.service';
 import { fieldErrors, toErrorMessage } from '@/services/api';
 import { useAuthStore } from '@/store/auth-store';
+import { adoptSessionShoppingState } from '@/lib/session-handoff';
 
 interface RegisterFormProps {
   redirectTo: string;
@@ -86,6 +87,10 @@ export function RegisterForm({ redirectTo }: RegisterFormProps) {
       });
 
       setUser(user);
+
+      const { warning } = await adoptSessionShoppingState();
+      if (warning) setFormError(warning);
+
       router.replace(redirectTo);
       router.refresh();
     } catch (error) {

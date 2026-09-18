@@ -6,6 +6,7 @@ import { Loader2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { logout } from '@/services/auth.service';
 import { useAuthStore } from '@/store/auth-store';
+import { clearSessionShoppingState } from '@/lib/session-handoff';
 
 /**
  * Signing out clears local state and re-runs the server components, so the
@@ -27,6 +28,9 @@ export function LogoutButton({ className }: { className?: string }) {
       await logout();
     } finally {
       setUser(null);
+      // The account's cart and wishlist must not be visible to whoever uses
+      // this browser next. They stay safe in MongoDB.
+      clearSessionShoppingState();
       router.replace('/');
       router.refresh();
     }

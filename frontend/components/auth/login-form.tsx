@@ -12,6 +12,7 @@ import { PasswordField } from '@/components/auth/password-field';
 import { login } from '@/services/auth.service';
 import { fieldErrors, toErrorMessage } from '@/services/api';
 import { useAuthStore } from '@/store/auth-store';
+import { adoptSessionShoppingState } from '@/lib/session-handoff';
 
 interface LoginFormProps {
   /** Where to land after signing in, carried from the protected route. */
@@ -54,6 +55,11 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
     try {
       const user = await login({ email: email.trim(), password });
       setUser(user);
+
+      // The bag built while signed out is folded into the account before we
+      // navigate. A failure here never discards it — it is reported instead.
+      const { warning } = await adoptSessionShoppingState();
+      if (warning) setFormError(warning);
 
       // `replace` keeps the sign-in page out of history; `refresh` re-runs the
       // server components so the navbar and any protected page see the session.

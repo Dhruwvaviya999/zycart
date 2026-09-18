@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { logout } from '@/services/auth.service';
 import { useAuthStore, useAuthUser } from '@/store/auth-store';
+import { clearSessionShoppingState } from '@/lib/session-handoff';
 import { fullName, initials, type AuthUser } from '@/types/user';
 import { cn } from '@/lib/utils';
 
@@ -45,6 +46,9 @@ export function UserMenu({ serverUser, className }: UserMenuProps) {
       await logout();
     } finally {
       setUser(null);
+      // The account's cart and wishlist must not be visible to whoever uses
+      // this browser next. They stay safe in MongoDB.
+      clearSessionShoppingState();
       router.replace('/');
       router.refresh();
     }

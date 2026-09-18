@@ -13,7 +13,7 @@ import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { primaryNav } from '@/data/navigation';
 import type { Category } from '@/types/product';
 import type { AuthUser } from '@/types/user';
-import { useCartStore } from '@/store/cart-store';
+import { selectCartCount, useCartStore } from '@/store/cart-store';
 import { useWishlistStore } from '@/store/wishlist-store';
 import { cn } from '@/lib/utils';
 
@@ -26,12 +26,12 @@ export function Navbar({ categories, user }: NavbarProps) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
 
-  const cartHydrated = useCartStore((state) => state.hydrated);
-  const cartCount = useCartStore((state) =>
-    state.lines.reduce((sum, line) => sum + line.quantity, 0),
-  );
-  const wishlistHydrated = useWishlistStore((state) => state.hydrated);
-  const wishlistCount = useWishlistStore((state) => state.ids.length);
+  // Totals come from the resolved cart, so the badge counts units and matches
+  // the cart page exactly — in both guest and signed-in modes.
+  const cartCount = useCartStore(selectCartCount);
+  const cartReady = useCartStore((state) => state.status === 'ready');
+  const wishlistCount = useWishlistStore((state) => state.wishlist.itemCount);
+  const wishlistReady = useWishlistStore((state) => state.status === 'ready');
 
   // Border and blur appear only once the page has moved, keeping the top of
   // the page clean without making the bar disappear on scroll.
@@ -94,7 +94,7 @@ export function Navbar({ categories, user }: NavbarProps) {
           <IconLink
             href="/wishlist"
             label="Wishlist"
-            count={wishlistHydrated ? wishlistCount : 0}
+            count={wishlistReady ? wishlistCount : 0}
             icon={Heart}
             className="hidden sm:inline-flex"
           />
@@ -102,7 +102,7 @@ export function Navbar({ categories, user }: NavbarProps) {
           <IconLink
             href="/cart"
             label="Cart"
-            count={cartHydrated ? cartCount : 0}
+            count={cartReady ? cartCount : 0}
             icon={ShoppingBag}
           />
 

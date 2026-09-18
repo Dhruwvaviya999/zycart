@@ -10,6 +10,8 @@ interface QuantitySelectorProps {
   max?: number;
   size?: 'sm' | 'md';
   label?: string;
+  /** Locks both controls while a server update is in flight. */
+  disabled?: boolean;
   className?: string;
 }
 
@@ -20,6 +22,7 @@ export function QuantitySelector({
   max = 10,
   size = 'md',
   label = 'Quantity',
+  disabled = false,
   className,
 }: QuantitySelectorProps) {
   const compact = size === 'sm';
@@ -37,7 +40,7 @@ export function QuantitySelector({
       <button
         type="button"
         onClick={() => onChange(Math.max(min, value - 1))}
-        disabled={value <= min}
+        disabled={disabled || value <= min}
         aria-label="Decrease quantity"
         className={cn(
           'focus-ring inline-flex items-center justify-center rounded-l-xl text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40',
@@ -60,7 +63,7 @@ export function QuantitySelector({
       <button
         type="button"
         onClick={() => onChange(Math.min(max, value + 1))}
-        disabled={value >= max}
+        disabled={disabled || value >= max}
         aria-label="Increase quantity"
         className={cn(
           'focus-ring inline-flex items-center justify-center rounded-r-xl text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40',

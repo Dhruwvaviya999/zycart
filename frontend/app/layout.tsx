@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import { AnnouncementBar } from '@/components/layout/announcement-bar';
 import { Footer } from '@/components/layout/footer';
 import { Navbar } from '@/components/layout/navbar';
-import { StoreHydrator } from '@/components/layout/store-hydrator';
+import { ShopSync } from '@/components/layout/shop-sync';
 import { AuthProvider } from '@/components/auth/auth-provider';
 import { ThemeProvider } from '@/components/layout/theme-provider';
 import { SearchOverlay } from '@/components/search/search-overlay';
@@ -71,7 +71,7 @@ export default async function RootLayout({ children }: LayoutProps<'/'>) {
 
               <Footer />
               <SearchOverlay />
-              <StoreHydrator />
+              <ShopSync user={user} />
             </TooltipProvider>
           </AuthProvider>
         </ThemeProvider>

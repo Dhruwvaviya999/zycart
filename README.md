@@ -5,15 +5,15 @@ AI-powered e-commerce application.
 Smart shopping, beautifully simplified.
 
 This repository contains **Phase 1 (project foundation)**, **Phase 2 (storefront
-UI)**, **Phase 3 (product catalogue)** and **Phase 4 (accounts)** — a Next.js
-storefront backed by a real MongoDB catalogue and customer accounts, served over
-an Express + TypeScript API.
+UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)** and **Phase 5
+(cart & wishlist)** — a Next.js storefront backed by a real MongoDB catalogue,
+customer accounts and a persistent cart, served over an Express + TypeScript API.
 
-Cart, orders, payments and AI functionality do not exist yet. The cart and
-wishlist keep product ids in your browser.
+Orders, checkout, payments and AI functionality do not exist yet.
 
 Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
-[phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md), [phase 4](docs/phase-4.md).
+[phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md), [phase 4](docs/phase-4.md),
+[phase 5](docs/phase-5.md).
 
 ---
 
@@ -312,6 +312,27 @@ Liveness check. Reports non-sensitive runtime information only.
 Sessions are a signed JWT in an HTTP-only cookie. Details and security notes are
 in [docs/phase-4.md](docs/phase-4.md).
 
+### Cart and wishlist
+
+| Method   | Path                                       | Auth | Purpose                       |
+| -------- | ------------------------------------------ | ---- | ----------------------------- |
+| `POST`   | `/api/cart/preview`                        | —    | Price a guest cart            |
+| `GET`    | `/api/cart`                                | ✓    | The stored cart               |
+| `POST`   | `/api/cart/items`                          | ✓    | Add an item                   |
+| `PATCH`  | `/api/cart/items/:itemId`                  | ✓    | Set quantity                  |
+| `DELETE` | `/api/cart/items/:itemId`                  | ✓    | Remove an item                |
+| `DELETE` | `/api/cart`                                | ✓    | Empty the cart                |
+| `POST`   | `/api/cart/merge`                          | ✓    | Merge a guest cart at sign-in |
+| `GET`    | `/api/wishlist`                            | ✓    | Saved products                |
+| `POST`   | `/api/wishlist/items`                      | ✓    | Save a product                |
+| `DELETE` | `/api/wishlist/items/:itemId`              | ✓    | Unsave                        |
+| `DELETE` | `/api/wishlist`                            | ✓    | Clear the wishlist            |
+| `POST`   | `/api/wishlist/items/:itemId/move-to-cart` | ✓    | Move one to the cart          |
+
+Guests shop without signing in; their cart merges into the account on sign-in.
+Prices and stock are always the server's, never the browser's — see
+[docs/phase-5.md](docs/phase-5.md).
+
 ### Catalogue
 
 | Method | Path                              | Purpose                                |
@@ -382,5 +403,6 @@ Internal details are logged server-side and never returned to the client.
 Phase 1 established the frontend, backend, and MongoDB foundation. Phase 2 built
 the storefront UI on mock data. Phase 3 replaced that mock data with a real
 MongoDB catalogue and the API that serves it. Phase 4 added customer accounts,
-sessions and saved addresses. Cart and order APIs, payments, and AI features
-arrive in later phases.
+sessions and saved addresses. Phase 5 made the cart and wishlist real and
+persistent, for guests and customers alike. Orders, checkout, payments, and AI
+features arrive in later phases.
