@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import { AnnouncementBar } from '@/components/layout/announcement-bar';
 import { Footer } from '@/components/layout/footer';
 import { Navbar } from '@/components/layout/navbar';
+import { StoreHydrator } from '@/components/layout/store-hydrator';
 import { ThemeProvider } from '@/components/layout/theme-provider';
 import { SearchOverlay } from '@/components/search/search-overlay';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -62,6 +63,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
 
             <Footer />
             <SearchOverlay />
+            <StoreHydrator />
           </TooltipProvider>
         </ThemeProvider>
       </body>

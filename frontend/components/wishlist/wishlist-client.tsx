@@ -1,15 +1,12 @@
 'use client';
 
-import Image from 'next/image';
-import Link from 'next/link';
 import { Heart, ShoppingBag, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Breadcrumbs } from '@/components/common/breadcrumbs';
 import { EmptyState } from '@/components/common/empty-state';
 import { ProductGridSkeleton } from '@/components/common/loading-state';
 import { Container } from '@/components/layout/container';
-import { Price } from '@/components/product/price';
-import { Rating } from '@/components/product/rating';
+import { ProductGrid } from '@/components/product/product-grid';
 import { productById } from '@/data/products';
 import { useCartStore } from '@/store/cart-store';
 import { useWishlistStore } from '@/store/wishlist-store';
@@ -26,6 +23,14 @@ export function WishlistClient() {
     if (product) acc.push(product);
     return acc;
   }, []);
+
+  function moveToCart(product: Product) {
+    addToCart(product.id, {
+      size: product.sizes?.find((option) => option.available)?.value,
+      color: product.colors?.[0]?.value,
+    });
+    removeSaved(product.id);
+  }
 
   return (
     <Container className="py-8 sm:py-10">
@@ -51,67 +56,39 @@ export function WishlistClient() {
           className="mt-10"
         />
       ) : (
-        <ul className="mt-10 grid gap-x-4 gap-y-8 sm:grid-cols-2 sm:gap-x-5 lg:grid-cols-3 xl:grid-cols-4">
-          {saved.map((product) => (
-            <li key={product.id} className="flex flex-col">
-              <Link
-                href={`/products/${product.slug}`}
-                className="focus-ring relative block aspect-4/5 overflow-hidden rounded-2xl bg-surface ring-1 ring-border/70"
+        /* The same card as everywhere else; only the action row differs. */
+        <ProductGrid
+          products={saved}
+          columns={4}
+          priorityCount={4}
+          cardHeading="h2"
+          className="mt-10"
+          renderFooter={(product) => (
+            <div className="flex gap-2">
+              <Button
+                size="cta"
+                variant="brand"
+                className="min-w-0 flex-1"
+                disabled={!product.inStock}
+                onClick={() => moveToCart(product)}
               >
-                {product.images[0] && (
-                  <Image
-                    src={product.images[0].url}
-                    alt={product.images[0].alt}
-                    fill
-                    sizes="(min-width: 1280px) 22vw, (min-width: 640px) 45vw, 92vw"
-                    className="object-cover"
-                  />
-                )}
-              </Link>
-
-              <div className="flex flex-1 flex-col gap-1.5 pt-3.5">
-                <p className="text-caption font-medium tracking-wide text-muted-foreground uppercase">
-                  {product.brand}
-                </p>
-                <h2 className="text-small leading-snug font-medium">
-                  <Link href={`/products/${product.slug}`} className="focus-ring rounded-sm">
-                    {product.name}
-                  </Link>
-                </h2>
-                <Rating value={product.rating} reviewCount={product.reviewCount} />
-                <Price price={product.price} compareAtPrice={product.compareAtPrice} />
-              </div>
-
-              <div className="mt-4 flex gap-2">
-                <Button
-                  size="cta"
-                  variant="brand"
-                  className="flex-1"
-                  disabled={!product.inStock}
-                  onClick={() => {
-                    addToCart(product.id, {
-                      size: product.sizes?.find((option) => option.available)?.value,
-                      color: product.colors?.[0]?.value,
-                    });
-                    removeSaved(product.id);
-                  }}
-                >
-                  <ShoppingBag className="size-4" data-icon="inline-start" />
+                <ShoppingBag className="size-4" data-icon="inline-start" />
+                <span className="truncate">
                   {product.inStock ? 'Move to cart' : 'Out of stock'}
-                </Button>
+                </span>
+              </Button>
 
-                <Button
-                  size="icon-cta"
-                  variant="outline"
-                  aria-label={`Remove ${product.name} from wishlist`}
-                  onClick={() => removeSaved(product.id)}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
+              <Button
+                size="icon-cta"
+                variant="outline"
+                aria-label={`Remove ${product.name} from wishlist`}
+                onClick={() => removeSaved(product.id)}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          )}
+        />
       )}
     </Container>
   );

@@ -35,7 +35,9 @@ export function SectionHeading({
       <div className={cn('max-w-2xl space-y-2.5', centered && 'mx-auto')}>
         {eyebrow && <p className="text-label text-brand">{eyebrow}</p>}
         <Heading className="text-h2">{title}</Heading>
-        {description && <p className="text-body text-muted-foreground text-pretty">{description}</p>}
+        {description && (
+          <p className="text-body text-muted-foreground text-pretty">{description}</p>
+        )}
       </div>
 
       {action && (

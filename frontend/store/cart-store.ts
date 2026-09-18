@@ -100,6 +100,9 @@ export const useCartStore = create<CartState>()(
       name: 'zycart-cart',
       partialize: ({ lines, savedForLater }) => ({ lines, savedForLater }),
       onRehydrateStorage: () => (state) => state?.setHydrated(),
+      // Rehydrated from an effect by <StoreHydrator/>, not at module init:
+      // the server and the first client render must agree on an empty store.
+      skipHydration: true,
     },
   ),
 );

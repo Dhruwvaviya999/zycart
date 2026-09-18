@@ -5,7 +5,13 @@ import { cn } from '@/lib/utils';
  * ZyCart mark: a cart silhouette whose handle doubles as a stylised Z.
  * Inline SVG so it inherits colour and stays crisp at every size.
  */
-export function Logo({ className, showWordmark = true }: { className?: string; showWordmark?: boolean }) {
+export function Logo({
+  className,
+  showWordmark = true,
+}: {
+  className?: string;
+  showWordmark?: boolean;
+}) {
   return (
     <Link
       href="/"

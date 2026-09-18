@@ -17,6 +17,10 @@ interface ProductCardProps {
   /** Tells the image loader how much width the card gets at each breakpoint. */
   sizes?: string;
   priority?: boolean;
+  /** Replaces the hover quick-add — used where the page owns the primary action. */
+  footer?: React.ReactNode;
+  /** Heading level, so the card sits correctly in each page's outline. */
+  as?: 'h2' | 'h3';
   className?: string;
 }
 
@@ -26,6 +30,8 @@ export function ProductCard({
   product,
   sizes = DEFAULT_SIZES,
   priority = false,
+  footer,
+  as: Heading = 'h3',
   className,
 }: ProductCardProps) {
   const add = useCartStore((state) => state.add);
@@ -61,9 +67,7 @@ export function ProductCard({
               priority={priority}
               className={cn(
                 'object-cover transition-all duration-500 ease-(--ease-brand)',
-                secondary
-                  ? 'group-hover/card:opacity-0'
-                  : 'group-hover/card:scale-[1.045]',
+                secondary ? 'group-hover/card:opacity-0' : 'group-hover/card:scale-[1.045]',
               )}
             />
           )}
@@ -101,24 +105,26 @@ export function ProductCard({
         />
 
         {/* Quick add: always reachable by keyboard, revealed on pointer hover. */}
-        <button
-          type="button"
-          onClick={handleQuickAdd}
-          disabled={!product.inStock}
-          aria-label={`Add ${product.name} to cart`}
-          className={cn(
-            'focus-ring absolute right-2.5 bottom-2.5 z-20 inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[0.8125rem] font-semibold shadow-md transition-all duration-300 ease-(--ease-brand)',
-            'translate-y-2 opacity-0 group-hover/card:translate-y-0 group-hover/card:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100',
-            'max-sm:translate-y-0 max-sm:opacity-100',
-            justAdded
-              ? 'bg-success text-success-foreground'
-              : 'bg-foreground text-background hover:bg-foreground/90',
-            'disabled:pointer-events-none disabled:opacity-0',
-          )}
-        >
-          {justAdded ? <Check className="size-4" /> : <Plus className="size-4" />}
-          <span>{justAdded ? 'Added' : 'Add'}</span>
-        </button>
+        {!footer && (
+          <button
+            type="button"
+            onClick={handleQuickAdd}
+            disabled={!product.inStock}
+            aria-label={`Add ${product.name} to cart`}
+            className={cn(
+              'focus-ring absolute right-2.5 bottom-2.5 z-20 inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[0.8125rem] font-semibold shadow-md transition-all duration-300 ease-(--ease-brand)',
+              'translate-y-2 opacity-0 group-hover/card:translate-y-0 group-hover/card:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100',
+              'max-sm:translate-y-0 max-sm:opacity-100',
+              justAdded
+                ? 'bg-success text-success-foreground'
+                : 'bg-foreground text-background hover:bg-foreground/90',
+              'disabled:pointer-events-none disabled:opacity-0',
+            )}
+          >
+            {justAdded ? <Check className="size-4" /> : <Plus className="size-4" />}
+            <span>{justAdded ? 'Added' : 'Add'}</span>
+          </button>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-1.5 pt-3.5">
@@ -126,21 +132,28 @@ export function ProductCard({
           {product.brand}
         </p>
 
-        <h3 className="text-small leading-snug font-medium">
+        <Heading className="text-small leading-snug font-medium">
           <Link href={`/products/${product.slug}`} className="focus-ring rounded-sm">
             {/* Stretches the click target over the card without nesting links. */}
             <span className="absolute inset-0 z-0" aria-hidden />
             <span className="relative line-clamp-2">{product.name}</span>
           </Link>
-        </h3>
+        </Heading>
 
-        <Rating value={product.rating} reviewCount={product.reviewCount} className="relative z-10" />
+        <Rating
+          value={product.rating}
+          reviewCount={product.reviewCount}
+          className="relative z-10"
+        />
 
         <Price
           price={product.price}
           compareAtPrice={product.compareAtPrice}
           className="relative z-10 mt-0.5"
         />
+
+        {/* Sits above the stretched link so its controls stay clickable. */}
+        {footer && <div className="relative z-10 mt-3.5">{footer}</div>}
       </div>
     </article>
   );

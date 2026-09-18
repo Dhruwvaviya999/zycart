@@ -19,12 +19,13 @@ export function AnnouncementBar() {
   return (
     <div className="relative bg-foreground text-background">
       <Container className="flex h-9 items-center justify-center gap-3">
-        <p className="text-caption truncate font-medium">
+        {/* Reserves room for the dismiss button so the two never collide. */}
+        <p className="text-caption max-w-[calc(100%-3.5rem)] truncate font-medium">
           {announcement.message}
           {announcement.href && announcement.linkLabel && (
             <Link
               href={announcement.href}
-              className="focus-ring ml-2.5 inline-flex items-center gap-1 rounded-sm underline decoration-background/40 underline-offset-4 transition-colors hover:decoration-background"
+              className="focus-ring ml-2.5 hidden items-center gap-1 rounded-sm underline decoration-background/40 underline-offset-4 transition-colors hover:decoration-background sm:inline-flex"
             >
               {announcement.linkLabel}
               <ArrowRight className="size-3" aria-hidden />

@@ -11,7 +11,14 @@ export const metadata: Metadata = {
     'Browse the full ZyCart catalogue — filter by category, brand, price, rating and availability.',
 };
 
-const SORT_KEYS: SortKey[] = ['featured', 'newest', 'price-asc', 'price-desc', 'rating', 'discount'];
+const SORT_KEYS: SortKey[] = [
+  'featured',
+  'newest',
+  'price-asc',
+  'price-desc',
+  'rating',
+  'discount',
+];
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;

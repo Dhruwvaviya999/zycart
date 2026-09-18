@@ -1,10 +1,5 @@
 export type CategorySlug =
-  | 'electronics'
-  | 'fashion'
-  | 'footwear'
-  | 'accessories'
-  | 'home'
-  | 'beauty';
+  'electronics' | 'fashion' | 'footwear' | 'accessories' | 'home' | 'beauty';
 
 export type ProductBadge = 'sale' | 'new' | 'bestseller' | 'limited';
 
@@ -38,6 +33,8 @@ export interface Product {
   inStock: boolean;
   /** Short line used on cards and in search results. */
   tagline: string;
+  /** Extra search terms — plurals, synonyms and the words shoppers actually type. */
+  tags: string[];
   description: string;
   highlights: string[];
   specifications: { label: string; value: string }[];

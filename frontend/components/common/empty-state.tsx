@@ -3,12 +3,17 @@ import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+/** Either navigates somewhere or runs in place — never both. */
+export type EmptyStateAction =
+  | { label: string; href: string; onClick?: never }
+  | { label: string; onClick: () => void; href?: never };
+
 interface EmptyStateProps {
   icon: LucideIcon;
   title: string;
   body: string;
-  action?: { label: string; href: string };
-  secondaryAction?: { label: string; href: string };
+  action?: EmptyStateAction;
+  secondaryAction?: EmptyStateAction;
   className?: string;
 }
 
@@ -38,18 +43,32 @@ export function EmptyState({
 
       {(action || secondaryAction) && (
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          {action && (
-            <Button size="cta" variant="brand" render={<Link href={action.href} />}>
-              {action.label}
-            </Button>
-          )}
-          {secondaryAction && (
-            <Button size="cta" variant="outline" render={<Link href={secondaryAction.href} />}>
-              {secondaryAction.label}
-            </Button>
-          )}
+          {action && <ActionButton action={action} variant="brand" />}
+          {secondaryAction && <ActionButton action={secondaryAction} variant="outline" />}
         </div>
       )}
     </div>
+  );
+}
+
+function ActionButton({
+  action,
+  variant,
+}: {
+  action: EmptyStateAction;
+  variant: 'brand' | 'outline';
+}) {
+  if (action.href) {
+    return (
+      <Button size="cta" variant={variant} render={<Link href={action.href} />}>
+        {action.label}
+      </Button>
+    );
+  }
+
+  return (
+    <Button size="cta" variant={variant} onClick={action.onClick}>
+      {action.label}
+    </Button>
   );
 }

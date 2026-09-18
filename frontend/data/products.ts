@@ -43,6 +43,7 @@ export const products: Product[] = [
     badges: ['sale', 'bestseller'],
     inStock: true,
     tagline: 'Visible Air cushioning with a heritage silhouette',
+    tags: ['shoes', 'sneakers', 'running', 'trainers', 'air max', 'runner'],
     description:
       'The Heritage Runner keeps the profile that made the line famous and rebuilds it around a lighter foam carrier. Breathable engineered mesh across the forefoot, suede overlays at the heel, and a full-length Air unit that keeps long days comfortable.',
     highlights: [
@@ -83,6 +84,7 @@ export const products: Product[] = [
     badges: ['new'],
     inStock: true,
     tagline: 'A court classic redrawn in soft seasonal colour',
+    tags: ['shoes', 'sneakers', 'air force', 'court', 'leather', 'white'],
     description:
       'A low-top court shoe finished in a muted pastel palette. Full-grain leather panels, perforated toe box and the original cupsole construction, kept clean and unbranded across the quarter panel.',
     highlights: [
@@ -123,6 +125,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Built for burpees, lifts and everything between',
+    tags: ['shoes', 'trainers', 'gym', 'training', 'workout'],
     description:
       'A studio trainer with a wide, stable base and a forefoot designed to flex through fast transitions. The high-contrast volt upper is a deliberate signal on a gym floor.',
     highlights: [
@@ -163,6 +166,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'The white leather sneaker, done properly',
+    tags: ['shoes', 'sneakers', 'white sneakers', 'leather', 'court'],
     description:
       'A minimal court profile in soft tumbled leather with a tonal sidewall. Designed to be worn daily and to age well rather than to shout.',
     highlights: [
@@ -202,6 +206,7 @@ export const products: Product[] = [
     badges: ['limited'],
     inStock: true,
     tagline: 'Nubuck in a warm, seasonal tan',
+    tags: ['shoes', 'sneakers', 'air force', 'nubuck', 'tan'],
     description:
       'A limited seasonal colourway built on the familiar cupsole. Soft nubuck takes the place of the usual leather, giving the silhouette a quieter, warmer finish.',
     highlights: [
@@ -239,6 +244,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Goodyear-welted, in a colour worth noticing',
+    tags: ['shoes', 'formal shoes', 'dress shoes', 'derby', 'leather'],
     description:
       'A Goodyear-welted derby in hand-finished teal calf leather. Resoleable, which is the whole point of buying a shoe like this.',
     highlights: [
@@ -278,6 +284,7 @@ export const products: Product[] = [
     badges: [],
     inStock: true,
     tagline: 'Blacked-out daily trainer with reflective detailing',
+    tags: ['shoes', 'running shoes', 'trainers', 'black shoes', 'running'],
     description:
       'A stealth daily trainer with reflective piping that only shows under direct light. Responsive foam underfoot, tuned for road kilometres rather than the gym floor.',
     highlights: [
@@ -315,6 +322,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: false,
     tagline: 'Nineties running lines, modern cushioning',
+    tags: ['shoes', 'sneakers', 'running shoes', 'retro', 'runner'],
     description:
       'A retro runner rebuilt on a modern foam platform. Layered suede and mesh panelling in a colour split borrowed from the original 1990s release.',
     highlights: [
@@ -354,6 +362,7 @@ export const products: Product[] = [
     badges: ['sale', 'bestseller'],
     inStock: true,
     tagline: 'Adaptive noise cancelling with 40-hour battery',
+    tags: ['headphones', 'wireless', 'noise cancelling', 'over-ear', 'audio', 'anc'],
     description:
       'Closed-back over-ears tuned for long listening rather than a shop-floor demo. Adaptive cancellation samples the room 200 times a second, and the memory-foam cups stay comfortable past the three-hour mark.',
     highlights: [
@@ -392,6 +401,7 @@ export const products: Product[] = [
     badges: ['bestseller'],
     inStock: true,
     tagline: 'Always-on Retina display and full-day health tracking',
+    tags: ['smartwatch', 'watch', 'wearable', 'fitness tracker'],
     description:
       'The 45 mm case with an always-on display bright enough to read in direct sun. Blood-oxygen and ECG sensors, crash detection, and an 18-hour battery that comfortably covers a day plus a night of sleep tracking.',
     highlights: [
@@ -431,6 +441,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Fanless, silent, and good for eighteen hours',
+    tags: ['laptop', 'macbook', 'notebook', 'computer'],
     description:
       'The M3 Air stays silent because there is no fan to spin up. A 13.6-inch Liquid Retina panel, two Thunderbolt ports, MagSafe charging, and a battery that genuinely lasts a working day away from the desk.',
     highlights: [
@@ -470,6 +481,7 @@ export const products: Product[] = [
     badges: ['sale', 'bestseller'],
     inStock: true,
     tagline: '48MP main camera and USB-C, finally',
+    tags: ['phone', 'smartphone', 'mobile', 'iphone'],
     description:
       'The Dynamic Island, a 48-megapixel main sensor with a 2x telephoto crop, and USB-C charging. Ceramic Shield front, aluminium frame, and all-day battery on a 6.1-inch Super Retina XDR panel.',
     highlights: [
@@ -509,6 +521,7 @@ export const products: Product[] = [
     badges: ['new'],
     inStock: true,
     tagline: 'Autofocus instant film, no app required',
+    tags: ['camera', 'instant camera', 'film', 'photography'],
     description:
       'A two-lens autofocus system picks the right focal length so the shot lands sharp. Prints develop in about fifteen minutes, and the internal battery is good for roughly fifteen packs per charge.',
     highlights: [
@@ -548,6 +561,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Flat response, wired, built to be repaired',
+    tags: ['headphones', 'wired', 'studio', 'over-ear', 'audio'],
     description:
       'A wired reference pair with a deliberately flat response curve. Every part — pads, cable, headband — is sold separately, so a worn component does not mean a new pair of headphones.',
     highlights: [
@@ -584,6 +598,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Colour-accurate 14" OLED for design work',
+    tags: ['laptop', 'ultrabook', 'notebook', 'oled', 'computer'],
     description:
       'A 14-inch OLED panel factory-calibrated to 100% DCI-P3, paired with a discrete GPU and a chassis that stays under 1.4 kg. Built for colour work on the move rather than for benchmark charts.',
     highlights: [
@@ -620,6 +635,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: '14-day battery and 120 workout modes',
+    tags: ['smartwatch', 'watch', 'fitness tracker', 'wearable'],
     description:
       'A fitness-first watch that trades a glossy app store for two weeks of battery. Continuous heart-rate and SpO2 monitoring, sleep staging, and a 1.43-inch AMOLED that stays legible outdoors.',
     highlights: [
@@ -661,6 +677,7 @@ export const products: Product[] = [
     badges: ['sale', 'bestseller'],
     inStock: true,
     tagline: '240 GSM combed cotton that holds its shape',
+    tags: ['t-shirt', 'tee', 'shirt', 'top', 'cotton'],
     description:
       'A heavyweight tee at 240 GSM, cut boxy through the body with a ribbed collar that will not stretch out after a month. Pre-shrunk, so the size you buy is the size it stays.',
     highlights: [
@@ -701,6 +718,7 @@ export const products: Product[] = [
     badges: ['new'],
     inStock: true,
     tagline: 'Unbrushed loopback cotton, all year round',
+    tags: ['sweatshirt', 'jumper', 'crew neck', 'cotton'],
     description:
       'Loopback cotton left unbrushed, so it breathes in October and still works in January. Raglan sleeves, a twin-needle hem, and no logo anywhere on it.',
     highlights: [
@@ -741,6 +759,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Extra-fine merino that layers without bulk',
+    tags: ['cardigan', 'knitwear', 'merino', 'wool', 'sweater'],
     description:
       'A 19.5-micron merino cardigan with corozo buttons and a fully fashioned shoulder. Thin enough to wear under a coat, warm enough to wear instead of one.',
     highlights: [
@@ -781,6 +800,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Garment-washed linen, soft from the first wear',
+    tags: ['shirt', 'linen shirt', 'overshirt', 'linen'],
     description:
       'European linen, garment-washed so it arrives soft instead of stiff. Cut long enough to wear open as a light jacket, with a chest pocket that actually holds a phone.',
     highlights: [
@@ -820,6 +840,7 @@ export const products: Product[] = [
     badges: ['new'],
     inStock: true,
     tagline: 'Single-pleat wool with a proper drape',
+    tags: ['trousers', 'pants', 'wool', 'tailoring', 'formal'],
     description:
       'A single-pleat trouser in a mid-weight wool blend that holds a crease without pressing. Side adjusters instead of belt loops, and a hem left long for tailoring.',
     highlights: [
@@ -862,6 +883,7 @@ export const products: Product[] = [
     badges: ['sale', 'bestseller'],
     inStock: true,
     tagline: 'Automatic movement, 200 m, sapphire crystal',
+    tags: ['watch', 'dive watch', 'automatic', 'diver', 'wristwatch'],
     description:
       'A 41 mm steel diver on an automatic movement with a 42-hour reserve. Unidirectional bezel, sapphire crystal, and a sunburst blue dial that shifts with the light.',
     highlights: [
@@ -900,6 +922,7 @@ export const products: Product[] = [
     badges: ['bestseller'],
     inStock: true,
     tagline: 'The shape that has outlasted every trend',
+    tags: ['sunglasses', 'eyewear', 'shades', 'wayfarer'],
     description:
       'Acetate frames with G-15 polarised lenses. The proportions have barely changed since the fifties, which is exactly why they still work.',
     highlights: [
@@ -939,6 +962,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Featherweight titanium in a period-correct round',
+    tags: ['sunglasses', 'eyewear', 'shades', 'titanium', 'round'],
     description:
       'A 44 mm round lens in a titanium frame that weighs almost nothing on the bridge. Gradient green lenses with adjustable acetate nose pads.',
     highlights: [
@@ -978,6 +1002,7 @@ export const products: Product[] = [
     badges: ['sale', 'limited'],
     inStock: true,
     tagline: 'Vegetable-tanned leather with a woven base',
+    tags: ['bag', 'handbag', 'satchel', 'leather bag', 'tote'],
     description:
       'Vegetable-tanned leather over a rigid frame, with a hand-woven base panel that takes a full working day to complete. It will darken with use, which is the point.',
     highlights: [
@@ -1016,6 +1041,7 @@ export const products: Product[] = [
     badges: ['new'],
     inStock: true,
     tagline: 'Compact frame bag with gold-tone hardware',
+    tags: ['bag', 'handbag', 'top handle', 'purse'],
     description:
       'A compact frame bag sized for a phone, a card holder and not much else — which is what makes it work in the evening. Smooth calf leather with a lacquered edge finish.',
     highlights: [
@@ -1052,6 +1078,7 @@ export const products: Product[] = [
     badges: ['sale', 'limited'],
     inStock: true,
     tagline: '18k rose gold with a certified centre stone',
+    tags: ['ring', 'jewellery', 'jewelry', 'gold', 'diamond'],
     description:
       'A cushion-cut morganite centre stone in an 18k rose gold halo setting, with pavé shoulders. Each piece ships with an independent gemmological certificate.',
     highlights: [
@@ -1087,6 +1114,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'A 36 mm case that slides under a cuff',
+    tags: ['watch', 'dress watch', 'wristwatch', 'rose gold'],
     description:
       'Deliberately small at 36 mm, with a domed sapphire crystal and a slim rose-gold-plated case. Sits flat under a shirt cuff, which most dress watches no longer do.',
     highlights: [
@@ -1124,6 +1152,7 @@ export const products: Product[] = [
     badges: ['sale', 'bestseller'],
     inStock: true,
     tagline: 'Iris, vetiver and warm amber · 50 ml',
+    tags: ['perfume', 'fragrance', 'eau de parfum', 'scent'],
     description:
       'An iris-forward eau de parfum that dries down into vetiver and amber over about an hour. Concentrated at 18%, so two sprays last a working day.',
     highlights: [
@@ -1159,6 +1188,7 @@ export const products: Product[] = [
     badges: ['sale', 'bestseller'],
     inStock: true,
     tagline: 'Cleanser, serum and moisturiser in one routine',
+    tags: ['skincare', 'skincare set', 'cleanser', 'serum', 'moisturiser'],
     description:
       'A three-step routine that does not require a decision tree. Gel cleanser, a 10% niacinamide serum, and a ceramide moisturiser — fragrance-free throughout.',
     highlights: [
@@ -1193,6 +1223,7 @@ export const products: Product[] = [
     badges: ['new'],
     inStock: true,
     tagline: 'Overnight ceramide repair, fragrance-free',
+    tags: ['skincare', 'moisturiser', 'night cream', 'ceramide'],
     description:
       'A thicker overnight cream built around a ceramide and cholesterol blend at the ratio your skin barrier actually uses. Heavy enough to feel like something; light enough not to move onto the pillow.',
     highlights: [
@@ -1228,6 +1259,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Seven pieces for a five-minute face',
+    tags: ['makeup', 'cosmetics', 'kit', 'beauty set'],
     description:
       'A seven-piece kit assembled around one warm neutral palette, so every piece works with every other piece. Includes brushes that are worth keeping.',
     highlights: [
@@ -1262,6 +1294,7 @@ export const products: Product[] = [
     badges: [],
     inStock: true,
     tagline: 'Toner, essence and oil in refillable glass',
+    tags: ['skincare', 'skincare set', 'toner', 'essence', 'face oil'],
     description:
       'Three products in refillable glass, sold with a refill pouch from the start. Minimal ingredient lists and no colourants — the packaging is the only design statement.',
     highlights: [
@@ -1299,6 +1332,7 @@ export const products: Product[] = [
     badges: ['sale', 'bestseller'],
     inStock: true,
     tagline: 'Cold for 24 hours, hot for 12',
+    tags: ['bottle', 'water bottle', 'insulated bottle', 'flask'],
     description:
       'Double-walled 18/8 stainless steel with a powder-coated finish that does not get slippery when wet. The lid comes apart completely, which is the only way a bottle lid ever gets properly clean.',
     highlights: [
@@ -1338,6 +1372,7 @@ export const products: Product[] = [
     badges: ['new'],
     inStock: true,
     tagline: 'Wheel-thrown, reactive glaze, no two alike',
+    tags: ['cups', 'mugs', 'stoneware', 'ceramic', 'tableware'],
     description:
       'Wheel-thrown stoneware with a reactive glaze that pools differently on every piece. Sold as a set of four, and every set is visibly a set of four individuals.',
     highlights: [
@@ -1373,6 +1408,7 @@ export const products: Product[] = [
     badges: ['sale'],
     inStock: true,
     tagline: 'Drainage hole and saucer, actually included',
+    tags: ['planter', 'pot', 'ceramic', 'plant pot', 'garden'],
     description:
       'A matte-glazed planter with a real drainage hole and a matching saucer, which a surprising number of decorative planters still omit. Sized for a 15 cm nursery pot.',
     highlights: [
@@ -1435,6 +1471,25 @@ export const reviews: Review[] = [
     verified: false,
   },
 ];
+
+// --------------------------------------------------------------------- search
+
+const haystack = (product: Product) =>
+  `${product.name} ${product.brand} ${product.tagline} ${product.category} ${product.tags.join(' ')}`.toLowerCase();
+
+/**
+ * Every word in the query has to appear somewhere in the product, which is what
+ * makes multi-word searches like "running shoes" behave the way people expect.
+ * Both the shop filters and the search overlay go through here so the two can
+ * never disagree about what matches.
+ */
+export function matchesSearch(product: Product, query: string) {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return true;
+
+  const text = haystack(product);
+  return terms.every((term) => text.includes(term));
+}
 
 // ------------------------------------------------------------------ selectors
 

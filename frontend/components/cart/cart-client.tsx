@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Breadcrumbs } from '@/components/common/breadcrumbs';
 import { EmptyState } from '@/components/common/empty-state';
-import { ProductCardSkeleton } from '@/components/common/loading-state';
+import { CartSkeleton } from '@/components/common/loading-state';
 import { Container } from '@/components/layout/container';
 import { QuantitySelector } from '@/components/product/quantity-selector';
 import { selectCartSummary, useCartStore, type ResolvedCartLine } from '@/store/cart-store';
@@ -41,17 +41,7 @@ export function CartClient() {
       </header>
 
       {!hydrated ? (
-        <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="space-y-6">
-            {[0, 1].map((index) => (
-              <div key={index} className="flex gap-4">
-                <div className="w-28 shrink-0">
-                  <ProductCardSkeleton />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <CartSkeleton className="mt-10" />
       ) : summary.items.length === 0 ? (
         <EmptyState
           icon={ShoppingBag}
@@ -103,10 +93,7 @@ export function CartClient() {
                 <h2 className="text-h3">Saved for later</h2>
                 <ul className="mt-5 divide-y divide-border border-y border-border">
                   {savedSummary.items.map((item) => (
-                    <li
-                      key={item.line.productId}
-                      className="flex items-center gap-4 py-5 sm:gap-5"
-                    >
+                    <li key={item.line.productId} className="flex items-center gap-4 py-5 sm:gap-5">
                       <Link
                         href={`/products/${item.product.slug}`}
                         className="focus-ring relative size-20 shrink-0 overflow-hidden rounded-xl bg-surface"

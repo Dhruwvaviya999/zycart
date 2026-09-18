@@ -31,12 +31,7 @@ export function ProductSection({
   return (
     <section id={id} className={cn('section-tight scroll-mt-24', className)}>
       <Container>
-        <SectionHeading
-          eyebrow={eyebrow}
-          title={title}
-          description={description}
-          action={action}
-        />
+        <SectionHeading eyebrow={eyebrow} title={title} description={description} action={action} />
         <ProductGrid
           products={products}
           columns={columns}

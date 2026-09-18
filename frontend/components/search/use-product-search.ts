@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { products } from '@/data/products';
+import { matchesSearch, products } from '@/data/products';
 import { categories } from '@/data/categories';
 import { brands } from '@/data/products';
 import type { Product } from '@/types/product';
@@ -38,15 +38,7 @@ export function useProductSearch(query: string, delay = 220) {
     const matches = (haystack: string) => haystack.toLowerCase().includes(term);
 
     return {
-      products: products
-        .filter(
-          (product) =>
-            matches(product.name) ||
-            matches(product.brand) ||
-            matches(product.tagline) ||
-            matches(product.category),
-        )
-        .slice(0, 6),
+      products: products.filter((product) => matchesSearch(product, term)).slice(0, 6),
       categories: categories.filter(
         (category) => matches(category.name) || matches(category.tagline),
       ),

@@ -2,9 +2,18 @@
 
 AI-powered e-commerce application.
 
-This repository currently contains **Phase 1: project foundation only** — a working
-Next.js frontend, an Express + TypeScript backend, and a MongoDB connection. No
-storefront, authentication, cart, payment, or AI functionality exists yet.
+Smart shopping, beautifully simplified.
+
+This repository contains **Phase 1 (project foundation)** and **Phase 2 (storefront
+UI)** — a working Next.js frontend, an Express + TypeScript backend, and a MongoDB
+connection, plus a complete customer-facing storefront built on mock data.
+
+Authentication, product/cart/order APIs, payments, and AI functionality do not
+exist yet. Every price, product and order you see is fixture data in
+`frontend/data/`; nothing is persisted beyond your own browser.
+
+Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
+[phase 2](docs/phase-2.md).
 
 ---
 
@@ -46,12 +55,23 @@ pnpm workspaces, ESLint, Prettier, Git.
 ```text
 zycart/
 ├── frontend/              # Next.js app (App Router)
-│   ├── app/               # Routes, layout, global styles
-│   ├── components/        # Shared React components (ui/ holds shadcn primitives)
+│   ├── app/               # Routes, layout, design tokens (globals.css)
+│   ├── components/        # Shared React components
+│   │   ├── account/       # Account dashboard
+│   │   ├── cart/          # Cart
+│   │   ├── common/        # Breadcrumbs, empty/loading/error states
+│   │   ├── layout/        # Navbar, footer, container, theme
+│   │   ├── product/       # Product card, grid, gallery, price, rating
+│   │   ├── search/        # Search trigger and overlay
+│   │   ├── shop/          # Listing page, filters
+│   │   ├── store/         # Homepage sections
+│   │   ├── ui/            # shadcn/ui primitives
+│   │   └── wishlist/      # Wishlist
+│   ├── data/              # Mock catalogue: products, categories, banners
 │   ├── hooks/             # Custom React hooks
-│   ├── lib/               # Framework-agnostic helpers (utils.ts)
+│   ├── lib/               # Framework-agnostic helpers (format.ts, utils.ts)
 │   ├── services/          # API clients - services/api.ts holds the Axios instance
-│   ├── store/             # Zustand stores
+│   ├── store/             # Zustand stores (cart, wishlist, UI)
 │   ├── types/             # Shared TypeScript types
 │   └── public/            # Static assets
 │
@@ -159,8 +179,22 @@ CORS origin: http://localhost:3000
 pnpm dev:frontend
 ```
 
-Open <http://localhost:3000>. The homepage shows the project title and a **Backend
-Status** card reporting the result of a live `/api/health` call.
+Open <http://localhost:3000>. The storefront runs entirely on mock data, so the
+backend does not have to be running to browse it.
+
+### Routes
+
+| Route              | Page                                                        |
+| ------------------ | ----------------------------------------------------------- |
+| `/`                | Homepage — hero, categories, trending, promos, best sellers |
+| `/shop`            | Product listing with search, filters and sorting            |
+| `/products/[slug]` | Product detail — gallery, variants, specs, reviews          |
+| `/cart`            | Cart, saved for later and order summary                     |
+| `/wishlist`        | Saved products                                              |
+| `/account`         | Profile, orders, wishlist, addresses, settings              |
+
+Light and dark themes are both designed; the toggle sits in the navbar (and in
+the mobile menu). `Ctrl`/`Cmd` + `K` opens search from anywhere.
 
 ---
 
@@ -278,6 +312,6 @@ Internal details are logged server-side and never returned to the client.
 
 ## Roadmap
 
-Phase 1 (this repository) establishes the frontend, backend, and MongoDB
-foundation. Authentication, products, cart, orders, payments, and AI features
-arrive in later phases.
+Phase 1 established the frontend, backend, and MongoDB foundation. Phase 2 built
+the storefront UI on mock data. Authentication, real product and order APIs,
+payments, and AI features arrive in later phases.

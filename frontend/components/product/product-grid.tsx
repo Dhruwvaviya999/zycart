@@ -22,6 +22,10 @@ interface ProductGridProps {
   columns?: GridColumns;
   /** Number of leading cards to mark as priority for LCP. */
   priorityCount?: number;
+  /** Per-card actions that replace the hover quick-add (used by the wishlist). */
+  renderFooter?: (product: Product) => React.ReactNode;
+  /** Heading level for each card, so the grid fits its page outline. */
+  cardHeading?: 'h2' | 'h3';
   className?: string;
 }
 
@@ -29,11 +33,17 @@ export function ProductGrid({
   products,
   columns = 4,
   priorityCount = 0,
+  renderFooter,
+  cardHeading,
   className,
 }: ProductGridProps) {
   return (
     <div
-      className={cn('grid gap-x-4 gap-y-8 sm:gap-x-5 sm:gap-y-10', columnClasses[columns], className)}
+      className={cn(
+        'grid gap-x-4 gap-y-8 sm:gap-x-5 sm:gap-y-10',
+        columnClasses[columns],
+        className,
+      )}
     >
       {products.map((product, index) => (
         <ProductCard
@@ -41,6 +51,8 @@ export function ProductGrid({
           product={product}
           sizes={sizeHints[columns]}
           priority={index < priorityCount}
+          footer={renderFooter?.(product)}
+          as={cardHeading}
         />
       ))}
     </div>

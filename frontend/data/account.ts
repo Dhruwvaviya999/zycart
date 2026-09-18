@@ -20,7 +20,7 @@ export interface MockAddress {
 
 export const accountProfile = {
   name: 'Dhruw Vaviya',
-  email: 'owner@shubhamtanks.com',
+  email: 'dhruw.vaviya@example.com',
   initials: 'DV',
   memberSince: '2025-11-04',
   tier: 'ZyCart Plus',
@@ -86,7 +86,15 @@ export const accountSettings = [
     body: 'Shipping and delivery notifications by email and SMS.',
     enabled: true,
   },
-  { title: 'Price drop alerts', body: 'Tell me when a saved product is discounted.', enabled: true },
+  {
+    title: 'Price drop alerts',
+    body: 'Tell me when a saved product is discounted.',
+    enabled: true,
+  },
   { title: 'New arrivals', body: 'A weekly digest of what has just landed.', enabled: false },
-  { title: 'Personalised picks', body: 'Use my browsing history to tailor suggestions.', enabled: true },
+  {
+    title: 'Personalised picks',
+    body: 'Use my browsing history to tailor suggestions.',
+    enabled: true,
+  },
 ];

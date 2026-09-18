@@ -53,7 +53,7 @@ export function AiShopping() {
 
             {/* A mock of the assistant surface, not a working input. */}
             <div className="rounded-2xl bg-white/6 p-4 ring-1 ring-white/12 backdrop-blur-sm sm:p-5">
-              <p className="text-label px-1 text-white/45">Ask ZyCart</p>
+              <p className="text-label px-1 text-white/60">Ask ZyCart</p>
 
               <ul className="mt-4 space-y-2.5">
                 {aiSection.prompts.map((prompt, index) => (
@@ -62,7 +62,7 @@ export function AiShopping() {
                     className={
                       index === 0
                         ? 'rounded-xl bg-brand px-4 py-3.5 text-[0.9375rem] leading-snug text-brand-foreground shadow-lg'
-                        : 'rounded-xl bg-white/7 px-4 py-3.5 text-[0.9375rem] leading-snug text-white/55 ring-1 ring-white/8'
+                        : 'rounded-xl bg-white/7 px-4 py-3.5 text-[0.9375rem] leading-snug text-white/65 ring-1 ring-white/8'
                     }
                   >
                     &ldquo;{prompt}&rdquo;
@@ -74,13 +74,13 @@ export function AiShopping() {
                 className="mt-4 flex items-center gap-3 rounded-xl bg-white/8 px-4 py-3 ring-1 ring-white/12"
                 aria-hidden
               >
-                <span className="text-small text-white/40">Describe what you need...</span>
+                <span className="text-small text-white/55">Describe what you need...</span>
                 <span className="ml-auto grid size-8 shrink-0 place-items-center rounded-lg bg-white/15">
                   <ArrowUp className="size-4" />
                 </span>
               </div>
 
-              <p className="text-caption mt-3 px-1 text-white/35">
+              <p className="text-caption mt-3 px-1 text-white/55">
                 Preview only — AI shopping arrives in a later release.
               </p>
             </div>

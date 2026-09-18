@@ -1,7 +1,12 @@
 'use client';
 
 import { Star } from 'lucide-react';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import { categories } from '@/data/categories';
@@ -48,7 +53,10 @@ export function FilterPanel({ filters, update, toggleInArray, counts }: FilterPa
         <Slider
           value={filters.priceRange}
           onValueChange={(value) =>
-            update('priceRange', (Array.isArray(value) ? value : [value, value]) as [number, number])
+            update(
+              'priceRange',
+              (Array.isArray(value) ? value : [value, value]) as [number, number],
+            )
           }
           min={priceBounds.min}
           max={priceBounds.max}
@@ -153,10 +161,7 @@ function CheckRow({
   count?: number;
 }) {
   return (
-    <label
-      htmlFor={id}
-      className="text-small flex cursor-pointer items-center gap-2.5 select-none"
-    >
+    <label htmlFor={id} className="text-small flex cursor-pointer items-center gap-2.5 select-none">
       <Checkbox id={id} checked={checked} onCheckedChange={onChange} />
       <span className="flex-1">{label}</span>
       {count !== undefined && (

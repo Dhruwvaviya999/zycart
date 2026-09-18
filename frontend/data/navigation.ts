@@ -10,7 +10,7 @@ export interface NavGroup {
 
 export const primaryNav: NavLink[] = [
   { label: 'Shop', href: '/shop' },
-  { label: 'Categories', href: '/shop#categories' },
+  { label: 'Categories', href: '/#categories' },
   { label: 'Deals', href: '/shop?sort=discount' },
   { label: 'New Arrivals', href: '/shop?sort=newest' },
 ];
@@ -85,7 +85,7 @@ export const recentSearches = ['running shoes', 'noise cancelling', 'linen shirt
 
 export const popularSearches = [
   'air max',
-  'headphones under 20000',
+  'wireless headphones',
   'merino cardigan',
   'dive watch',
   'skincare set',

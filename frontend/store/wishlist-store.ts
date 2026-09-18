@@ -33,6 +33,9 @@ export const useWishlistStore = create<WishlistState>()(
       name: 'zycart-wishlist',
       partialize: ({ ids }) => ({ ids }),
       onRehydrateStorage: () => (state) => state?.setHydrated(),
+      // Rehydrated from an effect by <StoreHydrator/>, not at module init:
+      // the server and the first client render must agree on an empty store.
+      skipHydration: true,
     },
   ),
 );

@@ -36,12 +36,7 @@ export function PromoBanner({ banner, reverse = false }: PromoBannerProps) {
             </div>
           </div>
 
-          <div
-            className={cn(
-              'relative min-h-[18rem] lg:min-h-[26rem]',
-              reverse && 'lg:order-1',
-            )}
-          >
+          <div className={cn('relative min-h-[18rem] lg:min-h-[26rem]', reverse && 'lg:order-1')}>
             <Image
               src={banner.image}
               alt={banner.imageAlt}

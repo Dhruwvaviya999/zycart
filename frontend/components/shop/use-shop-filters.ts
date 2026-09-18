@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { priceBounds, products } from '@/data/products';
+import { matchesSearch, priceBounds, products } from '@/data/products';
 import type { CategorySlug, Product, SortKey } from '@/types/product';
 import { discountPercent } from '@/lib/format';
 
@@ -64,18 +64,11 @@ export function useShopFilters(initial: Partial<ShopFilters>) {
   const reset = useCallback(() => setFilters(defaultFilters), []);
 
   const results = useMemo(() => {
-    const term = filters.query.trim().toLowerCase();
+    const term = filters.query.trim();
 
     return products
       .filter((product) => {
-        if (
-          term &&
-          !`${product.name} ${product.brand} ${product.tagline} ${product.category}`
-            .toLowerCase()
-            .includes(term)
-        ) {
-          return false;
-        }
+        if (term && !matchesSearch(product, term)) return false;
         if (filters.categories.length && !filters.categories.includes(product.category)) {
           return false;
         }

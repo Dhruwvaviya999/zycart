@@ -27,20 +27,12 @@ export function Price({
       {percent > 0 && compareAtPrice && (
         <>
           <span
-            className={cn(
-              'text-muted-foreground line-through',
-              large ? 'text-body' : 'text-small',
-            )}
+            className={cn('text-muted-foreground line-through', large ? 'text-body' : 'text-small')}
           >
             {formatPrice(compareAtPrice)}
           </span>
           {!hideDiscount && (
-            <span
-              className={cn(
-                'font-semibold text-sale',
-                large ? 'text-small' : 'text-caption',
-              )}
-            >
+            <span className={cn('font-semibold text-sale', large ? 'text-small' : 'text-caption')}>
               {percent}% off
             </span>
           )}

@@ -46,7 +46,9 @@ export function Rating({
       </span>
 
       {reviewCount !== undefined && (
-        <span className={cn('text-muted-foreground', size === 'sm' ? 'text-caption' : 'text-small')}>
+        <span
+          className={cn('text-muted-foreground', size === 'sm' ? 'text-caption' : 'text-small')}
+        >
           ({formatCount(reviewCount)})
         </span>
       )}

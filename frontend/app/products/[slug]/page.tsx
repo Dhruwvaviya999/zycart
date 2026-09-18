@@ -17,6 +17,13 @@ export function generateStaticParams() {
   return products.map((product) => ({ slug: product.slug }));
 }
 
+/**
+ * The catalogue is fully known at build time, so an unknown slug is a genuine
+ * 404 rather than something to render on demand. Without this Next streams the
+ * not-found page with a 200, which search engines would index.
+ */
+export const dynamicParams = false;
+
 export async function generateMetadata({
   params,
 }: PageProps<'/products/[slug]'>): Promise<Metadata> {
@@ -65,6 +72,7 @@ export default async function ProductPage({ params }: PageProps<'/products/[slug
             </TabsList>
 
             <TabsContent value="description" className="pt-8">
+              <h2 className="sr-only">Description</h2>
               <div className="grid gap-10 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
                 <p className="text-body-lg max-w-2xl text-pretty text-muted-foreground">
                   {product.description}
@@ -88,6 +96,7 @@ export default async function ProductPage({ params }: PageProps<'/products/[slug
             </TabsContent>
 
             <TabsContent value="specifications" className="pt-8">
+              <h2 className="sr-only">Specifications</h2>
               <dl className="max-w-2xl divide-y divide-border rounded-2xl border border-border">
                 {product.specifications.map((spec) => (
                   <div
@@ -102,6 +111,7 @@ export default async function ProductPage({ params }: PageProps<'/products/[slug
             </TabsContent>
 
             <TabsContent value="reviews" className="pt-8">
+              <h2 className="sr-only">Reviews</h2>
               <div className="grid gap-10 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
                 <div className="rounded-2xl border border-border bg-surface p-6">
                   <p className="text-price-lg">{product.rating.toFixed(1)}</p>

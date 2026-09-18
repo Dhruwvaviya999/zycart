@@ -3,20 +3,19 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Heart, Search, ShoppingBag, User } from 'lucide-react';
+import { Heart, ShoppingBag, User } from 'lucide-react';
 import { Container } from '@/components/layout/container';
 import { Logo } from '@/components/layout/logo';
 import { MobileNav } from '@/components/layout/mobile-nav';
+import { SearchTrigger } from '@/components/search/search-trigger';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { primaryNav } from '@/data/navigation';
 import { useCartStore } from '@/store/cart-store';
-import { useUiStore } from '@/store/ui-store';
 import { useWishlistStore } from '@/store/wishlist-store';
 import { cn } from '@/lib/utils';
 
 export function Navbar() {
   const pathname = usePathname();
-  const setSearchOpen = useUiStore((state) => state.setSearchOpen);
   const [scrolled, setScrolled] = useState(false);
 
   const cartHydrated = useCartStore((state) => state.hydrated);
@@ -51,7 +50,11 @@ export function Navbar() {
         <nav aria-label="Primary" className="hidden lg:block">
           <ul className="flex items-center gap-1">
             {primaryNav.map((item) => {
-              const active = pathname === item.href.split('?')[0] && item.href === '/shop';
+              // Only links that address a page outright claim the indicator —
+              // the query-scoped views (Deals, New Arrivals) are filtered
+              // versions of /shop, not separate destinations.
+              const plain = !/[?#]/.test(item.href);
+              const active = plain && pathname === item.href;
 
               return (
                 <li key={item.label}>
@@ -73,28 +76,10 @@ export function Navbar() {
           </ul>
         </nav>
 
-        {/* Desktop search affordance: looks like a field, opens the overlay. */}
-        <button
-          type="button"
-          onClick={() => setSearchOpen(true)}
-          className="focus-ring text-small mx-auto hidden h-10 w-full max-w-sm items-center gap-2.5 rounded-full border border-border bg-surface px-4 text-muted-foreground transition-colors hover:border-foreground/20 hover:bg-surface-strong md:flex"
-        >
-          <Search className="size-4 shrink-0" aria-hidden />
-          <span className="truncate">Search products, brands and categories...</span>
-          <kbd className="text-caption ml-auto hidden shrink-0 rounded border border-border bg-background px-1.5 py-0.5 font-sans font-medium lg:inline-block">
-            ⌘K
-          </kbd>
-        </button>
+        <SearchTrigger className="mx-auto hidden max-w-sm md:flex" />
 
         <div className="ml-auto flex items-center gap-0.5 md:ml-0">
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            aria-label="Search"
-            className="focus-ring inline-flex size-9 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted md:hidden"
-          >
-            <Search className="size-[18px]" />
-          </button>
+          <SearchTrigger variant="icon" className="md:hidden" />
 
           <ThemeToggle className="hidden sm:inline-flex" />
 
@@ -113,12 +98,7 @@ export function Navbar() {
             icon={ShoppingBag}
           />
 
-          <IconLink
-            href="/account"
-            label="Account"
-            icon={User}
-            className="hidden sm:inline-flex"
-          />
+          <IconLink href="/account" label="Account" icon={User} className="hidden sm:inline-flex" />
         </div>
       </Container>
     </header>
