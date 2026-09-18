@@ -26,8 +26,15 @@ export const createProductSchema = z.object({
 
   images: z.array(z.url().max(600)).min(1).max(10),
 
-  price: z.number().nonnegative().finite().max(10_000_000),
-  compareAtPrice: z.number().nonnegative().finite().max(10_000_000).nullish(),
+  // Whole rupees. Integer money is what keeps every total exact: subtotal is a
+  // sum of products of integers, so no float arithmetic ever occurs.
+  price: z.number().int('must be a whole number of rupees').nonnegative().max(10_000_000),
+  compareAtPrice: z
+    .number()
+    .int('must be a whole number of rupees')
+    .nonnegative()
+    .max(10_000_000)
+    .nullish(),
 
   category: objectIdSchema,
   brand: objectIdSchema,

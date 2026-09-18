@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Heart, LayoutGrid, LogOut, MapPin, Settings, User } from 'lucide-react';
+import { Heart, LayoutGrid, LogOut, MapPin, Package, Settings, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -27,6 +27,7 @@ interface UserMenuProps {
 const LINKS = [
   { href: '/account', label: 'My account', icon: LayoutGrid },
   { href: '/account/profile', label: 'Profile', icon: User },
+  { href: '/account/orders', label: 'Orders', icon: Package },
   { href: '/wishlist', label: 'Wishlist', icon: Heart },
   { href: '/account/addresses', label: 'Addresses', icon: MapPin },
   { href: '/account/settings', label: 'Settings', icon: Settings },

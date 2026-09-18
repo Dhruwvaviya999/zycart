@@ -5,15 +5,17 @@ AI-powered e-commerce application.
 Smart shopping, beautifully simplified.
 
 This repository contains **Phase 1 (project foundation)**, **Phase 2 (storefront
-UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)** and **Phase 5
-(cart & wishlist)** — a Next.js storefront backed by a real MongoDB catalogue,
-customer accounts and a persistent cart, served over an Express + TypeScript API.
+UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
+& wishlist)** and **Phase 6 (checkout & orders)** — a Next.js storefront backed
+by a real MongoDB catalogue, customer accounts, a persistent cart and cash-on-
+delivery ordering, served over an Express + TypeScript API.
 
-Orders, checkout, payments and AI functionality do not exist yet.
+Online payment and AI functionality do not exist yet; orders are placed unpaid
+and settled on delivery.
 
 Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md), [phase 4](docs/phase-4.md),
-[phase 5](docs/phase-5.md).
+[phase 5](docs/phase-5.md), [phase 6](docs/phase-6.md).
 
 ---
 
@@ -333,6 +335,21 @@ Guests shop without signing in; their cart merges into the account on sign-in.
 Prices and stock are always the server's, never the browser's — see
 [docs/phase-5.md](docs/phase-5.md).
 
+### Checkout and orders
+
+| Method | Path                           | Auth | Purpose                        |
+| ------ | ------------------------------ | ---- | ------------------------------ |
+| `GET`  | `/api/checkout/summary`        | ✓    | Live cart, addresses, blockers |
+| `GET`  | `/api/orders`                  | ✓    | Paginated order history        |
+| `POST` | `/api/orders`                  | ✓    | Place a cash-on-delivery order |
+| `GET`  | `/api/orders/:orderRef`        | ✓    | One order, by number or id     |
+| `POST` | `/api/orders/:orderRef/cancel` | ✓    | Cancel and restore stock       |
+
+Orders are snapshots: renaming, repricing or deleting a product never changes
+what a past order says. Stock moves inside a MongoDB transaction, so an order
+can never exist without its stock being taken. See
+[docs/phase-6.md](docs/phase-6.md).
+
 ### Catalogue
 
 | Method | Path                              | Purpose                                |
@@ -404,5 +421,6 @@ Phase 1 established the frontend, backend, and MongoDB foundation. Phase 2 built
 the storefront UI on mock data. Phase 3 replaced that mock data with a real
 MongoDB catalogue and the API that serves it. Phase 4 added customer accounts,
 sessions and saved addresses. Phase 5 made the cart and wishlist real and
-persistent, for guests and customers alike. Orders, checkout, payments, and AI
-features arrive in later phases.
+persistent, for guests and customers alike. Phase 6 added checkout, cash-on-
+delivery orders, order history and cancellation. Online payment and AI features
+arrive in later phases.

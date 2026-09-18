@@ -118,7 +118,10 @@ export async function resolveCart(lines: RawLine[]): Promise<ResolvedCart> {
     // Stock can fall after an item is added, so the orderable quantity is
     // recomputed here rather than trusted from what was stored.
     const maxQuantity = Math.min(product.stock, MAX_CART_QUANTITY);
-    const quantity = Math.min(line.quantity, Math.max(maxQuantity, 1));
+
+    // Clamp only while some stock remains. With none left nothing is orderable
+    // anyway, so showing a reduced number would misreport what was asked for.
+    const quantity = product.stock > 0 ? Math.min(line.quantity, maxQuantity) : line.quantity;
     const availability = availabilityFor(product.stock, line.quantity);
 
     if (product.stock > 0 && line.quantity > maxQuantity) {

@@ -153,9 +153,13 @@ export function fieldErrors(error: unknown): Record<string, string> {
 export async function requestList<TItem>(
   path: string,
   params?: object,
+  options?: RequestOptions,
 ): Promise<{ items: TItem[]; pagination: Pagination }> {
   try {
-    const { data } = await api.get<ApiListResponse<TItem>>(path, { params });
+    const { data } = await api.get<ApiListResponse<TItem>>(path, {
+      params,
+      headers: headersFor(options),
+    });
 
     if (!data.success || !Array.isArray(data.data)) {
       throw new ApiError(data.message ?? 'The API returned an unexpected response');

@@ -1,0 +1,232 @@
+import type { Metadata } from 'next';
+import Image from 'next/image';
+import Link from 'next/link';
+import { notFound, redirect } from 'next/navigation';
+import { ArrowLeft, MapPin, Wallet } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { CancelOrderDialog } from '@/components/order/cancel-order-dialog';
+import { OrderStatusBadge } from '@/components/order/order-status-badge';
+import { OrderTimeline } from '@/components/order/order-timeline';
+import { ApiError } from '@/services/api';
+import { getOrderById } from '@/services/order.service';
+import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { formatDate, formatPrice } from '@/lib/format';
+
+export const dynamic = 'force-dynamic';
+
+/**
+ * Deliberately static. Echoing the URL's order number into the title would put
+ * it on the tab of a page that may well be a not-found — asserting an order
+ * exists to someone who cannot see it.
+ */
+export const metadata: Metadata = {
+  title: 'Order details',
+  description: 'Your ZyCart order.',
+};
+
+export default async function OrderDetailPage({
+  params,
+}: PageProps<'/account/orders/[orderNumber]'>) {
+  const { orderNumber } = await params;
+
+  const user = await getSessionUser();
+  if (!user) redirect(`/login?redirect=/account/orders/${orderNumber}`);
+
+  let order;
+  try {
+    order = await getOrderById(orderNumber, { cookie: await getSessionCookie() });
+  } catch (error) {
+    // Another customer's order and a nonexistent one are indistinguishable here,
+    // which is exactly what the API intends.
+    if (error instanceof ApiError && error.isNotFound) notFound();
+    throw error;
+  }
+
+  const address = order.shippingAddress;
+
+  return (
+    <div>
+      <Link
+        href="/account/orders"
+        className="focus-ring text-small inline-flex items-center gap-1.5 rounded-md text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" aria-hidden />
+        All orders
+      </Link>
+
+      <header className="mt-4 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-h3 break-all">{order.orderNumber}</h2>
+          <p className="text-small mt-1.5 text-muted-foreground">
+            Placed on {formatDate(order.createdAt)} · {order.itemCount}{' '}
+            {order.itemCount === 1 ? 'item' : 'items'}
+          </p>
+        </div>
+
+        <OrderStatusBadge status={order.status} className="mt-1" />
+      </header>
+
+      <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-10">
+        <div className="space-y-8">
+          <section aria-labelledby="items-heading">
+            <h3 id="items-heading" className="text-h4">
+              Items
+            </h3>
+
+            <ul className="mt-4 divide-y divide-border border-y border-border">
+              {order.items.map((item) => {
+                const variant = [item.selectedColor, item.selectedSize].filter(Boolean).join(' · ');
+
+                return (
+                  <li key={item.id} className="flex gap-4 py-4">
+                    <span className="relative size-20 shrink-0 overflow-hidden rounded-xl bg-surface">
+                      {item.productImage && (
+                        <Image
+                          src={item.productImage}
+                          alt=""
+                          fill
+                          sizes="80px"
+                          className="object-cover"
+                        />
+                      )}
+                    </span>
+
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <p className="text-caption text-muted-foreground">{item.brand}</p>
+
+                      {/* Links to the product when it still exists, but the text
+                          always comes from the snapshot. */}
+                      <h4 className="text-small font-medium">
+                        {item.productSlug ? (
+                          <Link
+                            href={`/products/${item.productSlug}`}
+                            className="focus-ring rounded-sm"
+                          >
+                            {item.productName}
+                          </Link>
+                        ) : (
+                          item.productName
+                        )}
+                      </h4>
+
+                      <p className="text-caption mt-1 text-muted-foreground">
+                        {variant ? `${variant} · ` : ''}SKU {item.sku}
+                      </p>
+
+                      <p className="text-caption mt-auto pt-2 text-muted-foreground">
+                        {formatPrice(item.unitPrice)} × {item.quantity}
+                      </p>
+                    </div>
+
+                    <p className="text-price shrink-0 tabular-nums">
+                      {formatPrice(item.lineTotal)}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+
+          <section aria-labelledby="progress-heading">
+            <h3 id="progress-heading" className="text-h4">
+              Progress
+            </h3>
+            <div className="mt-4">
+              <OrderTimeline
+                status={order.status}
+                cancelledAt={order.cancelledAt}
+                cancellationReason={order.cancellationReason}
+              />
+            </div>
+          </section>
+        </div>
+
+        <aside className="space-y-4">
+          <div className="rounded-2xl border border-border bg-surface p-5">
+            <h3 className="text-h4">Summary</h3>
+
+            <dl className="mt-4 space-y-2.5">
+              <Row label="Subtotal">{formatPrice(order.pricing.subtotal)}</Row>
+              <Row label="Shipping">
+                {order.pricing.shipping === 0 ? (
+                  <span className="text-muted-foreground">Not charged</span>
+                ) : (
+                  formatPrice(order.pricing.shipping)
+                )}
+              </Row>
+              <Row label="Taxes">
+                {order.pricing.tax === 0 ? (
+                  <span className="text-muted-foreground">Not charged</span>
+                ) : (
+                  formatPrice(order.pricing.tax)
+                )}
+              </Row>
+              {order.pricing.discount > 0 && (
+                <Row label="Discount">−{formatPrice(order.pricing.discount)}</Row>
+              )}
+            </dl>
+
+            <Separator className="my-4" />
+
+            <div className="flex items-baseline justify-between">
+              <span className="text-small font-semibold">Total</span>
+              <span className="text-price">{formatPrice(order.pricing.total)}</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border p-5">
+            <h3 className="text-small flex items-center gap-2 font-semibold">
+              <MapPin className="size-4 text-muted-foreground" aria-hidden />
+              Delivery address
+            </h3>
+            <address className="text-caption mt-3 space-y-0.5 text-muted-foreground not-italic">
+              <p className="text-foreground">{address.fullName}</p>
+              <p>{address.addressLine1}</p>
+              {address.addressLine2 && <p>{address.addressLine2}</p>}
+              {address.landmark && <p>{address.landmark}</p>}
+              <p>
+                {address.city}, {address.state} {address.postalCode}
+              </p>
+              <p>{address.country}</p>
+              <p className="pt-1">{address.phone}</p>
+            </address>
+          </div>
+
+          <div className="rounded-2xl border border-border p-5">
+            <h3 className="text-small flex items-center gap-2 font-semibold">
+              <Wallet className="size-4 text-muted-foreground" aria-hidden />
+              Payment
+            </h3>
+            <p className="text-caption mt-3 text-muted-foreground">
+              {order.payment.method === 'COD' ? 'Cash on delivery' : order.payment.method}
+            </p>
+            <p className="text-caption mt-1 text-muted-foreground">
+              {order.payment.status === 'PENDING'
+                ? 'Payable when your order arrives'
+                : order.payment.status}
+            </p>
+          </div>
+
+          {order.canCancel && (
+            <div className="rounded-2xl border border-border p-5">
+              <h3 className="text-small font-semibold">Need to change something?</h3>
+              <p className="text-caption mt-1.5 mb-4 text-muted-foreground">
+                This order has not shipped yet, so you can still cancel it.
+              </p>
+              <CancelOrderDialog orderNumber={order.orderNumber} />
+            </div>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="text-small flex items-center justify-between gap-4">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-medium">{children}</dd>
+    </div>
+  );
+}

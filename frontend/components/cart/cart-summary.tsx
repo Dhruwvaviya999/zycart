@@ -58,14 +58,24 @@ export function CartSummary({ cart }: { cart: Cart }) {
         </p>
       )}
 
-      <Button size="cta-lg" variant="brand" className="mt-6 w-full" disabled={!payable}>
+      {/* Disabled rather than hidden when nothing is payable, so the reason is
+          visible right underneath instead of the button vanishing. */}
+      <Button
+        size="cta-lg"
+        variant="brand"
+        className="mt-6 w-full"
+        disabled={!payable}
+        render={payable ? <Link href="/checkout" /> : undefined}
+      >
         <Lock className="size-4" data-icon="inline-start" />
         Proceed to checkout
         <ArrowRight className="size-4" data-icon="inline-end" />
       </Button>
 
       <p className="text-caption mt-3 text-center text-muted-foreground">
-        Checkout opens in a later release.
+        {payable
+          ? 'Cash on delivery. Nothing is charged until it arrives.'
+          : 'Remove the unavailable items above to continue.'}
       </p>
 
       <Link

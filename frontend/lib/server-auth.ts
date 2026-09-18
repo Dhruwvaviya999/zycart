@@ -15,6 +15,9 @@ import type { AuthUser } from '@/types/user';
  * Next dedupes `fetch` automatically, but this goes through Axios and would
  * otherwise hit the API once per caller.
  */
+/** The raw cookie header, for server components calling the API directly. */
+export const getSessionCookie = cache(async (): Promise<string> => (await cookies()).toString());
+
 export const getSessionUser = cache(async (): Promise<AuthUser | null> => {
   const cookie = (await cookies()).toString();
   if (!cookie) return null;
