@@ -1,0 +1,25 @@
+{
+  "name": "zycart",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zycart - AI-powered e-commerce application",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:backend": "pnpm --filter zycart-backend dev",
+    "dev:frontend": "pnpm --filter zycart-frontend dev",
+    "build": "pnpm -r build",
+    "start:backend": "pnpm --filter zycart-backend start",
+    "start:frontend": "pnpm --filter zycart-frontend start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,css}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.9.7"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=10"
+  },
+  "packageManager": "pnpm@12.4.2"
+}
