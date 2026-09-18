@@ -16,11 +16,11 @@ export const primaryNav: NavLink[] = [
 ];
 
 export const accountNav: NavLink[] = [
-  { label: 'Profile', href: '/account?tab=profile' },
-  { label: 'Orders', href: '/account?tab=orders' },
+  { label: 'Overview', href: '/account' },
+  { label: 'Profile', href: '/account/profile' },
   { label: 'Wishlist', href: '/wishlist' },
-  { label: 'Addresses', href: '/account?tab=addresses' },
-  { label: 'Settings', href: '/account?tab=settings' },
+  { label: 'Addresses', href: '/account/addresses' },
+  { label: 'Settings', href: '/account/settings' },
 ];
 
 export const footerNav: NavGroup[] = [
@@ -47,11 +47,11 @@ export const footerNav: NavGroup[] = [
   {
     label: 'Customer service',
     links: [
-      { label: 'Track an order', href: '/account?tab=orders' },
-      { label: 'Shipping & delivery', href: '/account?tab=orders' },
-      { label: 'Returns & refunds', href: '/account?tab=orders' },
+      { label: 'Track an order', href: '/account' },
+      { label: 'Shipping & delivery', href: '/account' },
+      { label: 'Returns & refunds', href: '/account' },
       { label: 'Size guide', href: '/shop' },
-      { label: 'Contact us', href: '/account?tab=settings' },
+      { label: 'Contact us', href: '/account/settings' },
     ],
   },
   {

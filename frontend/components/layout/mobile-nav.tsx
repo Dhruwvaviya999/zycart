@@ -5,19 +5,27 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect } from 'react';
 import { ChevronRight, Heart, Menu, ShoppingBag, User, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Logo } from '@/components/layout/logo';
 import { primaryNav } from '@/data/navigation';
 import type { Category } from '@/types/product';
+import { fullName, initials, type AuthUser } from '@/types/user';
 import { useUiStore } from '@/store/ui-store';
+import { cn } from '@/lib/utils';
 
 /**
  * Purpose-built mobile navigation rather than a collapsed desktop bar:
  * categories get visual weight, and the account actions sit within thumb reach.
  */
-export function MobileNav({ categories }: { categories: Category[] }) {
+interface MobileNavProps {
+  categories: Category[];
+  user: AuthUser | null;
+}
+
+export function MobileNav({ categories, user }: MobileNavProps) {
   const open = useUiStore((state) => state.mobileNavOpen);
   const setOpen = useUiStore((state) => state.setMobileNavOpen);
   const pathname = usePathname();
@@ -109,10 +117,42 @@ export function MobileNav({ categories }: { categories: Category[] }) {
           )}
         </nav>
 
-        <div className="grid grid-cols-3 gap-2 border-t border-border p-4">
-          <QuickLink href="/wishlist" icon={Heart} label="Wishlist" onNavigate={close} />
-          <QuickLink href="/cart" icon={ShoppingBag} label="Cart" onNavigate={close} />
-          <QuickLink href="/account" icon={User} label="Account" onNavigate={close} />
+        <div className="border-t border-border p-4">
+          {user ? (
+            <Link
+              href="/account"
+              onClick={close}
+              className="focus-ring mb-3 flex items-center gap-3 rounded-xl bg-surface px-3 py-2.5 transition-colors hover:bg-surface-strong"
+            >
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-subtle text-[11px] font-semibold text-brand">
+                {initials(user)}
+              </span>
+              <span className="min-w-0">
+                <span className="text-small block truncate font-medium">{fullName(user)}</span>
+                <span className="text-caption block truncate text-muted-foreground">
+                  View account
+                </span>
+              </span>
+            </Link>
+          ) : (
+            <Button
+              size="cta"
+              variant="brand"
+              render={<Link href="/login" />}
+              onClick={close}
+              className="mb-3 w-full"
+            >
+              Sign in
+            </Button>
+          )}
+
+          <div className={cn('grid gap-2', user ? 'grid-cols-3' : 'grid-cols-2')}>
+            <QuickLink href="/wishlist" icon={Heart} label="Wishlist" onNavigate={close} />
+            <QuickLink href="/cart" icon={ShoppingBag} label="Cart" onNavigate={close} />
+            {/* Only useful once there is an account to open; signed out, the
+                button above already leads there. */}
+            {user && <QuickLink href="/account" icon={User} label="Account" onNavigate={close} />}
+          </div>
         </div>
       </SheetContent>
     </Sheet>

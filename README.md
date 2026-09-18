@@ -5,15 +5,15 @@ AI-powered e-commerce application.
 Smart shopping, beautifully simplified.
 
 This repository contains **Phase 1 (project foundation)**, **Phase 2 (storefront
-UI)** and **Phase 3 (product catalogue)** — a Next.js storefront backed by a real
-MongoDB catalogue served over an Express + TypeScript API.
+UI)**, **Phase 3 (product catalogue)** and **Phase 4 (accounts)** — a Next.js
+storefront backed by a real MongoDB catalogue and customer accounts, served over
+an Express + TypeScript API.
 
-Authentication, cart/order APIs, payments, and AI functionality do not exist yet.
-The cart and wishlist keep product ids in your browser; orders and account details
-are still fixture data in `frontend/data/`.
+Cart, orders, payments and AI functionality do not exist yet. The cart and
+wishlist keep product ids in your browser.
 
 Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
-[phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md).
+[phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md), [phase 4](docs/phase-4.md).
 
 ---
 
@@ -142,8 +142,14 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env.local
 ```
 
-Then edit `backend/.env` and set `MONGODB_URI`. The server refuses to start without
-it — no default connection string is assumed.
+Then edit `backend/.env` and set `MONGODB_URI` and `JWT_SECRET`. The server
+refuses to start without either — no defaults are assumed.
+
+Generate a signing key with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
 
 ### 5. Start MongoDB
 
@@ -240,13 +246,14 @@ Per application:
 
 ### `backend/.env`
 
-| Variable      | Required | Default                 | Description                      |
-| ------------- | -------- | ----------------------- | -------------------------------- |
-| `PORT`        | No       | `5000`                  | API port                         |
-| `NODE_ENV`    | No       | `development`           | development, test, or production |
-| `MONGODB_URI` | **Yes**  | none                    | Mongoose connection string       |
-| `CLIENT_URL`  | No       | `http://localhost:3000` | Origin allowed by CORS           |
-| `JWT_SECRET`  | No       | none                    | Reserved for a later phase       |
+| Variable         | Required | Default                 | Description                                    |
+| ---------------- | -------- | ----------------------- | ---------------------------------------------- |
+| `PORT`           | No       | `5000`                  | API port                                       |
+| `NODE_ENV`       | No       | `development`           | development, test, or production               |
+| `MONGODB_URI`    | **Yes**  | none                    | Mongoose connection string                     |
+| `CLIENT_URL`     | No       | `http://localhost:3000` | Origin allowed by CORS                         |
+| `JWT_SECRET`     | **Yes**  | none                    | Signing key for session tokens; 32+ characters |
+| `JWT_EXPIRES_IN` | No       | `7d`                    | Session lifetime, e.g. `12h` or `7d`           |
 
 ### `frontend/.env.local`
 
@@ -284,6 +291,26 @@ Liveness check. Reports non-sensitive runtime information only.
 
 `data.database` is one of `connected`, `connecting`, `disconnecting`,
 `disconnected`, or `unknown`.
+
+### Authentication and accounts
+
+| Method   | Path                                  | Auth | Purpose                    |
+| -------- | ------------------------------------- | ---- | -------------------------- |
+| `POST`   | `/api/auth/register`                  | —    | Create an account          |
+| `POST`   | `/api/auth/login`                     | —    | Start a session            |
+| `POST`   | `/api/auth/logout`                    | —    | End the session            |
+| `GET`    | `/api/auth/me`                        | ✓    | The signed-in customer     |
+| `GET`    | `/api/users/me`                       | ✓    | Read the profile           |
+| `PATCH`  | `/api/users/me`                       | ✓    | Update name, phone, avatar |
+| `PATCH`  | `/api/users/me/password`              | ✓    | Change the password        |
+| `GET`    | `/api/users/me/addresses`             | ✓    | List addresses             |
+| `POST`   | `/api/users/me/addresses`             | ✓    | Add an address             |
+| `PATCH`  | `/api/users/me/addresses/:id`         | ✓    | Update an address          |
+| `DELETE` | `/api/users/me/addresses/:id`         | ✓    | Delete an address          |
+| `PATCH`  | `/api/users/me/addresses/:id/default` | ✓    | Set the default address    |
+
+Sessions are a signed JWT in an HTTP-only cookie. Details and security notes are
+in [docs/phase-4.md](docs/phase-4.md).
 
 ### Catalogue
 
@@ -354,5 +381,6 @@ Internal details are logged server-side and never returned to the client.
 
 Phase 1 established the frontend, backend, and MongoDB foundation. Phase 2 built
 the storefront UI on mock data. Phase 3 replaced that mock data with a real
-MongoDB catalogue and the API that serves it. Authentication, cart and order APIs,
-payments, and AI features arrive in later phases.
+MongoDB catalogue and the API that serves it. Phase 4 added customer accounts,
+sessions and saved addresses. Cart and order APIs, payments, and AI features
+arrive in later phases.

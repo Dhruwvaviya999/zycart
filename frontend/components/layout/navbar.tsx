@@ -3,19 +3,26 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Heart, ShoppingBag, User } from 'lucide-react';
+import { Heart, ShoppingBag } from 'lucide-react';
 import { Container } from '@/components/layout/container';
 import { Logo } from '@/components/layout/logo';
 import { MobileNav } from '@/components/layout/mobile-nav';
 import { SearchTrigger } from '@/components/search/search-trigger';
+import { UserMenu } from '@/components/layout/user-menu';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { primaryNav } from '@/data/navigation';
 import type { Category } from '@/types/product';
+import type { AuthUser } from '@/types/user';
 import { useCartStore } from '@/store/cart-store';
 import { useWishlistStore } from '@/store/wishlist-store';
 import { cn } from '@/lib/utils';
 
-export function Navbar({ categories }: { categories: Category[] }) {
+interface NavbarProps {
+  categories: Category[];
+  user: AuthUser | null;
+}
+
+export function Navbar({ categories, user }: NavbarProps) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
 
@@ -45,7 +52,7 @@ export function Navbar({ categories }: { categories: Category[] }) {
       )}
     >
       <Container className="flex h-16 items-center gap-3 sm:h-[68px]">
-        <MobileNav categories={categories} />
+        <MobileNav categories={categories} user={user} />
         <Logo className="mr-1 shrink-0" />
 
         <nav aria-label="Primary" className="hidden lg:block">
@@ -99,7 +106,7 @@ export function Navbar({ categories }: { categories: Category[] }) {
             icon={ShoppingBag}
           />
 
-          <IconLink href="/account" label="Account" icon={User} className="hidden sm:inline-flex" />
+          <UserMenu serverUser={user} className="hidden sm:inline-flex" />
         </div>
       </Container>
     </header>

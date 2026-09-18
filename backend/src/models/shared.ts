@@ -7,8 +7,9 @@
  * Mongoose's field inference, which would make every document property `unknown`.
  */
 export const baseSchemaOptions = {
-  timestamps: true,
-  // `as const` keeps this the literal `false` Mongoose expects, not `boolean`.
+  // Both of these need `as const`: widened to `boolean` they make Mongoose treat
+  // the timestamp fields as only conditionally present, and reject `versionKey`.
+  timestamps: true as const,
   versionKey: false as const,
   toJSON: {
     virtuals: true,

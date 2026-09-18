@@ -4,10 +4,12 @@ import { AnnouncementBar } from '@/components/layout/announcement-bar';
 import { Footer } from '@/components/layout/footer';
 import { Navbar } from '@/components/layout/navbar';
 import { StoreHydrator } from '@/components/layout/store-hydrator';
+import { AuthProvider } from '@/components/auth/auth-provider';
 import { ThemeProvider } from '@/components/layout/theme-provider';
 import { SearchOverlay } from '@/components/search/search-overlay';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { getCategoriesSafe } from '@/services/category.service';
+import { getSessionUser } from '@/lib/server-auth';
 import './globals.css';
 
 const geistSans = Geist({
@@ -39,8 +41,9 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: LayoutProps<'/'>) {
-  // Never throws: the shell must still render when the API is unreachable.
-  const categories = await getCategoriesSafe();
+  // Neither throws: the shell must still render when the API is unreachable, and
+  // being signed out is the normal state rather than an error.
+  const [categories, user] = await Promise.all([getCategoriesSafe(), getSessionUser()]);
 
   return (
     <html
@@ -50,25 +53,27 @@ export default async function RootLayout({ children }: LayoutProps<'/'>) {
     >
       <body className="flex min-h-full flex-col overflow-x-hidden antialiased">
         <ThemeProvider>
-          <TooltipProvider>
-            <a
-              href="#main"
-              className="focus-ring text-small sr-only rounded-lg bg-background px-4 py-2 font-medium shadow-lg focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50"
-            >
-              Skip to content
-            </a>
+          <AuthProvider user={user}>
+            <TooltipProvider>
+              <a
+                href="#main"
+                className="focus-ring text-small sr-only rounded-lg bg-background px-4 py-2 font-medium shadow-lg focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50"
+              >
+                Skip to content
+              </a>
 
-            <AnnouncementBar />
-            <Navbar categories={categories} />
+              <AnnouncementBar />
+              <Navbar categories={categories} user={user} />
 
-            <main id="main" className="flex-1">
-              {children}
-            </main>
+              <main id="main" className="flex-1">
+                {children}
+              </main>
 
-            <Footer />
-            <SearchOverlay />
-            <StoreHydrator />
-          </TooltipProvider>
+              <Footer />
+              <SearchOverlay />
+              <StoreHydrator />
+            </TooltipProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

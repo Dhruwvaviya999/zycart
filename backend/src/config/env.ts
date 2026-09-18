@@ -7,7 +7,13 @@ const envSchema = z.object({
     .string({ error: 'is required - set it in backend/.env (no default is assumed)' })
     .min(1),
   CLIENT_URL: z.string().min(1).default('http://localhost:3000'),
-  JWT_SECRET: z.string().min(1).optional(),
+
+  // Authentication is always on from Phase 4, so the secret is required. A short
+  // one is worse than no auth at all, hence the length floor rather than min(1).
+  JWT_SECRET: z
+    .string({ error: 'is required - set it in backend/.env (use a long random value)' })
+    .min(32, 'must be at least 32 characters'),
+  JWT_EXPIRES_IN: z.string().min(2).default('7d'),
 });
 
 export type Env = z.infer<typeof envSchema>;

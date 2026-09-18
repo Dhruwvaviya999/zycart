@@ -19,6 +19,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status?: number,
+    /** Zod field messages keyed by field name, when the API sent any. */
+    public readonly fields: Record<string, string> = {},
   ) {
     super(message);
     this.name = 'ApiError';
@@ -26,6 +28,10 @@ export class ApiError extends Error {
 
   get isNotFound(): boolean {
     return this.status === 404;
+  }
+
+  get isUnauthenticated(): boolean {
+    return this.status === 401;
   }
 }
 
@@ -48,14 +54,40 @@ export function toErrorMessage(error: unknown): string {
 }
 
 function toApiError(error: unknown): ApiError {
-  const status = error instanceof AxiosError ? error.response?.status : undefined;
-  return new ApiError(toErrorMessage(error), status);
+  if (!(error instanceof AxiosError)) return new ApiError(toErrorMessage(error));
+
+  const payload = error.response?.data as ApiResponse | undefined;
+  const fields = Object.fromEntries(
+    (payload?.errors ?? [])
+      .filter((issue) => issue.path)
+      .map((issue) => [issue.path, issue.message] as const),
+  );
+
+  return new ApiError(toErrorMessage(error), error.response?.status, fields);
 }
 
+/**
+ * Server components have no browser to attach the session cookie for them, so
+ * they pass the incoming one through explicitly.
+ */
+export interface RequestOptions {
+  cookie?: string;
+}
+
+const headersFor = (options?: RequestOptions) =>
+  options?.cookie ? { Cookie: options.cookie } : undefined;
+
 /** Unwraps `{ success, data }`, normalising every failure into an `ApiError`. */
-export async function request<TData>(path: string, params?: object): Promise<TData> {
+export async function request<TData>(
+  path: string,
+  params?: object,
+  options?: RequestOptions,
+): Promise<TData> {
   try {
-    const { data } = await api.get<ApiResponse<TData>>(path, { params });
+    const { data } = await api.get<ApiResponse<TData>>(path, {
+      params,
+      headers: headersFor(options),
+    });
 
     if (!data.success || data.data === undefined) {
       throw new ApiError(data.message ?? 'The API returned an unexpected response');
@@ -65,6 +97,56 @@ export async function request<TData>(path: string, params?: object): Promise<TDa
   } catch (error) {
     throw error instanceof ApiError ? error : toApiError(error);
   }
+}
+
+type Method = 'post' | 'patch' | 'delete';
+
+/** A write that answers with data — the shape every mutation here returns. */
+export async function send<TData>(
+  method: Method,
+  path: string,
+  body?: unknown,
+  options?: RequestOptions,
+): Promise<TData> {
+  try {
+    const { data } = await api.request<ApiResponse<TData>>({
+      method,
+      url: path,
+      data: body,
+      headers: headersFor(options),
+    });
+
+    if (!data.success || data.data === undefined) {
+      throw new ApiError(data.message ?? 'The API returned an unexpected response');
+    }
+
+    return data.data;
+  } catch (error) {
+    throw error instanceof ApiError ? error : toApiError(error);
+  }
+}
+
+/** A write that answers with a message only, such as logout or a password change. */
+export async function sendMessage(method: Method, path: string, body?: unknown): Promise<string> {
+  try {
+    const { data } = await api.request<ApiResponse>({ method, url: path, data: body });
+
+    if (!data.success) {
+      throw new ApiError(data.message ?? 'The API returned an unexpected response');
+    }
+
+    return data.message ?? 'Done';
+  } catch (error) {
+    throw error instanceof ApiError ? error : toApiError(error);
+  }
+}
+
+/**
+ * Field-level messages from a Zod failure, so a form can put each one beside the
+ * input it belongs to instead of dumping them all on top.
+ */
+export function fieldErrors(error: unknown): Record<string, string> {
+  return error instanceof ApiError ? error.fields : {};
 }
 
 /** As `request`, but keeps the pagination metadata that sits beside the array. */
