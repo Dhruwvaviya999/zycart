@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Star } from 'lucide-react';
 import {
   Accordion,
@@ -9,24 +10,50 @@ import {
 } from '@/components/ui/accordion';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
-import { categories } from '@/data/categories';
-import { brands, priceBounds } from '@/data/products';
 import { formatPrice } from '@/lib/format';
-import type { ShopFilters } from '@/components/shop/use-shop-filters';
+import type { ShopFilters } from '@/components/shop/shop-filters';
+import type { Brand, Category } from '@/types/product';
 import { cn } from '@/lib/utils';
 
 interface FilterPanelProps {
   filters: ShopFilters;
-  update: <K extends keyof ShopFilters>(key: K, value: ShopFilters[K]) => void;
-  toggleInArray: (key: 'categories' | 'brands', value: string) => void;
-  /** Counts per category for the current result set, so filters feel alive. */
-  counts: Record<string, number>;
+  categories: Category[];
+  brands: Brand[];
+  /** Highest price in the catalogue, so the slider covers the real range. */
+  priceCeiling: number;
+  onChange: (patch: Partial<ShopFilters>) => void;
 }
 
 const RATING_STEPS = [4.5, 4, 3.5, 3];
 
 /** Shared by the desktop sidebar and the mobile drawer — one source of truth. */
-export function FilterPanel({ filters, update, toggleInArray, counts }: FilterPanelProps) {
+export function FilterPanel({
+  filters,
+  categories,
+  brands,
+  priceCeiling,
+  onChange,
+}: FilterPanelProps) {
+  // The slider is dragged locally and only committed on release, so a single
+  // drag does not fire a request per pixel.
+  const fromFilters: [number, number] = [filters.minPrice ?? 0, filters.maxPrice ?? priceCeiling];
+  const [range, setRange] = useState<[number, number]>(fromFilters);
+  const [syncedWith, setSyncedWith] = useState<[number, number]>(fromFilters);
+
+  // Adjusting during render rather than in an effect: when the URL changes the
+  // slider follows it, without a second render pass showing the stale range.
+  if (syncedWith[0] !== fromFilters[0] || syncedWith[1] !== fromFilters[1]) {
+    setSyncedWith(fromFilters);
+    setRange(fromFilters);
+  }
+
+  function commitRange([low, high]: [number, number]) {
+    onChange({
+      minPrice: low > 0 ? low : undefined,
+      maxPrice: high < priceCeiling ? high : undefined,
+    });
+  }
+
   return (
     <Accordion
       multiple
@@ -36,13 +63,17 @@ export function FilterPanel({ filters, update, toggleInArray, counts }: FilterPa
       <FilterGroup value="category" label="Category">
         <ul className="space-y-3">
           {categories.map((category) => (
-            <li key={category.slug}>
+            <li key={category.id}>
               <CheckRow
                 id={`category-${category.slug}`}
-                checked={filters.categories.includes(category.slug)}
-                onChange={() => toggleInArray('categories', category.slug)}
+                checked={filters.category === category.slug}
+                onChange={() =>
+                  onChange({
+                    category: filters.category === category.slug ? undefined : category.slug,
+                  })
+                }
                 label={category.name}
-                count={counts[category.slug]}
+                count={category.productCount}
               />
             </li>
           ))}
@@ -51,39 +82,37 @@ export function FilterPanel({ filters, update, toggleInArray, counts }: FilterPa
 
       <FilterGroup value="price" label="Price">
         <Slider
-          value={filters.priceRange}
+          value={range}
           onValueChange={(value) =>
-            update(
-              'priceRange',
-              (Array.isArray(value) ? value : [value, value]) as [number, number],
-            )
+            setRange((Array.isArray(value) ? value : [value, value]) as [number, number])
           }
-          min={priceBounds.min}
-          max={priceBounds.max}
+          onValueCommitted={(value) =>
+            commitRange((Array.isArray(value) ? value : [value, value]) as [number, number])
+          }
+          min={0}
+          max={priceCeiling}
           step={500}
           aria-label="Price range"
           className="mt-1"
         />
         <div className="text-small mt-4 flex items-center justify-between tabular-nums">
-          <span className="rounded-md border border-border px-2 py-1">
-            {formatPrice(filters.priceRange[0])}
-          </span>
+          <span className="rounded-md border border-border px-2 py-1">{formatPrice(range[0])}</span>
           <span className="text-muted-foreground">to</span>
-          <span className="rounded-md border border-border px-2 py-1">
-            {formatPrice(filters.priceRange[1])}
-          </span>
+          <span className="rounded-md border border-border px-2 py-1">{formatPrice(range[1])}</span>
         </div>
       </FilterGroup>
 
       <FilterGroup value="brand" label="Brand">
         <ul className="max-h-60 space-y-3 overflow-y-auto pr-1">
           {brands.map((brand) => (
-            <li key={brand}>
+            <li key={brand.id}>
               <CheckRow
-                id={`brand-${brand}`}
-                checked={filters.brands.includes(brand)}
-                onChange={() => toggleInArray('brands', brand)}
-                label={brand}
+                id={`brand-${brand.slug}`}
+                checked={filters.brand === brand.slug}
+                onChange={() =>
+                  onChange({ brand: filters.brand === brand.slug ? undefined : brand.slug })
+                }
+                label={brand.name}
               />
             </li>
           ))}
@@ -99,7 +128,7 @@ export function FilterPanel({ filters, update, toggleInArray, counts }: FilterPa
               <li key={step}>
                 <button
                   type="button"
-                  onClick={() => update('minRating', active ? 0 : step)}
+                  onClick={() => onChange({ minRating: active ? undefined : step })}
                   aria-pressed={active}
                   className={cn(
                     'focus-ring text-small flex w-full items-center gap-2 rounded-lg px-2 py-2 transition-colors',
@@ -120,7 +149,7 @@ export function FilterPanel({ filters, update, toggleInArray, counts }: FilterPa
         <CheckRow
           id="in-stock"
           checked={filters.inStockOnly}
-          onChange={() => update('inStockOnly', !filters.inStockOnly)}
+          onChange={() => onChange({ inStockOnly: !filters.inStockOnly })}
           label="In stock only"
         />
       </FilterGroup>

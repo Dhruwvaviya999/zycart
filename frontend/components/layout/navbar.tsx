@@ -10,11 +10,12 @@ import { MobileNav } from '@/components/layout/mobile-nav';
 import { SearchTrigger } from '@/components/search/search-trigger';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { primaryNav } from '@/data/navigation';
+import type { Category } from '@/types/product';
 import { useCartStore } from '@/store/cart-store';
 import { useWishlistStore } from '@/store/wishlist-store';
 import { cn } from '@/lib/utils';
 
-export function Navbar() {
+export function Navbar({ categories }: { categories: Category[] }) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
 
@@ -44,7 +45,7 @@ export function Navbar() {
       )}
     >
       <Container className="flex h-16 items-center gap-3 sm:h-[68px]">
-        <MobileNav />
+        <MobileNav categories={categories} />
         <Logo className="mr-1 shrink-0" />
 
         <nav aria-label="Primary" className="hidden lg:block">

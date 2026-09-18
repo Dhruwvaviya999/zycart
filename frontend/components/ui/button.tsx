@@ -1,5 +1,6 @@
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
+import { isValidElement } from 'react';
 import { cn } from 'cn';
 
 const buttonVariants = cva(
@@ -47,15 +48,30 @@ const buttonVariants = cva(
   },
 );
 
+/** True only when the `render` prop really does produce a native `<button>`. */
+function rendersNativeButton(render: ButtonPrimitive.Props['render']): boolean {
+  if (render === undefined) return true;
+  return isValidElement(render) && render.type === 'button';
+}
+
 function Button({
   className,
   variant = 'default',
   size = 'default',
+  nativeButton,
+  render,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
   return (
     <ButtonPrimitive
       data-slot="button"
+      render={render}
+      /**
+       * `render` is usually a next/link, which is an `<a>`. Base UI has to be
+       * told, or it assumes a native button and drops the keyboard and role
+       * semantics the anchor needs. An explicit `nativeButton` still wins.
+       */
+      nativeButton={nativeButton ?? rendersNativeButton(render)}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />

@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 
 interface PriceProps {
   price: number;
-  compareAtPrice?: number;
+  compareAtPrice?: number | null;
   size?: 'default' | 'lg';
   /** Hides the percentage chip where a separate badge already shows it. */
   hideDiscount?: boolean;

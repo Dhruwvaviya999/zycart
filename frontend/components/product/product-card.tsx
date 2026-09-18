@@ -9,11 +9,12 @@ import { ProductBadgeChip } from '@/components/product/product-badge';
 import { Rating } from '@/components/product/rating';
 import { WishlistButton } from '@/components/product/wishlist-button';
 import { useCartStore } from '@/store/cart-store';
-import type { Product } from '@/types/product';
+import { imageAlt, isInStock, productBadge } from '@/lib/product';
+import type { ProductSummary } from '@/types/product';
 import { cn } from '@/lib/utils';
 
 interface ProductCardProps {
-  product: Product;
+  product: ProductSummary;
   /** Tells the image loader how much width the card gets at each breakpoint. */
   sizes?: string;
   priority?: boolean;
@@ -38,13 +39,14 @@ export function ProductCard({
   const [justAdded, setJustAdded] = useState(false);
 
   const [primary, secondary] = product.images;
-  const topBadge = product.badges[0];
+  const badge = productBadge(product);
+  const inStock = isInStock(product);
 
   function handleQuickAdd(event: React.MouseEvent) {
     event.preventDefault();
     add(product.id, {
-      size: product.sizes?.find((option) => option.available)?.value,
-      color: product.colors?.[0]?.value,
+      size: product.sizes.find((option) => option.inStock)?.label,
+      color: product.colors[0]?.name,
     });
     setJustAdded(true);
     window.setTimeout(() => setJustAdded(false), 1600);
@@ -56,12 +58,12 @@ export function ProductCard({
         <Link
           href={`/products/${product.slug}`}
           className="focus-ring block aspect-4/5 rounded-2xl"
-          aria-label={`${product.brand} ${product.name}`}
+          aria-label={`${product.brand.name} ${product.name}`}
         >
           {primary && (
             <Image
-              src={primary.url}
-              alt={primary.alt}
+              src={primary}
+              alt={imageAlt(product, 0)}
               fill
               sizes={sizes}
               priority={priority}
@@ -74,7 +76,7 @@ export function ProductCard({
 
           {secondary && (
             <Image
-              src={secondary.url}
+              src={secondary}
               alt=""
               aria-hidden
               fill
@@ -83,7 +85,7 @@ export function ProductCard({
             />
           )}
 
-          {!product.inStock && (
+          {!inStock && (
             <div className="absolute inset-0 grid place-items-center bg-background/55 backdrop-blur-[2px]">
               <span className="text-label rounded-full bg-background px-3 py-1.5 text-foreground shadow-sm">
                 Out of stock
@@ -92,9 +94,9 @@ export function ProductCard({
           )}
         </Link>
 
-        {topBadge && (
+        {badge && (
           <div className="pointer-events-none absolute top-3 left-3 z-20 flex flex-wrap gap-1.5">
-            <ProductBadgeChip badge={topBadge} />
+            <ProductBadgeChip badge={badge} />
           </div>
         )}
 
@@ -109,7 +111,7 @@ export function ProductCard({
           <button
             type="button"
             onClick={handleQuickAdd}
-            disabled={!product.inStock}
+            disabled={!inStock}
             aria-label={`Add ${product.name} to cart`}
             className={cn(
               'focus-ring absolute right-2.5 bottom-2.5 z-20 inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[0.8125rem] font-semibold shadow-md transition-all duration-300 ease-(--ease-brand)',
@@ -129,7 +131,7 @@ export function ProductCard({
 
       <div className="flex flex-1 flex-col gap-1.5 pt-3.5">
         <p className="text-caption font-medium tracking-wide text-muted-foreground uppercase">
-          {product.brand}
+          {product.brand.name}
         </p>
 
         <Heading className="text-small leading-snug font-medium">

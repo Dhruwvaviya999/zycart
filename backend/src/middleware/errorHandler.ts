@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { ZodError } from 'zod';
 import { AppError } from '../utils/AppError';
 
@@ -29,6 +30,24 @@ function clientErrorStatus(error: unknown): number | undefined {
     : undefined;
 }
 
+/**
+ * Names the field behind a duplicate-key error without echoing the value the
+ * client sent, or the index name, back to them.
+ */
+function duplicateKeyField(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+
+  const candidate = error as { code?: unknown; keyPattern?: unknown };
+  if (candidate.code !== 11000) return undefined;
+
+  const keys =
+    typeof candidate.keyPattern === 'object' && candidate.keyPattern !== null
+      ? Object.keys(candidate.keyPattern)
+      : [];
+
+  return keys[0] ?? 'field';
+}
+
 function resolve(error: unknown): { status: number; body: ErrorResponse } {
   if (error instanceof ZodError) {
     return {
@@ -46,6 +65,34 @@ function resolve(error: unknown): { status: number; body: ErrorResponse } {
 
   if (error instanceof AppError) {
     return { status: error.statusCode, body: { success: false, message: error.message } };
+  }
+
+  // A unique index rejected the write — a client problem, not a server fault.
+  const duplicate = duplicateKeyField(error);
+  if (duplicate !== undefined) {
+    return {
+      status: 409,
+      body: { success: false, message: `A record with this ${duplicate} already exists` },
+    };
+  }
+
+  // Reached when an id survives validation but Mongoose still cannot cast it.
+  if (error instanceof mongoose.Error.CastError) {
+    return { status: 400, body: { success: false, message: `Invalid ${error.path}` } };
+  }
+
+  if (error instanceof mongoose.Error.ValidationError) {
+    return {
+      status: 400,
+      body: {
+        success: false,
+        message: 'Validation failed',
+        errors: Object.values(error.errors).map((issue) => ({
+          path: issue.path,
+          message: issue.message,
+        })),
+      },
+    };
   }
 
   const status = clientErrorStatus(error);

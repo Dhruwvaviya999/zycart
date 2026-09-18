@@ -1,6 +1,12 @@
 import type { Metadata } from 'next';
 import { AccountClient } from '@/components/account/account-client';
 
+/**
+ * Read from MongoDB on every request: nothing is prerendered at build time,
+ * so `next build` never needs a running API.
+ */
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'Account',
   description: 'Your ZyCart profile, orders, addresses and preferences.',

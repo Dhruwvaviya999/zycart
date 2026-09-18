@@ -1,10 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { productById } from '@/data/products';
-import type { CartLine, Product } from '@/types/product';
+import type { CartLine } from '@/types/product';
 
-const FREE_SHIPPING_THRESHOLD = 999;
-const SHIPPING_FEE = 99;
 const MAX_QUANTITY = 10;
 
 interface CartState {
@@ -106,38 +103,3 @@ export const useCartStore = create<CartState>()(
     },
   ),
 );
-
-export interface ResolvedCartLine {
-  line: CartLine;
-  product: Product;
-}
-
-/** Resolves cart lines against the catalogue and computes the order summary. */
-export function selectCartSummary(lines: CartLine[]) {
-  const items = lines.reduce<ResolvedCartLine[]>((acc, line) => {
-    const product = productById(line.productId);
-    if (product) acc.push({ line, product });
-    return acc;
-  }, []);
-
-  const subtotal = items.reduce((sum, { line, product }) => sum + product.price * line.quantity, 0);
-
-  const savings = items.reduce(
-    (sum, { line, product }) =>
-      sum + (product.compareAtPrice ? (product.compareAtPrice - product.price) * line.quantity : 0),
-    0,
-  );
-
-  const shipping = subtotal === 0 || subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
-
-  return {
-    items,
-    itemCount: items.reduce((sum, { line }) => sum + line.quantity, 0),
-    subtotal,
-    savings,
-    shipping,
-    total: subtotal + shipping,
-    freeShippingRemaining: Math.max(0, FREE_SHIPPING_THRESHOLD - subtotal),
-    freeShippingThreshold: FREE_SHIPPING_THRESHOLD,
-  };
-}

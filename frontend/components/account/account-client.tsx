@@ -22,7 +22,6 @@ import { Breadcrumbs } from '@/components/common/breadcrumbs';
 import { EmptyState } from '@/components/common/empty-state';
 import { Container } from '@/components/layout/container';
 import { accountProfile, accountSettings, addresses, orders } from '@/data/account';
-import { productById } from '@/data/products';
 import { useWishlistStore } from '@/store/wishlist-store';
 import { formatDate, formatPrice } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -201,27 +200,19 @@ function OrdersPanel() {
 
             <div className="flex flex-wrap items-center gap-4">
               <ul className="flex -space-x-3">
-                {order.productIds.map((id) => {
-                  const product = productById(id);
-                  if (!product?.images[0]) return null;
-
-                  return (
-                    <li key={id}>
-                      <Link
-                        href={`/products/${product.slug}`}
-                        className="focus-ring relative block size-12 overflow-hidden rounded-xl bg-surface ring-2 ring-background"
-                      >
-                        <Image
-                          src={product.images[0].url}
-                          alt={product.name}
-                          fill
-                          sizes="48px"
-                          className="object-cover"
-                        />
-                      </Link>
-                    </li>
-                  );
-                })}
+                {order.items.map((item) => (
+                  <li key={item.name}>
+                    <span className="relative block size-12 overflow-hidden rounded-xl bg-surface ring-2 ring-background">
+                      <Image
+                        src={item.image}
+                        alt={item.name}
+                        fill
+                        sizes="48px"
+                        className="object-cover"
+                      />
+                    </span>
+                  </li>
+                ))}
               </ul>
 
               <p className="text-price ml-auto">{formatPrice(order.total)}</p>

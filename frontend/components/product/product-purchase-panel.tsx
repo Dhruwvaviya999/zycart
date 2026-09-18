@@ -9,6 +9,7 @@ import { QuantitySelector } from '@/components/product/quantity-selector';
 import { Rating } from '@/components/product/rating';
 import { WishlistButton } from '@/components/product/wishlist-button';
 import { useCartStore } from '@/store/cart-store';
+import { isInStock, isLowStock } from '@/lib/product';
 import type { Product } from '@/types/product';
 import { cn } from '@/lib/utils';
 
@@ -21,10 +22,14 @@ const ASSURANCES = [
 export function ProductPurchasePanel({ product }: { product: Product }) {
   const add = useCartStore((state) => state.add);
 
-  const [size, setSize] = useState(product.sizes?.find((option) => option.available)?.value);
-  const [color, setColor] = useState(product.colors?.[0]?.value);
+  const [size, setSize] = useState(product.sizes.find((option) => option.inStock)?.label);
+  const [color, setColor] = useState(product.colors[0]?.name);
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
+
+  const inStock = isInStock(product);
+  // Never offer more than the catalogue actually holds.
+  const maxQuantity = Math.min(10, Math.max(1, product.stock));
 
   function addToCart() {
     add(product.id, { size, color, quantity });
@@ -34,26 +39,27 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
 
   return (
     <div className="flex flex-col">
-      <p className="text-label text-brand">{product.brand}</p>
+      <p className="text-label text-brand">{product.brand.name}</p>
       <h1 className="text-h1 mt-2.5">{product.name}</h1>
-      <p className="text-body mt-3 text-pretty text-muted-foreground">{product.tagline}</p>
+      <p className="text-body mt-3 text-pretty text-muted-foreground">{product.shortDescription}</p>
 
       <div className="mt-5 flex flex-wrap items-center gap-4">
         <Rating value={product.rating} reviewCount={product.reviewCount} showStars size="md" />
         <span
           className={cn(
             'text-caption inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium',
-            product.inStock ? 'bg-success/12 text-success' : 'bg-muted text-muted-foreground',
+            inStock ? 'bg-success/12 text-success' : 'bg-muted text-muted-foreground',
           )}
         >
           <span
-            className={cn(
-              'size-1.5 rounded-full',
-              product.inStock ? 'bg-success' : 'bg-muted-foreground',
-            )}
+            className={cn('size-1.5 rounded-full', inStock ? 'bg-success' : 'bg-muted-foreground')}
           />
-          {product.inStock ? 'In stock' : 'Out of stock'}
+          {inStock ? 'In stock' : 'Out of stock'}
         </span>
+
+        {isLowStock(product) && (
+          <span className="text-caption font-medium text-sale">Only {product.stock} left</span>
+        )}
       </div>
 
       <Price
@@ -64,33 +70,31 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
       />
       <p className="text-caption mt-1.5 text-muted-foreground">Inclusive of all taxes</p>
 
-      {product.colors && product.colors.length > 0 && (
+      {product.colors.length > 0 && (
         <fieldset className="mt-8">
           <legend className="text-small font-semibold">
             Colour
-            <span className="ml-2 font-normal text-muted-foreground">
-              {product.colors.find((option) => option.value === color)?.label}
-            </span>
+            <span className="ml-2 font-normal text-muted-foreground">{color}</span>
           </legend>
 
           <div className="mt-3 flex flex-wrap gap-2.5">
             {product.colors.map((option) => (
               <button
-                key={option.value}
+                key={option.name}
                 type="button"
-                onClick={() => setColor(option.value)}
-                aria-pressed={color === option.value}
-                aria-label={option.label}
+                onClick={() => setColor(option.name)}
+                aria-pressed={color === option.name}
+                aria-label={option.name}
                 className={cn(
                   'focus-ring grid size-9 place-items-center rounded-full ring-1 transition-all',
-                  color === option.value
+                  color === option.name
                     ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background'
                     : 'ring-border hover:ring-foreground/30',
                 )}
               >
                 <span
                   className="size-7 rounded-full"
-                  style={{ backgroundColor: option.swatch }}
+                  style={{ backgroundColor: option.hex }}
                   aria-hidden
                 />
               </button>
@@ -99,7 +103,7 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
         </fieldset>
       )}
 
-      {product.sizes && product.sizes.length > 0 && (
+      {product.sizes.length > 0 && (
         <fieldset className="mt-7">
           <legend className="text-small flex w-full items-center justify-between font-semibold">
             Size
@@ -108,17 +112,17 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
           <div className="mt-3 flex flex-wrap gap-2">
             {product.sizes.map((option) => (
               <button
-                key={option.value}
+                key={option.label}
                 type="button"
-                disabled={option.available === false}
-                onClick={() => setSize(option.value)}
-                aria-pressed={size === option.value}
+                disabled={!option.inStock}
+                onClick={() => setSize(option.label)}
+                aria-pressed={size === option.label}
                 className={cn(
                   'focus-ring text-small h-11 min-w-16 rounded-xl border px-3 font-medium transition-all',
-                  size === option.value
+                  size === option.label
                     ? 'border-foreground bg-foreground text-background'
                     : 'border-border hover:border-foreground/30',
-                  option.available === false &&
+                  !option.inStock &&
                     'cursor-not-allowed border-dashed text-muted-foreground/50 line-through hover:border-border',
                 )}
               >
@@ -130,8 +134,8 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
       )}
 
       <div className="mt-8 flex flex-wrap items-center gap-3">
-        <QuantitySelector value={quantity} onChange={setQuantity} />
-        <span className="text-caption text-muted-foreground">Maximum 10 per order</span>
+        <QuantitySelector value={quantity} onChange={setQuantity} max={maxQuantity} />
+        <span className="text-caption text-muted-foreground">Maximum {maxQuantity} per order</span>
       </div>
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -139,7 +143,7 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
           size="cta-lg"
           variant="brand"
           onClick={addToCart}
-          disabled={!product.inStock}
+          disabled={!inStock}
           className="flex-1"
         >
           {added ? (
@@ -158,7 +162,7 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
         <Button
           size="cta-lg"
           variant="outline"
-          disabled={!product.inStock}
+          disabled={!inStock}
           render={<Link href="/cart" />}
           className="flex-1"
           onClick={() => add(product.id, { size, color, quantity })}
@@ -174,7 +178,18 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
         />
       </div>
 
-      <ul className="mt-8 grid gap-3 border-t border-border pt-7 sm:grid-cols-3">
+      <dl className="text-caption mt-7 flex flex-wrap gap-x-6 gap-y-2 text-muted-foreground">
+        <div className="flex gap-1.5">
+          <dt>SKU</dt>
+          <dd className="font-medium text-foreground">{product.sku}</dd>
+        </div>
+        <div className="flex gap-1.5">
+          <dt>Category</dt>
+          <dd className="font-medium text-foreground">{product.category.name}</dd>
+        </div>
+      </dl>
+
+      <ul className="mt-6 grid gap-3 border-t border-border pt-7 sm:grid-cols-3">
         {ASSURANCES.map(({ icon: Icon, label }) => (
           <li key={label} className="text-caption flex items-center gap-2 text-muted-foreground">
             <Icon className="size-4 shrink-0 text-foreground" aria-hidden />

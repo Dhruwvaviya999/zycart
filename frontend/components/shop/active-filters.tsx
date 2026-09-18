@@ -1,17 +1,17 @@
 'use client';
 
 import { X } from 'lucide-react';
-import { categoryName } from '@/data/categories';
-import { priceBounds } from '@/data/products';
 import { formatPrice } from '@/lib/format';
-import type { ShopFilters } from '@/components/shop/use-shop-filters';
+import type { ShopFilters } from '@/components/shop/shop-filters';
+import type { Brand, Category } from '@/types/product';
 import { cn } from '@/lib/utils';
 
 interface ActiveFiltersProps {
   filters: ShopFilters;
-  update: <K extends keyof ShopFilters>(key: K, value: ShopFilters[K]) => void;
-  toggleInArray: (key: 'categories' | 'brands', value: string) => void;
-  reset: () => void;
+  categories: Category[];
+  brands: Brand[];
+  onChange: (patch: Partial<ShopFilters>) => void;
+  onReset: () => void;
   className?: string;
 }
 
@@ -21,9 +21,10 @@ interface ActiveFiltersProps {
  */
 export function ActiveFilters({
   filters,
-  update,
-  toggleInArray,
-  reset,
+  categories,
+  brands,
+  onChange,
+  onReset,
   className,
 }: ActiveFiltersProps) {
   const chips: { key: string; label: string; remove: () => void }[] = [];
@@ -32,40 +33,38 @@ export function ActiveFilters({
     chips.push({
       key: 'query',
       label: `“${filters.query.trim()}”`,
-      remove: () => update('query', ''),
+      remove: () => onChange({ query: '' }),
     });
   }
 
-  for (const slug of filters.categories) {
+  if (filters.category) {
+    const name = categories.find((entry) => entry.slug === filters.category)?.name;
     chips.push({
-      key: `category-${slug}`,
-      label: categoryName(slug),
-      remove: () => toggleInArray('categories', slug),
+      key: 'category',
+      label: name ?? filters.category,
+      remove: () => onChange({ category: undefined }),
     });
   }
 
-  for (const brand of filters.brands) {
+  if (filters.brand) {
+    const name = brands.find((entry) => entry.slug === filters.brand)?.name;
     chips.push({
-      key: `brand-${brand}`,
-      label: brand,
-      remove: () => toggleInArray('brands', brand),
+      key: 'brand',
+      label: name ?? filters.brand,
+      remove: () => onChange({ brand: undefined }),
     });
   }
 
-  const [low, high] = filters.priceRange;
-  if (low !== priceBounds.min || high !== priceBounds.max) {
+  if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
+    const low = filters.minPrice ?? 0;
+    const high = filters.maxPrice;
     chips.push({
       key: 'price',
-      label: `${formatPrice(low)} – ${formatPrice(high)}`,
-      remove: () => update('priceRange', [priceBounds.min, priceBounds.max]),
-    });
-  }
-
-  if (filters.minRating > 0) {
-    chips.push({
-      key: 'rating',
-      label: `${filters.minRating}★ and above`,
-      remove: () => update('minRating', 0),
+      label:
+        high === undefined
+          ? `${formatPrice(low)} and up`
+          : `${formatPrice(low)} – ${formatPrice(high)}`,
+      remove: () => onChange({ minPrice: undefined, maxPrice: undefined }),
     });
   }
 
@@ -73,7 +72,7 @@ export function ActiveFilters({
     chips.push({
       key: 'stock',
       label: 'In stock only',
-      remove: () => update('inStockOnly', false),
+      remove: () => onChange({ inStockOnly: false }),
     });
   }
 
@@ -101,7 +100,7 @@ export function ActiveFilters({
 
       <button
         type="button"
-        onClick={reset}
+        onClick={onReset}
         className="focus-ring text-caption rounded-md px-1.5 py-1 font-medium text-brand transition-colors hover:underline"
       >
         Clear all

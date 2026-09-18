@@ -6,7 +6,11 @@ export interface MockOrder {
   status: 'Delivered' | 'In transit' | 'Processing' | 'Cancelled';
   total: number;
   itemCount: number;
-  productIds: string[];
+  /**
+   * Orders snapshot what was bought, the way a real order history does, so they
+   * never depend on a product still existing in the catalogue.
+   */
+  items: { name: string; image: string }[];
 }
 
 export interface MockAddress {
@@ -33,7 +37,18 @@ export const orders: MockOrder[] = [
     status: 'In transit',
     total: 19489,
     itemCount: 2,
-    productIds: ['p-009', 'p-017'],
+    items: [
+      {
+        name: 'Studio One Over-Ear Headphones',
+        image:
+          'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=80',
+      },
+      {
+        name: 'Heavyweight Essential Tee',
+        image:
+          'https://images.unsplash.com/photo-1618354691373-d851c5c3a990?auto=format&fit=crop&w=900&q=80',
+      },
+    ],
   },
   {
     id: 'ZY-10344',
@@ -41,7 +56,13 @@ export const orders: MockOrder[] = [
     status: 'Delivered',
     total: 8495,
     itemCount: 1,
-    productIds: ['p-001'],
+    items: [
+      {
+        name: 'Air Max Heritage Runner',
+        image:
+          'https://images.unsplash.com/photo-1600185365926-3a2ce3cdb9eb?auto=format&fit=crop&w=900&q=80',
+      },
+    ],
   },
   {
     id: 'ZY-10219',
@@ -49,7 +70,23 @@ export const orders: MockOrder[] = [
     status: 'Delivered',
     total: 27198,
     itemCount: 3,
-    productIds: ['p-022', 'p-034', 'p-030'],
+    items: [
+      {
+        name: 'Meridian Automatic Diver',
+        image:
+          'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&w=900&q=80',
+      },
+      {
+        name: 'Insulated Bottle 750 ml',
+        image:
+          'https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=900&q=80',
+      },
+      {
+        name: 'Daily Skincare Set',
+        image:
+          'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?auto=format&fit=crop&w=900&q=80',
+      },
+    ],
   },
   {
     id: 'ZY-10077',
@@ -57,7 +94,13 @@ export const orders: MockOrder[] = [
     status: 'Cancelled',
     total: 4999,
     itemCount: 1,
-    productIds: ['p-008'],
+    items: [
+      {
+        name: 'Street Runner 90',
+        image:
+          'https://images.unsplash.com/photo-1595341888016-a392ef81b7de?auto=format&fit=crop&w=900&q=80',
+      },
+    ],
   },
 ];
 

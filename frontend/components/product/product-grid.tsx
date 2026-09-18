@@ -1,5 +1,5 @@
 import { ProductCard } from '@/components/product/product-card';
-import type { Product } from '@/types/product';
+import type { ProductSummary } from '@/types/product';
 import { cn } from '@/lib/utils';
 
 /** Desktop column count. Mobile is always 2 and tablet always 3. */
@@ -18,12 +18,12 @@ const sizeHints: Record<GridColumns, string> = {
 };
 
 interface ProductGridProps {
-  products: Product[];
+  products: ProductSummary[];
   columns?: GridColumns;
   /** Number of leading cards to mark as priority for LCP. */
   priorityCount?: number;
   /** Per-card actions that replace the hover quick-add (used by the wishlist). */
-  renderFooter?: (product: Product) => React.ReactNode;
+  renderFooter?: (product: ProductSummary) => React.ReactNode;
   /** Heading level for each card, so the grid fits its page outline. */
   cardHeading?: 'h2' | 'h3';
   className?: string;

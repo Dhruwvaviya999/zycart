@@ -9,15 +9,15 @@ import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from '@/com
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Logo } from '@/components/layout/logo';
-import { categories } from '@/data/categories';
 import { primaryNav } from '@/data/navigation';
+import type { Category } from '@/types/product';
 import { useUiStore } from '@/store/ui-store';
 
 /**
  * Purpose-built mobile navigation rather than a collapsed desktop bar:
  * categories get visual weight, and the account actions sit within thumb reach.
  */
-export function MobileNav() {
+export function MobileNav({ categories }: { categories: Category[] }) {
   const open = useUiStore((state) => state.mobileNavOpen);
   const setOpen = useUiStore((state) => state.setMobileNavOpen);
   const pathname = usePathname();
@@ -73,34 +73,40 @@ export function MobileNav() {
             ))}
           </ul>
 
-          <Separator />
+          {categories.length > 0 && (
+            <>
+              <Separator />
 
-          <div className="px-5 pt-5 pb-3">
-            <h2 className="text-label text-muted-foreground">Shop by category</h2>
-          </div>
+              <div className="px-5 pt-5 pb-3">
+                <h2 className="text-label text-muted-foreground">Shop by category</h2>
+              </div>
 
-          <ul className="grid grid-cols-2 gap-2.5 px-5 pb-5">
-            {categories.map((category) => (
-              <li key={category.slug}>
-                <Link
-                  href={`/shop?category=${category.slug}`}
-                  onClick={close}
-                  className="focus-ring group block overflow-hidden rounded-xl bg-surface ring-1 ring-border/70"
-                >
-                  <span className="relative block aspect-16/10">
-                    <Image
-                      src={category.image}
-                      alt=""
-                      fill
-                      sizes="160px"
-                      className="object-cover transition-transform duration-500 ease-brand group-hover:scale-105"
-                    />
-                  </span>
-                  <span className="text-small block px-2.5 py-2 font-medium">{category.name}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+              <ul className="grid grid-cols-2 gap-2.5 px-5 pb-5">
+                {categories.map((category) => (
+                  <li key={category.id}>
+                    <Link
+                      href={`/shop?category=${category.slug}`}
+                      onClick={close}
+                      className="focus-ring group block overflow-hidden rounded-xl bg-surface ring-1 ring-border/70"
+                    >
+                      <span className="relative block aspect-16/10">
+                        <Image
+                          src={category.image}
+                          alt=""
+                          fill
+                          sizes="160px"
+                          className="object-cover transition-transform duration-500 ease-brand group-hover:scale-105"
+                        />
+                      </span>
+                      <span className="text-small block px-2.5 py-2 font-medium">
+                        {category.name}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </nav>
 
         <div className="grid grid-cols-3 gap-2 border-t border-border p-4">

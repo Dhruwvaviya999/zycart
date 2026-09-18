@@ -4,13 +4,15 @@ import { Heart, ShoppingBag, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Breadcrumbs } from '@/components/common/breadcrumbs';
 import { EmptyState } from '@/components/common/empty-state';
+import { ErrorState } from '@/components/common/error-state';
 import { ProductGridSkeleton } from '@/components/common/loading-state';
 import { Container } from '@/components/layout/container';
 import { ProductGrid } from '@/components/product/product-grid';
-import { productById } from '@/data/products';
+import { useProductsByIds } from '@/hooks/use-products-by-ids';
+import { isInStock } from '@/lib/product';
 import { useCartStore } from '@/store/cart-store';
 import { useWishlistStore } from '@/store/wishlist-store';
-import type { Product } from '@/types/product';
+import type { ProductSummary } from '@/types/product';
 
 export function WishlistClient() {
   const hydrated = useWishlistStore((state) => state.hydrated);
@@ -18,16 +20,21 @@ export function WishlistClient() {
   const removeSaved = useWishlistStore((state) => state.remove);
   const addToCart = useCartStore((state) => state.add);
 
-  const saved = ids.reduce<Product[]>((acc, id) => {
-    const product = productById(id);
+  const { products, status, error, retry } = useProductsByIds(ids, hydrated);
+
+  // Preserve the order the shopper saved them in.
+  const saved = ids.reduce<ProductSummary[]>((acc, id) => {
+    const product = products.get(id);
     if (product) acc.push(product);
     return acc;
   }, []);
 
-  function moveToCart(product: Product) {
+  const loading = !hydrated || (status === 'loading' && ids.length > 0);
+
+  function moveToCart(product: ProductSummary) {
     addToCart(product.id, {
-      size: product.sizes?.find((option) => option.available)?.value,
-      color: product.colors?.[0]?.value,
+      size: product.sizes.find((option) => option.inStock)?.label,
+      color: product.colors[0]?.name,
     });
     removeSaved(product.id);
   }
@@ -39,14 +46,22 @@ export function WishlistClient() {
       <header className="mt-5">
         <h1 className="text-h1">Wishlist</h1>
         <p className="text-small mt-2 text-muted-foreground">
-          {hydrated
-            ? `${saved.length} ${saved.length === 1 ? 'product' : 'products'} saved`
-            : 'Loading your saved products...'}
+          {loading
+            ? 'Loading your saved products...'
+            : `${saved.length} ${saved.length === 1 ? 'product' : 'products'} saved`}
         </p>
       </header>
 
-      {!hydrated ? (
+      {loading ? (
         <ProductGridSkeleton count={4} className="mt-10" />
+      ) : status === 'error' ? (
+        <ErrorState
+          title="We could not load your wishlist."
+          body={error ?? 'Your saved products are safe — we just could not fetch them.'}
+          onRetry={retry}
+          secondaryAction={{ label: 'Keep shopping', href: '/shop' }}
+          className="mt-10"
+        />
       ) : saved.length === 0 ? (
         <EmptyState
           icon={Heart}
@@ -69,12 +84,12 @@ export function WishlistClient() {
                 size="cta"
                 variant="brand"
                 className="min-w-0 flex-1"
-                disabled={!product.inStock}
+                disabled={!isInStock(product)}
                 onClick={() => moveToCart(product)}
               >
                 <ShoppingBag className="size-4" data-icon="inline-start" />
                 <span className="truncate">
-                  {product.inStock ? 'Move to cart' : 'Out of stock'}
+                  {isInStock(product) ? 'Move to cart' : 'Out of stock'}
                 </span>
               </Button>
 

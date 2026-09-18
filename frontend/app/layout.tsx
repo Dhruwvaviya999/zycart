@@ -7,6 +7,7 @@ import { StoreHydrator } from '@/components/layout/store-hydrator';
 import { ThemeProvider } from '@/components/layout/theme-provider';
 import { SearchOverlay } from '@/components/search/search-overlay';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { getCategoriesSafe } from '@/services/category.service';
 import './globals.css';
 
 const geistSans = Geist({
@@ -37,7 +38,10 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: LayoutProps<'/'>) {
+export default async function RootLayout({ children }: LayoutProps<'/'>) {
+  // Never throws: the shell must still render when the API is unreachable.
+  const categories = await getCategoriesSafe();
+
   return (
     <html
       lang="en"
@@ -55,7 +59,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
             </a>
 
             <AnnouncementBar />
-            <Navbar />
+            <Navbar categories={categories} />
 
             <main id="main" className="flex-1">
               {children}

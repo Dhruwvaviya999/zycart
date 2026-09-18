@@ -1,51 +1,61 @@
 import type { Metadata } from 'next';
 import { ShopClient } from '@/components/shop/shop-client';
-import { categories } from '@/data/categories';
-import { brands } from '@/data/products';
-import type { ShopFilters } from '@/components/shop/use-shop-filters';
-import type { CategorySlug, SortKey } from '@/types/product';
+import { parseShopParams, PAGE_SIZE } from '@/components/shop/shop-filters';
+import { getBrandsSafe } from '@/services/brand.service';
+import { getCategoriesSafe } from '@/services/category.service';
+import { getProducts } from '@/services/product.service';
 
 export const metadata: Metadata = {
   title: 'Shop',
   description:
-    'Browse the full ZyCart catalogue — filter by category, brand, price, rating and availability.',
+    'Browse the full ZyCart catalogue — filter by category, brand, price and availability.',
 };
 
-const SORT_KEYS: SortKey[] = [
-  'featured',
-  'newest',
-  'price-asc',
-  'price-desc',
-  'rating',
-  'discount',
-];
+/** Fallback ceiling for the price slider when the catalogue cannot be read. */
+const DEFAULT_PRICE_CEILING = 50_000;
 
-function first(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-/** Turns the query string into initial filter state, ignoring anything unknown. */
-function parseFilters(params: Record<string, string | string[] | undefined>): Partial<ShopFilters> {
-  const initial: Partial<ShopFilters> = {};
-
-  const query = first(params.q);
-  if (query) initial.query = query;
-
-  const category = first(params.category);
-  if (category && categories.some((entry) => entry.slug === category)) {
-    initial.categories = [category as CategorySlug];
+/** The most expensive active product, rounded up so the slider ends on a round number. */
+async function getPriceCeiling(): Promise<number> {
+  try {
+    const { items } = await getProducts({ sort: 'price_desc', limit: 1 });
+    const highest = items[0]?.price;
+    return highest ? Math.ceil(highest / 1000) * 1000 : DEFAULT_PRICE_CEILING;
+  } catch {
+    return DEFAULT_PRICE_CEILING;
   }
-
-  const brand = first(params.brand);
-  if (brand && brands.includes(brand)) initial.brands = [brand];
-
-  const sort = first(params.sort);
-  if (sort && SORT_KEYS.includes(sort as SortKey)) initial.sort = sort as SortKey;
-
-  return initial;
 }
 
 export default async function ShopPage({ searchParams }: PageProps<'/shop'>) {
-  const params = await searchParams;
-  return <ShopClient initial={parseFilters(params)} />;
+  const filters = parseShopParams(await searchParams);
+
+  // Filters and chrome are fetched together; a failure in either list leaves the
+  // page usable rather than taking it down.
+  const [result, categories, brands, priceCeiling] = await Promise.all([
+    getProducts({
+      page: filters.page,
+      limit: PAGE_SIZE,
+      search: filters.query || undefined,
+      category: filters.category,
+      brand: filters.brand,
+      minPrice: filters.minPrice,
+      maxPrice: filters.maxPrice,
+      minRating: filters.minRating,
+      inStock: filters.inStockOnly ? true : undefined,
+      sort: filters.sort,
+    }),
+    getCategoriesSafe(),
+    getBrandsSafe(),
+    getPriceCeiling(),
+  ]);
+
+  return (
+    <ShopClient
+      filters={filters}
+      products={result.items}
+      pagination={result.pagination}
+      categories={categories}
+      brands={brands}
+      priceCeiling={priceCeiling}
+    />
+  );
 }

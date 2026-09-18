@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState, useTransition } from 'react';
 import { PackageSearch, Search, SlidersHorizontal, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -13,49 +14,67 @@ import {
 } from '@/components/ui/select';
 import { Breadcrumbs } from '@/components/common/breadcrumbs';
 import { EmptyState } from '@/components/common/empty-state';
+import { ProductGridSkeleton } from '@/components/common/loading-state';
 import { Container } from '@/components/layout/container';
 import { ProductGrid } from '@/components/product/product-grid';
 import { ActiveFilters } from '@/components/shop/active-filters';
 import { FilterPanel } from '@/components/shop/filter-panel';
-import { sortOptions, useShopFilters, type ShopFilters } from '@/components/shop/use-shop-filters';
-import { categories } from '@/data/categories';
-import { matchesSearch, products } from '@/data/products';
-import type { SortKey } from '@/types/product';
+import { ShopPagination } from '@/components/shop/shop-pagination';
+import {
+  buildShopHref,
+  countActiveFilters,
+  defaultFilters,
+  SORT_OPTIONS,
+  type ShopFilters,
+} from '@/components/shop/shop-filters';
+import type { Brand, Category, Pagination, ProductSummary, SortKey } from '@/types/product';
+import { cn } from '@/lib/utils';
 
-export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
-  const { filters, results, activeCount, update, toggleInArray, reset } = useShopFilters(initial);
+interface ShopClientProps {
+  filters: ShopFilters;
+  products: ProductSummary[];
+  pagination: Pagination;
+  categories: Category[];
+  brands: Brand[];
+  priceCeiling: number;
+}
+
+export function ShopClient({
+  filters,
+  products,
+  pagination,
+  categories,
+  brands,
+  priceCeiling,
+}: ShopClientProps) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Category counts reflect every filter except category itself, so the
-  // numbers still guide you while a category is selected.
-  const counts = useMemo(() => {
-    const term = filters.query.trim();
+  const activeCount = countActiveFilters(filters);
 
-    const base = products.filter((product) => {
-      if (term && !matchesSearch(product, term)) return false;
-      if (filters.brands.length && !filters.brands.includes(product.brand)) return false;
-      if (product.price < filters.priceRange[0] || product.price > filters.priceRange[1]) {
-        return false;
-      }
-      if (filters.minRating && product.rating < filters.minRating) return false;
-      if (filters.inStockOnly && !product.inStock) return false;
-      return true;
-    });
+  /**
+   * Filters live in the URL, so every change is a navigation. `useTransition`
+   * keeps the current results on screen — dimmed — while the next page loads,
+   * instead of blanking the grid on each keystroke.
+   */
+  const apply = useCallback(
+    (patch: Partial<ShopFilters>) => {
+      // Any change other than paging returns to the first page, or you can end
+      // up on page 4 of a two-page result.
+      const next: ShopFilters = { ...filters, ...patch, page: patch.page ?? 1 };
+      startTransition(() => router.push(buildShopHref(next), { scroll: false }));
+    },
+    [filters, router],
+  );
 
-    return Object.fromEntries(
-      categories.map((category) => [
-        category.slug,
-        base.filter((product) => product.category === category.slug).length,
-      ]),
-    );
-  }, [filters.query, filters.brands, filters.priceRange, filters.minRating, filters.inStockOnly]);
+  function reset() {
+    startTransition(() => router.push(buildShopHref(defaultFilters), { scroll: false }));
+  }
 
   const heading = filters.query
     ? `Results for “${filters.query}”`
-    : filters.categories.length === 1
-      ? (categories.find((category) => category.slug === filters.categories[0])?.name ??
-        'All products')
-      : 'All products';
+    : (categories.find((entry) => entry.slug === filters.category)?.name ?? 'All products');
 
   return (
     <Container className="py-8 sm:py-10">
@@ -64,7 +83,7 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
       <header className="mt-5 flex flex-col gap-2">
         <h1 className="text-h1">{heading}</h1>
         <p className="text-small text-muted-foreground" aria-live="polite">
-          {results.length} {results.length === 1 ? 'product' : 'products'}
+          {pagination.total} {pagination.total === 1 ? 'product' : 'products'}
           {activeCount > 0 &&
             ` · ${activeCount} ${activeCount === 1 ? 'filter' : 'filters'} applied`}
         </p>
@@ -89,9 +108,10 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
             <div className="max-h-[calc(100vh-9rem)] overflow-y-auto pr-1">
               <FilterPanel
                 filters={filters}
-                update={update}
-                toggleInArray={toggleInArray}
-                counts={counts}
+                categories={categories}
+                brands={brands}
+                priceCeiling={priceCeiling}
+                onChange={apply}
               />
             </div>
           </div>
@@ -101,7 +121,7 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
           <div className="flex flex-wrap items-center gap-3 border-b border-border pb-4">
             <ShopSearchField
               value={filters.query}
-              onChange={(value) => update('query', value)}
+              onCommit={(query) => apply({ query })}
               className="w-full sm:w-auto sm:max-w-sm sm:min-w-56 sm:flex-1"
             />
 
@@ -151,9 +171,10 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
                 <div className="flex-1 overflow-y-auto overscroll-contain px-5">
                   <FilterPanel
                     filters={filters}
-                    update={update}
-                    toggleInArray={toggleInArray}
-                    counts={counts}
+                    categories={categories}
+                    brands={brands}
+                    priceCeiling={priceCeiling}
+                    onChange={apply}
                   />
                 </div>
 
@@ -164,7 +185,7 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
                     className="w-full"
                     onClick={() => setDrawerOpen(false)}
                   >
-                    Show {results.length} {results.length === 1 ? 'product' : 'products'}
+                    Show {pagination.total} {pagination.total === 1 ? 'product' : 'products'}
                   </Button>
                 </div>
               </SheetContent>
@@ -176,7 +197,7 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
               </span>
               <Select
                 value={filters.sort}
-                onValueChange={(value) => update('sort', value as SortKey)}
+                onValueChange={(value) => apply({ sort: value as SortKey })}
               >
                 <SelectTrigger
                   size="default"
@@ -186,7 +207,7 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {sortOptions.map((option) => (
+                  {SORT_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -198,14 +219,33 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
 
           <ActiveFilters
             filters={filters}
-            update={update}
-            toggleInArray={toggleInArray}
-            reset={reset}
+            categories={categories}
+            brands={brands}
+            onChange={apply}
+            onReset={reset}
             className="mt-4"
           />
 
-          {results.length > 0 ? (
-            <ProductGrid products={results} columns={4} priorityCount={4} className="mt-8" />
+          {products.length > 0 ? (
+            <>
+              <div
+                className={cn(
+                  'mt-8 transition-opacity duration-200',
+                  pending && 'pointer-events-none opacity-50',
+                )}
+                aria-busy={pending}
+              >
+                <ProductGrid products={products} columns={4} priorityCount={4} />
+              </div>
+
+              <ShopPagination
+                pagination={pagination}
+                onPageChange={(page) => apply({ page })}
+                className="mt-12 border-t border-border pt-8"
+              />
+            </>
+          ) : pending ? (
+            <ProductGridSkeleton count={8} className="mt-8" />
           ) : (
             <EmptyState
               icon={PackageSearch}
@@ -224,12 +264,34 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
 
 interface ShopSearchFieldProps {
   value: string;
-  onChange: (value: string) => void;
+  onCommit: (value: string) => void;
   className?: string;
 }
 
-/** Narrows the current result set in place, unlike the site-wide search overlay. */
-function ShopSearchField({ value, onChange, className }: ShopSearchFieldProps) {
+/**
+ * Narrows the current result set. Typing is debounced so a search is one
+ * navigation rather than one per character.
+ */
+function ShopSearchField({ value, onCommit, className }: ShopSearchFieldProps) {
+  const [draft, setDraft] = useState(value);
+  const [syncedWith, setSyncedWith] = useState(value);
+
+  // Adjust during render so the field follows the URL when it changes from
+  // somewhere else (a chip, Clear all) without an extra render pass.
+  if (syncedWith !== value) {
+    setSyncedWith(value);
+    setDraft(value);
+  }
+
+  // Only the timer callback writes state, so typing is one navigation rather
+  // than one per character.
+  useEffect(() => {
+    if (draft === value) return;
+
+    const timer = window.setTimeout(() => onCommit(draft), 350);
+    return () => window.clearTimeout(timer);
+  }, [draft, value, onCommit]);
+
   return (
     <div className={className}>
       <label htmlFor="shop-search" className="sr-only">
@@ -242,16 +304,16 @@ function ShopSearchField({ value, onChange, className }: ShopSearchFieldProps) {
         <input
           id="shop-search"
           type="search"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
           placeholder="Search these products..."
           className="text-small w-full min-w-0 bg-transparent outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:appearance-none"
         />
 
-        {value && (
+        {draft && (
           <button
             type="button"
-            onClick={() => onChange('')}
+            onClick={() => setDraft('')}
             aria-label="Clear search"
             className="focus-ring inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >

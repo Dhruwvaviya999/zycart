@@ -2,17 +2,20 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { useMemo } from 'react';
 import { ArrowRight, BookmarkPlus, ShoppingBag, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Breadcrumbs } from '@/components/common/breadcrumbs';
 import { EmptyState } from '@/components/common/empty-state';
+import { ErrorState } from '@/components/common/error-state';
 import { CartSkeleton } from '@/components/common/loading-state';
 import { Container } from '@/components/layout/container';
 import { QuantitySelector } from '@/components/product/quantity-selector';
-import { selectCartSummary, useCartStore, type ResolvedCartLine } from '@/store/cart-store';
+import { useProductsByIds } from '@/hooks/use-products-by-ids';
+import { buildCartSummary, type ResolvedCartLine } from '@/lib/cart';
+import { useCartStore } from '@/store/cart-store';
 import { formatPrice } from '@/lib/format';
-import { categoryName } from '@/data/categories';
 
 export function CartClient() {
   const hydrated = useCartStore((state) => state.hydrated);
@@ -24,8 +27,18 @@ export function CartClient() {
   const moveToCart = useCartStore((state) => state.moveToCart);
   const removeSaved = useCartStore((state) => state.removeSaved);
 
-  const summary = selectCartSummary(lines);
-  const savedSummary = selectCartSummary(saved);
+  const ids = useMemo(
+    () => [...new Set([...lines, ...saved].map((line) => line.productId))],
+    [lines, saved],
+  );
+
+  // Only ask the API once local storage has been read.
+  const { products, status, error, retry } = useProductsByIds(ids, hydrated);
+
+  const summary = buildCartSummary(lines, products);
+  const savedSummary = buildCartSummary(saved, products);
+
+  const loading = !hydrated || (status === 'loading' && ids.length > 0);
 
   return (
     <Container className="py-8 sm:py-10">
@@ -34,14 +47,22 @@ export function CartClient() {
       <header className="mt-5">
         <h1 className="text-h1">Your cart</h1>
         <p className="text-small mt-2 text-muted-foreground">
-          {hydrated
-            ? `${summary.itemCount} ${summary.itemCount === 1 ? 'item' : 'items'}`
-            : 'Loading your cart...'}
+          {loading
+            ? 'Loading your cart...'
+            : `${summary.itemCount} ${summary.itemCount === 1 ? 'item' : 'items'}`}
         </p>
       </header>
 
-      {!hydrated ? (
+      {loading ? (
         <CartSkeleton className="mt-10" />
+      ) : status === 'error' ? (
+        <ErrorState
+          title="We could not load your cart."
+          body={error ?? 'Your items are safe — this is a display problem on our side.'}
+          onRetry={retry}
+          secondaryAction={{ label: 'Keep shopping', href: '/shop' }}
+          className="mt-10"
+        />
       ) : summary.items.length === 0 ? (
         <EmptyState
           icon={ShoppingBag}
@@ -100,7 +121,7 @@ export function CartClient() {
                       >
                         {item.product.images[0] && (
                           <Image
-                            src={item.product.images[0].url}
+                            src={item.product.images[0]}
                             alt=""
                             fill
                             sizes="80px"
@@ -110,7 +131,9 @@ export function CartClient() {
                       </Link>
 
                       <div className="min-w-0 flex-1">
-                        <p className="text-caption text-muted-foreground">{item.product.brand}</p>
+                        <p className="text-caption text-muted-foreground">
+                          {item.product.brand.name}
+                        </p>
                         <p className="text-small truncate font-medium">{item.product.name}</p>
                         <p className="text-price mt-1">{formatPrice(item.product.price)}</p>
                       </div>
@@ -177,7 +200,7 @@ export function CartClient() {
               </Button>
 
               <p className="text-caption mt-3 text-center text-muted-foreground">
-                Checkout is not connected yet — this is a Phase 2 preview.
+                Checkout is not connected yet — orders arrive in a later phase.
               </p>
             </div>
           </aside>
@@ -224,27 +247,21 @@ function CartRow({ item, onQuantity, onRemove, onSave }: CartRowProps) {
         className="focus-ring relative size-24 shrink-0 overflow-hidden rounded-xl bg-surface sm:size-28"
       >
         {product.images[0] && (
-          <Image
-            src={product.images[0].url}
-            alt={product.images[0].alt}
-            fill
-            sizes="112px"
-            className="object-cover"
-          />
+          <Image src={product.images[0]} alt="" fill sizes="112px" className="object-cover" />
         )}
       </Link>
 
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-caption text-muted-foreground">{product.brand}</p>
+            <p className="text-caption text-muted-foreground">{product.brand.name}</p>
             <h3 className="text-small font-medium">
               <Link href={`/products/${product.slug}`} className="focus-ring rounded-sm">
                 {product.name}
               </Link>
             </h3>
             <p className="text-caption mt-1 text-muted-foreground">
-              {variant || categoryName(product.category)}
+              {variant || product.category.name}
             </p>
           </div>
 
@@ -259,7 +276,12 @@ function CartRow({ item, onQuantity, onRemove, onSave }: CartRowProps) {
         </div>
 
         <div className="mt-auto flex flex-wrap items-center gap-2">
-          <QuantitySelector value={line.quantity} onChange={onQuantity} size="sm" />
+          <QuantitySelector
+            value={line.quantity}
+            onChange={onQuantity}
+            max={Math.min(10, Math.max(1, product.stock))}
+            size="sm"
+          />
 
           <Button size="sm" variant="ghost" onClick={onSave} className="text-muted-foreground">
             <BookmarkPlus className="size-3.5" data-icon="inline-start" />

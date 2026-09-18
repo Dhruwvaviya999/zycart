@@ -1,0 +1,93 @@
+import { z } from 'zod';
+import { objectIdSchema, queryBoolean } from './common';
+
+const colorSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  hex: z
+    .string()
+    .trim()
+    .regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'must be a hex colour'),
+});
+
+const sizeSchema = z.object({
+  label: z.string().trim().min(1).max(20),
+  inStock: z.boolean().optional(),
+});
+
+const specificationSchema = z.object({
+  label: z.string().trim().min(1).max(60),
+  value: z.string().trim().min(1).max(200),
+});
+
+export const createProductSchema = z.object({
+  name: z.string().trim().min(2).max(160),
+  description: z.string().trim().min(10).max(4000),
+  shortDescription: z.string().trim().max(300).optional(),
+
+  images: z.array(z.url().max(600)).min(1).max(10),
+
+  price: z.number().nonnegative().finite().max(10_000_000),
+  compareAtPrice: z.number().nonnegative().finite().max(10_000_000).nullish(),
+
+  category: objectIdSchema,
+  brand: objectIdSchema,
+
+  sku: z
+    .string()
+    .trim()
+    .min(2)
+    .max(40)
+    .regex(/^[A-Za-z0-9-]+$/, 'may contain letters, digits and hyphens only'),
+  stock: z.number().int().nonnegative().max(1_000_000),
+
+  colors: z.array(colorSchema).max(20).optional(),
+  sizes: z.array(sizeSchema).max(30).optional(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(30).optional(),
+  highlights: z.array(z.string().trim().min(1).max(200)).max(12).optional(),
+  specifications: z.array(specificationSchema).max(30).optional(),
+
+  rating: z.number().min(0).max(5).optional(),
+  reviewCount: z.number().int().nonnegative().optional(),
+
+  isFeatured: z.boolean().optional(),
+  isBestSeller: z.boolean().optional(),
+  isNewArrival: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+});
+
+/**
+ * `sku` and `slug` are immutable: the SKU identifies the item in inventory and
+ * the slug is its public URL. Everything else can change.
+ */
+export const updateProductSchema = createProductSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'at least one field must be provided');
+
+export const SORT_KEYS = ['price_asc', 'price_desc', 'newest', 'oldest', 'rating'] as const;
+
+export const productQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(12),
+    search: z.string().trim().max(100).optional(),
+    category: z.string().trim().max(200).optional(),
+    brand: z.string().trim().max(200).optional(),
+    minPrice: z.coerce.number().nonnegative().finite().optional(),
+    maxPrice: z.coerce.number().nonnegative().finite().optional(),
+    minRating: z.coerce.number().min(0).max(5).optional(),
+    inStock: queryBoolean,
+    /** Comma-separated ids — how the cart and wishlist resolve what they stored. */
+    ids: z.string().trim().max(2000).optional(),
+    sort: z.enum(SORT_KEYS).default('newest'),
+  })
+  .refine(
+    (value) =>
+      value.minPrice === undefined ||
+      value.maxPrice === undefined ||
+      value.minPrice <= value.maxPrice,
+    { path: ['minPrice'], error: 'must not be greater than maxPrice' },
+  );
+
+export type CreateProductInput = z.infer<typeof createProductSchema>;
+export type UpdateProductInput = z.infer<typeof updateProductSchema>;
+export type ProductQuery = z.infer<typeof productQuerySchema>;

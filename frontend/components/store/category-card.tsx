@@ -25,18 +25,22 @@ export function CategoryCard({
       )}
     >
       <span className="relative block aspect-square overflow-hidden">
-        <Image
-          src={category.image}
-          alt=""
-          fill
-          sizes={sizes}
-          className="object-cover transition-transform duration-500 ease-brand group-hover:scale-[1.07]"
-        />
+        {category.image && (
+          <Image
+            src={category.image}
+            alt=""
+            fill
+            sizes={sizes}
+            className="object-cover transition-transform duration-500 ease-brand group-hover:scale-[1.07]"
+          />
+        )}
       </span>
 
       <span className="flex flex-col gap-0.5 px-3 py-3">
         <span className="text-small font-semibold">{category.name}</span>
-        <span className="text-caption text-muted-foreground">{category.itemCount} items</span>
+        <span className="text-caption text-muted-foreground">
+          {category.productCount} {category.productCount === 1 ? 'item' : 'items'}
+        </span>
       </span>
     </Link>
   );

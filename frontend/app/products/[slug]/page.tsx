@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { Suspense } from 'react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Breadcrumbs } from '@/components/common/breadcrumbs';
@@ -7,44 +8,40 @@ import { Container } from '@/components/layout/container';
 import { SectionHeading } from '@/components/layout/section-heading';
 import { ProductGallery } from '@/components/product/product-gallery';
 import { ProductGrid } from '@/components/product/product-grid';
+import { ProductGridSkeleton } from '@/components/common/loading-state';
 import { ProductPurchasePanel } from '@/components/product/product-purchase-panel';
 import { Rating } from '@/components/product/rating';
-import { categoryName } from '@/data/categories';
-import { alsoLike, productBySlug, products, relatedProducts, reviews } from '@/data/products';
+import { ApiError } from '@/services/api';
+import { getProductBySlug, getProducts, getRelatedProducts } from '@/services/product.service';
+import { reviews } from '@/data/reviews';
 import { formatDate } from '@/lib/format';
+import type { Product, ProductReference } from '@/types/product';
 
-export function generateStaticParams() {
-  return products.map((product) => ({ slug: product.slug }));
+/** A missing product is a 404; anything else is a real failure worth surfacing. */
+async function loadProduct(slug: string): Promise<Product> {
+  try {
+    return await getProductBySlug(slug);
+  } catch (error) {
+    if (error instanceof ApiError && error.isNotFound) notFound();
+    throw error;
+  }
 }
-
-/**
- * The catalogue is fully known at build time, so an unknown slug is a genuine
- * 404 rather than something to render on demand. Without this Next streams the
- * not-found page with a 200, which search engines would index.
- */
-export const dynamicParams = false;
 
 export async function generateMetadata({
   params,
 }: PageProps<'/products/[slug]'>): Promise<Metadata> {
   const { slug } = await params;
-  const product = productBySlug(slug);
-  if (!product) return { title: 'Product not found' };
 
+  const product = await loadProduct(slug);
   return {
-    title: `${product.brand} ${product.name}`,
-    description: product.tagline,
+    title: `${product.brand.name} ${product.name}`,
+    description: product.shortDescription,
   };
 }
 
 export default async function ProductPage({ params }: PageProps<'/products/[slug]'>) {
   const { slug } = await params;
-  const product = productBySlug(slug);
-
-  if (!product) notFound();
-
-  const related = relatedProducts(product);
-  const suggestions = alsoLike(product);
+  const product = await loadProduct(slug);
 
   return (
     <>
@@ -53,7 +50,7 @@ export default async function ProductPage({ params }: PageProps<'/products/[slug
           items={[
             { label: 'Home', href: '/' },
             { label: 'Shop', href: '/shop' },
-            { label: categoryName(product.category), href: `/shop?category=${product.category}` },
+            { label: product.category.name, href: `/shop?category=${product.category.slug}` },
             { label: product.name },
           ]}
         />
@@ -67,7 +64,9 @@ export default async function ProductPage({ params }: PageProps<'/products/[slug
           <Tabs defaultValue="description">
             <TabsList className="w-full justify-start overflow-x-auto">
               <TabsTrigger value="description">Description</TabsTrigger>
-              <TabsTrigger value="specifications">Specifications</TabsTrigger>
+              {product.specifications.length > 0 && (
+                <TabsTrigger value="specifications">Specifications</TabsTrigger>
+              )}
               <TabsTrigger value="reviews">Reviews ({reviews.length})</TabsTrigger>
             </TabsList>
 
@@ -78,37 +77,41 @@ export default async function ProductPage({ params }: PageProps<'/products/[slug
                   {product.description}
                 </p>
 
-                <div>
-                  <h3 className="text-h4">Highlights</h3>
-                  <ul className="mt-4 space-y-3">
-                    {product.highlights.map((highlight) => (
-                      <li key={highlight} className="text-small flex gap-3">
-                        <span
-                          className="mt-[0.45rem] size-1.5 shrink-0 rounded-full bg-brand"
-                          aria-hidden
-                        />
-                        {highlight}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                {product.highlights.length > 0 && (
+                  <div>
+                    <h3 className="text-h4">Highlights</h3>
+                    <ul className="mt-4 space-y-3">
+                      {product.highlights.map((highlight) => (
+                        <li key={highlight} className="text-small flex gap-3">
+                          <span
+                            className="mt-[0.45rem] size-1.5 shrink-0 rounded-full bg-brand"
+                            aria-hidden
+                          />
+                          {highlight}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </TabsContent>
 
-            <TabsContent value="specifications" className="pt-8">
-              <h2 className="sr-only">Specifications</h2>
-              <dl className="max-w-2xl divide-y divide-border rounded-2xl border border-border">
-                {product.specifications.map((spec) => (
-                  <div
-                    key={spec.label}
-                    className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] gap-4 px-5 py-4"
-                  >
-                    <dt className="text-small text-muted-foreground">{spec.label}</dt>
-                    <dd className="text-small font-medium">{spec.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </TabsContent>
+            {product.specifications.length > 0 && (
+              <TabsContent value="specifications" className="pt-8">
+                <h2 className="sr-only">Specifications</h2>
+                <dl className="max-w-2xl divide-y divide-border rounded-2xl border border-border">
+                  {product.specifications.map((spec) => (
+                    <div
+                      key={spec.label}
+                      className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] gap-4 px-5 py-4"
+                    >
+                      <dt className="text-small text-muted-foreground">{spec.label}</dt>
+                      <dd className="text-small font-medium">{spec.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </TabsContent>
+            )}
 
             <TabsContent value="reviews" className="pt-8">
               <h2 className="sr-only">Reviews</h2>
@@ -161,29 +164,63 @@ export default async function ProductPage({ params }: PageProps<'/products/[slug
         </section>
       </Container>
 
-      {related.length > 0 && (
-        <section className="section-tight">
-          <Container>
-            <SectionHeading
-              title="Related products"
-              description={`More from ${categoryName(product.category)}.`}
-              action={{ label: 'View category', href: `/shop?category=${product.category}` }}
-            />
-            <ProductGrid products={related} columns={4} className="mt-9" />
-          </Container>
-        </section>
-      )}
+      <Suspense fallback={<RailSkeleton />}>
+        <RelatedRail slug={slug} category={product.category} />
+      </Suspense>
 
-      <section className="section-tight">
-        <Container>
-          <SectionHeading
-            title="You may also like"
-            description="Highly rated pieces from across the catalogue."
-            action={{ label: 'Browse everything', href: '/shop' }}
-          />
-          <ProductGrid products={suggestions} columns={4} className="mt-9" />
-        </Container>
-      </section>
+      <Suspense fallback={<RailSkeleton />}>
+        <AlsoLikeRail excludeId={product.id} />
+      </Suspense>
     </>
+  );
+}
+
+/** Both rails are optional, so each streams in on its own and neither can fail the page. */
+async function RelatedRail({ slug, category }: { slug: string; category: ProductReference }) {
+  const related = await getRelatedProducts(slug, 4).catch(() => []);
+  if (related.length === 0) return null;
+
+  return (
+    <section className="section-tight">
+      <Container>
+        <SectionHeading
+          title="Related products"
+          description={`More from ${category.name}.`}
+          action={{ label: 'View category', href: `/shop?category=${category.slug}` }}
+        />
+        <ProductGrid products={related} columns={4} className="mt-9" />
+      </Container>
+    </section>
+  );
+}
+
+async function AlsoLikeRail({ excludeId }: { excludeId: string }) {
+  const alsoLike = await getProducts({ sort: 'rating', limit: 5 })
+    .then((result) => result.items.filter((item) => item.id !== excludeId).slice(0, 4))
+    .catch(() => []);
+
+  if (alsoLike.length === 0) return null;
+
+  return (
+    <section className="section-tight">
+      <Container>
+        <SectionHeading
+          title="You may also like"
+          description="Highly rated pieces from across the catalogue."
+          action={{ label: 'Browse everything', href: '/shop' }}
+        />
+        <ProductGrid products={alsoLike} columns={4} className="mt-9" />
+      </Container>
+    </section>
+  );
+}
+
+function RailSkeleton() {
+  return (
+    <section className="section-tight">
+      <Container>
+        <ProductGridSkeleton count={4} />
+      </Container>
+    </section>
   );
 }

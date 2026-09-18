@@ -4,16 +4,16 @@ AI-powered e-commerce application.
 
 Smart shopping, beautifully simplified.
 
-This repository contains **Phase 1 (project foundation)** and **Phase 2 (storefront
-UI)** — a working Next.js frontend, an Express + TypeScript backend, and a MongoDB
-connection, plus a complete customer-facing storefront built on mock data.
+This repository contains **Phase 1 (project foundation)**, **Phase 2 (storefront
+UI)** and **Phase 3 (product catalogue)** — a Next.js storefront backed by a real
+MongoDB catalogue served over an Express + TypeScript API.
 
-Authentication, product/cart/order APIs, payments, and AI functionality do not
-exist yet. Every price, product and order you see is fixture data in
-`frontend/data/`; nothing is persisted beyond your own browser.
+Authentication, cart/order APIs, payments, and AI functionality do not exist yet.
+The cart and wishlist keep product ids in your browser; orders and account details
+are still fixture data in `frontend/data/`.
 
 Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
-[phase 2](docs/phase-2.md).
+[phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md).
 
 ---
 
@@ -67,10 +67,10 @@ zycart/
 │   │   ├── store/         # Homepage sections
 │   │   ├── ui/            # shadcn/ui primitives
 │   │   └── wishlist/      # Wishlist
-│   ├── data/              # Mock catalogue: products, categories, banners
+│   ├── data/              # Marketing copy, navigation, sample reviews/account
 │   ├── hooks/             # Custom React hooks
 │   ├── lib/               # Framework-agnostic helpers (format.ts, utils.ts)
-│   ├── services/          # API clients - services/api.ts holds the Axios instance
+│   ├── services/          # API clients: api, product, category, brand
 │   ├── store/             # Zustand stores (cart, wishlist, UI)
 │   ├── types/             # Shared TypeScript types
 │   └── public/            # Static assets
@@ -80,11 +80,11 @@ zycart/
 │       ├── config/        # env.ts (validation), database.ts (Mongoose connection)
 │       ├── controllers/   # Request handlers
 │       ├── middleware/    # Error handling, 404
-│       ├── models/        # Mongoose models (empty in Phase 1)
+│       ├── models/        # product, category, brand
 │       ├── routes/        # Route definitions only
-│       ├── services/      # Business logic (empty in Phase 1)
-│       ├── utils/         # AppError, asyncHandler
-│       ├── validators/    # Zod request schemas (empty in Phase 1)
+│       ├── services/      # Database and business logic
+│       ├── utils/         # AppError, asyncHandler, slugify, seed
+│       ├── validators/    # Zod request and query schemas
 │       ├── app.ts         # Express app assembly
 │       └── server.ts      # Env load -> DB connect -> listen
 │
@@ -158,7 +158,16 @@ Then set `MONGODB_URI=mongodb://127.0.0.1:27017/zycart`.
 MongoDB Atlas: create a cluster, allow your IP, and paste the connection string into
 `MONGODB_URI`. Never commit it.
 
-### 6. Start the backend
+### 6. Seed the catalogue
+
+```bash
+pnpm seed
+```
+
+This loads 6 categories, 21 brands and 36 products. It clears those three
+collections first, so it is safe to re-run and it touches nothing else.
+
+### 7. Start the backend
 
 ```bash
 pnpm dev:backend
@@ -173,14 +182,14 @@ Health check: http://localhost:5000/api/health
 CORS origin: http://localhost:3000
 ```
 
-### 7. Start the frontend
+### 8. Start the frontend
 
 ```bash
 pnpm dev:frontend
 ```
 
-Open <http://localhost:3000>. The storefront runs entirely on mock data, so the
-backend does not have to be running to browse it.
+Open <http://localhost:3000>. The storefront reads its catalogue from the API, so
+**the backend must be running and the database seeded** for products to appear.
 
 ### Routes
 
@@ -211,6 +220,7 @@ Run from the repository root:
 | `pnpm typecheck`    | Type-check both applications           |
 | `pnpm lint`         | Lint both applications                 |
 | `pnpm format`       | Format the repository with Prettier    |
+| `pnpm seed`         | Load the development catalogue         |
 
 Per application:
 
@@ -219,6 +229,7 @@ Per application:
 | `backend/`  | `pnpm dev`   | `tsx watch src/server.ts`            |
 | `backend/`  | `pnpm build` | Compile TypeScript to `dist/`        |
 | `backend/`  | `pnpm start` | Run the compiled server from `dist/` |
+| `backend/`  | `pnpm seed`  | Load the development catalogue       |
 | `frontend/` | `pnpm dev`   | Next.js dev server                   |
 | `frontend/` | `pnpm build` | Production build                     |
 | `frontend/` | `pnpm start` | Serve the production build           |
@@ -274,6 +285,35 @@ Liveness check. Reports non-sensitive runtime information only.
 `data.database` is one of `connected`, `connecting`, `disconnecting`,
 `disconnected`, or `unknown`.
 
+### Catalogue
+
+| Method | Path                              | Purpose                                |
+| ------ | --------------------------------- | -------------------------------------- |
+| `GET`  | `/api/products`                   | Paginated list with search/filter/sort |
+| `GET`  | `/api/products/featured`          | Featured rail                          |
+| `GET`  | `/api/products/best-sellers`      | Best sellers rail                      |
+| `GET`  | `/api/products/new-arrivals`      | New arrivals rail                      |
+| `GET`  | `/api/products/:idOrSlug`         | One product                            |
+| `GET`  | `/api/products/:idOrSlug/related` | Same category, excluding itself        |
+| `GET`  | `/api/categories`                 | Active categories with product counts  |
+| `GET`  | `/api/brands`                     | Active brands                          |
+
+Products, categories and brands also expose `POST`, `PATCH` and `DELETE`. Those
+write endpoints are unauthenticated development APIs until auth lands.
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "data": [{ "id": "...", "name": "Air Max Heritage Runner", "price": 8495 }],
+  "pagination": { "page": 1, "limit": 12, "total": 36, "totalPages": 3 }
+}
+```
+
+Full schemas, every query parameter and more examples are in
+[docs/phase-3.md](docs/phase-3.md).
+
 ### Errors
 
 Every error returns the same shape.
@@ -313,5 +353,6 @@ Internal details are logged server-side and never returned to the client.
 ## Roadmap
 
 Phase 1 established the frontend, backend, and MongoDB foundation. Phase 2 built
-the storefront UI on mock data. Authentication, real product and order APIs,
+the storefront UI on mock data. Phase 3 replaced that mock data with a real
+MongoDB catalogue and the API that serves it. Authentication, cart and order APIs,
 payments, and AI features arrive in later phases.

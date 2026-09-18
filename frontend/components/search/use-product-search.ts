@@ -1,58 +1,71 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { matchesSearch, products } from '@/data/products';
-import { categories } from '@/data/categories';
-import { brands } from '@/data/products';
-import type { Product } from '@/types/product';
+import { useEffect, useState } from 'react';
+import { toErrorMessage } from '@/services/api';
+import { getProducts } from '@/services/product.service';
+import type { ProductSummary } from '@/types/product';
 
-export interface SearchResults {
-  products: Product[];
-  categories: typeof categories;
-  brands: string[];
+const MIN_QUERY_LENGTH = 2;
+const RESULT_LIMIT = 6;
+
+export interface ProductSearchState {
+  products: ProductSummary[];
+  loading: boolean;
+  error?: string;
+  /** True once a real query has settled and produced nothing. */
+  isEmpty: boolean;
+  hasQuery: boolean;
 }
 
-const EMPTY: SearchResults = { products: [], categories: [], brands: [] };
+interface Settled {
+  query: string;
+  products: ProductSummary[];
+  error?: string;
+}
 
 /**
- * Local catalogue search with a debounce, shaped so the body can be swapped for
- * a backend call in a later phase without changing any consumer.
+ * Debounced catalogue search against `GET /api/products?search=`. The server
+ * owns matching, so the overlay and the shop page always agree on results.
+ *
+ * Only the last settled response is stored; everything the caller reads is
+ * derived from whether that response matches the query being typed. Backtracking
+ * to a term already fetched therefore answers instantly.
  */
-export function useProductSearch(query: string, delay = 220) {
-  const [debounced, setDebounced] = useState(query);
+export function useProductSearch(query: string, delay = 280): ProductSearchState {
+  const [settled, setSettled] = useState<Settled>({ query: '', products: [] });
 
-  // Loading is derived, not stored: the input is "loading" exactly while the
-  // live query has not yet caught up with the debounced one.
-  const loading = query !== debounced;
+  const term = query.trim();
+  const hasQuery = term.length >= MIN_QUERY_LENGTH;
+  const matched = hasQuery && settled.query === term;
 
   useEffect(() => {
-    if (query === debounced) return;
-    const timer = window.setTimeout(() => setDebounced(query), delay);
-    return () => window.clearTimeout(timer);
-  }, [query, debounced, delay]);
+    if (!hasQuery || settled.query === term) return;
 
-  const results = useMemo<SearchResults>(() => {
-    const term = debounced.trim().toLowerCase();
-    if (term.length < 2) return EMPTY;
+    let cancelled = false;
 
-    const matches = (haystack: string) => haystack.toLowerCase().includes(term);
+    const timer = window.setTimeout(() => {
+      getProducts({ search: term, limit: RESULT_LIMIT })
+        .then((result) => {
+          if (!cancelled) setSettled({ query: term, products: result.items });
+        })
+        .catch((cause: unknown) => {
+          if (!cancelled) {
+            setSettled({ query: term, products: [], error: toErrorMessage(cause) });
+          }
+        });
+    }, delay);
 
-    return {
-      products: products.filter((product) => matchesSearch(product, term)).slice(0, 6),
-      categories: categories.filter(
-        (category) => matches(category.name) || matches(category.tagline),
-      ),
-      brands: brands.filter((brand) => matches(brand)).slice(0, 5),
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [debounced]);
-
-  const total = results.products.length + results.categories.length + results.brands.length;
+  }, [term, hasQuery, delay, settled.query]);
 
   return {
-    results,
-    loading,
-    /** True once a real query has settled and produced nothing. */
-    isEmpty: debounced.trim().length >= 2 && total === 0 && !loading,
-    hasQuery: debounced.trim().length >= 2,
+    products: matched ? settled.products : [],
+    loading: hasQuery && !matched,
+    error: matched ? settled.error : undefined,
+    isEmpty: matched && settled.error === undefined && settled.products.length === 0,
+    hasQuery,
   };
 }

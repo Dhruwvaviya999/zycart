@@ -10,7 +10,7 @@ export const formatPrice = (value: number) => inr.format(value);
 
 export const formatCount = (value: number) => compact.format(value);
 
-export function discountPercent(price: number, compareAtPrice?: number) {
+export function discountPercent(price: number, compareAtPrice?: number | null) {
   if (!compareAtPrice || compareAtPrice <= price) return 0;
   return Math.round(((compareAtPrice - price) / compareAtPrice) * 100);
 }
