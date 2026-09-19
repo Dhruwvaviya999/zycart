@@ -74,12 +74,7 @@ export function ConfirmDialog({
         <AuthError message={error} />
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button
-            size="cta"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={busy}
-          >
+          <Button size="cta" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
           <Button

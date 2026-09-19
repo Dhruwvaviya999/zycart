@@ -28,6 +28,7 @@ export const footerNav: NavGroup[] = [
     label: 'Shop',
     links: [
       { label: 'All products', href: '/shop' },
+      { label: 'AI Shopping', href: '/ai-shopping' },
       { label: 'New arrivals', href: '/shop?sort=newest' },
       { label: 'Best sellers', href: '/shop?sort=rating' },
       { label: 'Deals', href: '/shop?sort=discount' },

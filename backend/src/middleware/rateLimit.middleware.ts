@@ -8,8 +8,18 @@ interface Bucket {
 
 interface RateLimitOptions {
   windowMs: number;
-  max: number;
+  /**
+   * A function when the allowance depends on who is asking — the AI endpoint
+   * gives a signed-in customer a higher one than an anonymous IP.
+   */
+  max: number | ((req: Request) => number);
   message?: string;
+  /**
+   * What counts as "the same caller". Defaults to IP plus path, which is right
+   * for the credential endpoints. An endpoint with a verified session should
+   * count per account instead, so one shared office IP is not one allowance.
+   */
+  keyBy?: (req: Request) => string;
 }
 
 /**
@@ -21,7 +31,7 @@ interface RateLimitOptions {
  * deployment needs a shared store instead. That trade is documented rather than
  * pre-solved, because shared infrastructure is not warranted yet.
  */
-export function rateLimit({ windowMs, max, message }: RateLimitOptions): RequestHandler {
+export function rateLimit({ windowMs, max, message, keyBy }: RateLimitOptions): RequestHandler {
   const buckets = new Map<string, Bucket>();
 
   return (req: Request, res: Response, next: NextFunction) => {
@@ -32,7 +42,7 @@ export function rateLimit({ windowMs, max, message }: RateLimitOptions): Request
       if (bucket.resetAt <= now) buckets.delete(key);
     }
 
-    const key = `${req.ip ?? 'unknown'}:${req.path}`;
+    const key = keyBy ? keyBy(req) : `${req.ip ?? 'unknown'}:${req.path}`;
     const bucket = buckets.get(key);
 
     if (!bucket || bucket.resetAt <= now) {
@@ -42,7 +52,9 @@ export function rateLimit({ windowMs, max, message }: RateLimitOptions): Request
 
     bucket.count += 1;
 
-    if (bucket.count > max) {
+    const allowance = typeof max === 'function' ? max(req) : max;
+
+    if (bucket.count > allowance) {
       const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
       res.setHeader('Retry-After', String(retryAfter));
       return next(new AppError(message ?? 'Too many attempts. Please try again shortly.', 429));

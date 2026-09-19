@@ -72,6 +72,14 @@ function toApiError(error: unknown): ApiError {
  */
 export interface RequestOptions {
   cookie?: string;
+  /**
+   * Overrides the client's 10-second default. The AI endpoint needs it: a model
+   * call plus its catalogue lookups is seconds of work, not milliseconds, and
+   * a timeout tuned for a product query would cut every reply short.
+   */
+  timeoutMs?: number;
+  /** Lets a caller abandon a slow request — the assistant's Stop button. */
+  signal?: AbortSignal;
 }
 
 const headersFor = (options?: RequestOptions) =>
@@ -114,6 +122,8 @@ export async function send<TData>(
       url: path,
       data: body,
       headers: headersFor(options),
+      ...(options?.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
 
     if (!data.success || data.data === undefined) {

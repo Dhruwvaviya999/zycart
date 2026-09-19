@@ -23,7 +23,10 @@ export default async function NewProductPage() {
   } catch (error) {
     return (
       <>
-        <AdminPageHeader title="New product" back={{ href: '/admin/products', label: 'Products' }} />
+        <AdminPageHeader
+          title="New product"
+          back={{ href: '/admin/products', label: 'Products' }}
+        />
         <AdminError message={toErrorMessage(error)} />
       </>
     );

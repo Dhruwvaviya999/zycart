@@ -81,8 +81,8 @@ export function ProductRowActions({ product }: { product: AdminProductRow }) {
           hiding ? (
             <>
               <strong>{product.name}</strong> will stop appearing in the shop, in search and in
-              filters. Existing orders that contain it are unaffected, and you can activate it
-              again at any time.
+              filters. Existing orders that contain it are unaffected, and you can activate it again
+              at any time.
             </>
           ) : (
             <>

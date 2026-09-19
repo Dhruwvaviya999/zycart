@@ -6,20 +6,29 @@ Smart shopping, beautifully simplified.
 
 This repository contains **Phase 1 (project foundation)**, **Phase 2 (storefront
 UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
-& wishlist)**, **Phase 6 (checkout & orders)**, **Phase 7 (Razorpay payments)**
-and **Phase 8 (reviews & ratings)** — a Next.js storefront backed by a real
-MongoDB catalogue, customer accounts, a persistent cart, ordering paid either
-online or on delivery, and ratings written only by customers who received what
-they are rating, served over an Express + TypeScript API.
+& wishlist)**, **Phase 6 (checkout & orders)**, **Phase 7 (Razorpay payments)**,
+**Phase 8 (reviews & ratings)**, **Phase 9 (admin console)** and **Phase 10 (AI
+shopping assistant)** — a Next.js storefront backed by a real MongoDB catalogue,
+customer accounts, a persistent cart, ordering paid either online or on
+delivery, ratings written only by customers who received what they are rating, a
+console to run the store, and a shopping assistant that answers from the live
+catalogue, served over an Express + TypeScript API.
 
 Orders can be paid online through Razorpay or settled in cash on delivery, and
-every rating on the site comes from a verified purchase. AI functionality does
-not exist yet.
+every rating on the site comes from a verified purchase.
+
+**ZyCart AI** is a shopping assistant, not a chatbot bolted on. It reaches the
+catalogue and the cart through five explicitly defined server-side tools that
+call the storefront's own services — so its prices, stock and ratings are the
+same ones `/shop` shows, and it has no route to the database, no way to place an
+order and no access to anyone's account details. It is optional: leave
+`AI_API_KEY` blank and the entire store works exactly as before.
 
 Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md), [phase 4](docs/phase-4.md),
 [phase 5](docs/phase-5.md), [phase 6](docs/phase-6.md),
-[phase 7](docs/phase-7.md), [phase 8](docs/phase-8.md).
+[phase 7](docs/phase-7.md), [phase 8](docs/phase-8.md),
+[phase 9](docs/phase-9.md), [phase 10](docs/phase-10.md).
 
 ---
 
@@ -38,18 +47,19 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 
 ### Backend
 
-| Tool       | Purpose                     |
-| ---------- | --------------------------- |
-| Node.js    | Runtime                     |
-| Express    | HTTP framework              |
-| TypeScript | Static typing               |
-| MongoDB    | Database                    |
-| Mongoose   | ODM                         |
-| Zod        | Schema and env validation   |
-| Razorpay   | Online payments             |
-| dotenv     | Environment loading         |
-| cors       | Cross-origin access control |
-| helmet     | Security headers            |
+| Tool          | Purpose                                              |
+| ------------- | ---------------------------------------------------- |
+| Node.js       | Runtime                                              |
+| Express       | HTTP framework                                       |
+| TypeScript    | Static typing                                        |
+| MongoDB       | Database                                             |
+| Mongoose      | ODM                                                  |
+| Zod           | Schema and env validation                            |
+| Razorpay      | Online payments                                      |
+| Anthropic SDK | AI provider for the shopping assistant (server-only) |
+| dotenv        | Environment loading                                  |
+| cors          | Cross-origin access control                          |
+| helmet        | Security headers                                     |
 
 ### Development
 
@@ -75,6 +85,7 @@ zycart/
 │   │   ├── payment/       # Method selector, processing, failure, status
 │   │   ├── product/       # Product card, grid, gallery, price, rating, tabs
 │   │   ├── reviews/       # Rating summary, selector, cards, form, filters
+│   │   ├── ai/            # Launcher, panel, chat, messages, product cards
 │   │   ├── search/        # Search trigger and overlay
 │   │   ├── shop/          # Listing page, filters
 │   │   ├── store/         # Homepage sections
@@ -82,23 +93,24 @@ zycart/
 │   │   └── wishlist/      # Wishlist
 │   ├── data/              # Marketing copy, navigation, sample reviews/account
 │   ├── hooks/             # Custom React hooks
-│   ├── lib/               # Framework-agnostic helpers (format.ts, utils.ts)
+│   ├── lib/               # Framework-agnostic helpers (format.ts, ai-text.ts)
 │   ├── services/          # API clients: api, product, category, brand,
-│   │                      #   cart, wishlist, order, user, payment, review
+│   │                      #   cart, wishlist, order, user, payment, review, ai
 │   ├── store/             # Zustand stores (cart, wishlist, UI)
 │   ├── types/             # Shared TypeScript types
 │   └── public/            # Static assets
 │
 ├── backend/
 │   └── src/
-│       ├── config/        # env.ts (validation), database.ts (Mongoose connection)
+│       ├── config/        # env.ts, ai.ts (AI config + limits), database.ts
 │       ├── controllers/   # Request handlers
 │       ├── middleware/    # Error handling, 404, auth, role, adminOnly
 │       ├── models/        # product, category, brand, cart, order,
 │       │                  #   webhook-event, review
 │       ├── routes/        # Route definitions only
 │       ├── services/      # Database and business logic (incl. payment, razorpay)
-│       │   └── admin/     # Dashboard, catalogue, orders, customers, reviews
+│       │   ├── admin/     # Dashboard, catalogue, orders, customers, reviews
+│       │   └── ai/        # Provider abstraction, prompts, tool registry
 │       ├── utils/         # AppError, asyncHandler, slugify, seed, money,
 │       │                  #   payment-signature, migrate-phase7,
 │       │                  #   migrate-phase8, seed-reviews, make-admin
@@ -220,7 +232,26 @@ pnpm seed:reviews          # add them
 pnpm seed:reviews --clean  # remove exactly what it added
 ```
 
-### 7. Start the backend
+### 7. Optional — enable ZyCart AI
+
+Set `AI_API_KEY` in `backend/.env` to a key from your AI provider. Leave it
+blank and the storefront runs exactly as before, with no assistant offered
+anywhere — the server reports which it is at startup:
+
+```text
+ZyCart AI: anthropic (claude-opus-5)
+ZyCart AI: not configured - the assistant is unavailable (AI_API_KEY is not set).
+```
+
+To work on the assistant's interface without credentials, set
+`AI_PROVIDER=mock`. It answers from a fixed script against the **real**
+catalogue, so the tools, the cart writes and the whole UI behave normally. It is
+refused when `NODE_ENV=production`.
+
+The key is server-only. It is never logged, never printed at startup, never
+included in an error message and never sent to the browser.
+
+### 8. Start the backend
 
 ```bash
 pnpm dev:backend
@@ -233,9 +264,15 @@ MongoDB connected: 127.0.0.1/zycart
 Server listening on http://localhost:5000 (development)
 Health check: http://localhost:5000/api/health
 CORS origin: http://localhost:3000
+Razorpay: not configured - online payment is unavailable and checkout offers cash on delivery only.
+ZyCart AI: anthropic (claude-opus-5)
 ```
 
-### 8. Start the frontend
+Both optional features report their state on every boot, so "payments are off"
+and "the assistant is off" are things an operator reads here rather than learns
+from a customer.
+
+### 9. Start the frontend
 
 ```bash
 pnpm dev:frontend
@@ -254,6 +291,7 @@ Open <http://localhost:3000>. The storefront reads its catalogue from the API, s
 | `/cart`            | Cart, saved for later and order summary                     |
 | `/wishlist`        | Saved products                                              |
 | `/account`         | Profile, orders, wishlist, addresses, settings              |
+| `/ai-shopping`     | ZyCart AI with the whole page — the same chat as the panel  |
 | `/admin`           | Admin console — requires an `ADMIN` account (see below)     |
 
 Shopper-facing routes live in the `(storefront)` route group, which gives them
@@ -261,7 +299,10 @@ the navbar, promo bar and footer. The console has its own shell and inherits
 none of it. Route groups do not change URLs.
 
 Light and dark themes are both designed; the toggle sits in the navbar (and in
-the mobile menu). `Ctrl`/`Cmd` + `K` opens search from anywhere.
+the mobile menu). `Ctrl`/`Cmd` + `K` opens search from anywhere, and **Ask
+ZyCart AI** in the bottom corner opens the assistant from any storefront page.
+Traditional keyword search and filters are untouched — the assistant is an
+additional way in, not a replacement.
 
 ---
 
@@ -283,6 +324,17 @@ Run from the repository root:
 | `pnpm migrate:phase8` | Recompute rating aggregates, create review indexes                 |
 | `pnpm seed:reviews`   | Populate development with genuine reviews (`--clean` removes them) |
 | `pnpm make-admin`     | Grant, revoke or list administrator access (see below)             |
+
+AI-specific, run from `backend/`:
+
+| Command          | Effect                                                            |
+| ---------------- | ----------------------------------------------------------------- |
+| `pnpm test`      | 75 unit tests for the AI layer — no database, no API key needed   |
+| `pnpm ai:verify` | 43 checks of every AI tool against a real MongoDB, then cleans up |
+
+`ai:verify` creates its own products under a `ZYCART-AI-TEST-` SKU prefix,
+never touches a record it did not create, and removes exactly those at the end —
+so it is safe to point at a real database.
 
 Per application:
 
@@ -314,6 +366,19 @@ Per application:
 | `RAZORPAY_KEY_ID`         | Group\*  | none                    | Razorpay key id, `rzp_test_…` or `rzp_live_…`                               |
 | `RAZORPAY_KEY_SECRET`     | Group\*  | none                    | Razorpay API secret — **server-only**                                       |
 | `RAZORPAY_WEBHOOK_SECRET` | Group\*  | none                    | Webhook signing secret — **server-only**, and different from the key secret |
+| `AI_ENABLED`              | No       | `true`                  | `false` runs ZyCart with no shopping assistant                              |
+| `AI_PROVIDER`             | No       | `anthropic`             | `anthropic`, or `mock` for tests and offline UI work                        |
+| `AI_API_KEY`              | No†      | none                    | AI provider key — **server-only**; blank means the assistant is unavailable |
+| `AI_MODEL`                | No       | `claude-opus-5`         | Model id                                                                    |
+| `AI_TIMEOUT_MS`           | No       | `30000`                 | Per model call; the whole request has its own 55 s deadline                 |
+| `AI_RATE_LIMIT_GUEST`     | No       | `10`                    | Chat requests per minute, per IP                                            |
+| `AI_RATE_LIMIT_USER`      | No       | `30`                    | Chat requests per minute, per account                                       |
+
+† Optional, and the assistant is simply unavailable without it — the storefront,
+cart, checkout, orders and account are unaffected. The server says so at
+startup rather than leaving it to be discovered by a customer. `AI_PROVIDER=mock`
+returns scripted replies and is **refused in production**: an assistant that
+looks real and is not is worse than an honestly unavailable one.
 
 \* All three together, or none of them. Setting some but not others fails
 validation at startup; setting none runs ZyCart cash-on-delivery only. A
@@ -328,7 +393,10 @@ in production is refused.
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | No       | none                    | Razorpay key id; public by design — Checkout needs it in the browser |
 
 The Razorpay **key secret** and **webhook secret** must never appear in a
-`NEXT_PUBLIC_` variable, or anywhere the browser can reach.
+`NEXT_PUBLIC_` variable, or anywhere the browser can reach. The same holds for
+`AI_API_KEY`: the browser talks to Express, Express talks to the AI provider, and
+there is no `NEXT_PUBLIC_` counterpart to the AI key — nor should one ever be
+added. No AI provider SDK is shipped in the client bundle.
 
 Startup fails with a readable message listing every invalid or missing variable,
 rather than running half-configured.
@@ -416,6 +484,28 @@ Orders are snapshots: renaming, repricing or deleting a product never changes
 what a past order says. Stock moves inside a MongoDB transaction, so a
 cash-on-delivery order can never exist without its stock being taken. See
 [docs/phase-6.md](docs/phase-6.md).
+
+### AI
+
+| Method | Path             | Auth     | Purpose                                    |
+| ------ | ---------------- | -------- | ------------------------------------------ |
+| `GET`  | `/api/ai/status` | —        | Whether the assistant is configured at all |
+| `POST` | `/api/ai/chat`   | optional | One conversational turn                    |
+
+`/api/ai/chat` accepts `user` and `assistant` messages and **no other role** —
+the system prompt is built server-side on every request and nothing the browser
+sends can reach it. Signing in is optional and decides capability: a guest can
+search, inspect and compare; a signed-in customer can additionally read their
+cart and add to it. Identity comes from the session cookie, never from the body.
+
+The model reaches the store through five tools — `search_products`,
+`get_product`, `compare_products`, `get_cart`, `add_to_cart` — each with a
+declared permission, a Zod-validated schema and an executor that calls the
+storefront's own `productService` or `cartService`. There is no query tool, no
+code execution, no checkout, no payment, and no access to profiles, addresses or
+order history. Product data in a reply is assembled by the server from what the
+tools returned, so a product card's price is the catalogue's price regardless of
+what the assistant wrote. See [docs/phase-10.md](docs/phase-10.md).
 
 ### Payments
 
@@ -600,5 +690,12 @@ idempotent payment finalisation and atomic inventory. Phase 8 added reviews and
 ratings, written only by customers with a delivered order for the product they
 are rating. Phase 9 added the admin console — dashboard, catalogue, orders,
 customers and review moderation — reusing the storefront's own services rather
-than forking them, and closed the unauthenticated catalogue write endpoints. AI
-features arrive in later phases.
+than forking them, and closed the unauthenticated catalogue write endpoints.
+Phase 10 added ZyCart AI — a shopping assistant that reads the live catalogue
+and writes to the real cart through five permission-checked server-side tools,
+with no route to the database and no ability to place an order or take a
+payment.
+
+Later phases can build on that foundation: semantic and vector search, review
+summaries, image search, personalised recommendations and saved conversations.
+None of them require reopening the tool boundary this phase established.

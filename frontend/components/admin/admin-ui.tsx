@@ -74,7 +74,9 @@ export function AdminEmpty({
         <Icon className="size-5" aria-hidden />
       </span>
       <p className="text-small mt-4 font-semibold">{title}</p>
-      {body && <p className="text-caption mt-1.5 max-w-sm text-pretty text-muted-foreground">{body}</p>}
+      {body && (
+        <p className="text-caption mt-1.5 max-w-sm text-pretty text-muted-foreground">{body}</p>
+      )}
       {action && <div className="mt-5 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
   );
@@ -209,7 +211,12 @@ export function Td({
 
 export function Tr({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <tr className={cn('border-b border-border transition-colors last:border-0 hover:bg-muted/40', className)}>
+    <tr
+      className={cn(
+        'border-b border-border transition-colors last:border-0 hover:bg-muted/40',
+        className,
+      )}
+    >
       {children}
     </tr>
   );
@@ -248,8 +255,7 @@ export function AdminPagination({
           </span>
         ) : (
           <>
-            Showing {shown === 0 ? 0 : first}–{first + shown - 1} of{' '}
-            {total.toLocaleString('en-IN')}
+            Showing {shown === 0 ? 0 : first}–{first + shown - 1} of {total.toLocaleString('en-IN')}
           </>
         )}
       </p>

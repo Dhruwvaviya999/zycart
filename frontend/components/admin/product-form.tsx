@@ -172,7 +172,10 @@ export function ProductForm({
             </Field>
           </Card>
 
-          <Card title="Images" description="Paste image URLs, as the catalogue already stores them.">
+          <Card
+            title="Images"
+            description="Paste image URLs, as the catalogue already stores them."
+          >
             <ListEditor
               values={form.images}
               onChange={(images) => update('images', images)}
@@ -187,7 +190,14 @@ export function ProductForm({
                 {form.images.map((src) => (
                   <li key={src} className="relative">
                     <span className="relative block size-16 overflow-hidden rounded-lg border border-border bg-surface">
-                      <Image src={src} alt="" fill sizes="64px" className="object-cover" unoptimized />
+                      <Image
+                        src={src}
+                        alt=""
+                        fill
+                        sizes="64px"
+                        className="object-cover"
+                        unoptimized
+                      />
                     </span>
                   </li>
                 ))}

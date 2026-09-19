@@ -470,9 +470,7 @@ export async function findOrderByRef(
   orderRef: string,
   session?: mongoose.ClientSession,
 ): Promise<OrderDoc> {
-  const filter = isObjectId(orderRef)
-    ? { _id: orderRef }
-    : { orderNumber: orderRef.toUpperCase() };
+  const filter = isObjectId(orderRef) ? { _id: orderRef } : { orderNumber: orderRef.toUpperCase() };
 
   const query = Order.findOne(filter);
   if (session) query.session(session);

@@ -27,26 +27,11 @@ export const metadata: Metadata = { title: 'Orders' };
 
 type Params = Record<string, string | string[] | undefined>;
 
-const one = (value: string | string[] | undefined) =>
-  Array.isArray(value) ? value[0] : value;
+const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
 
-const ORDER_STATUSES = [
-  'PENDING',
-  'CONFIRMED',
-  'PROCESSING',
-  'SHIPPED',
-  'DELIVERED',
-  'CANCELLED',
-];
+const ORDER_STATUSES = ['PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
 
-const PAYMENT_STATUSES = [
-  'PENDING',
-  'AUTHORIZED',
-  'PAID',
-  'FAILED',
-  'REFUND_PENDING',
-  'REFUNDED',
-];
+const PAYMENT_STATUSES = ['PENDING', 'AUTHORIZED', 'PAID', 'FAILED', 'REFUND_PENDING', 'REFUNDED'];
 
 /** Unrecognised parameters are dropped rather than forwarded to a strict API. */
 function toQuery(params: Params): AdminOrderQuery {

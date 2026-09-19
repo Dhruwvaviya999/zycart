@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { connectDatabase } from './config/database';
+import { aiConfig, aiUnavailableReason } from './config/ai';
 import { loadEnv, razorpayConfig } from './config/env';
 import { createApp } from './app';
 
@@ -36,6 +37,23 @@ async function bootstrap(): Promise<void> {
       console.warn(
         '  Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET in backend/.env to enable it.',
       );
+    }
+
+    /**
+     * Same rule as Razorpay: whether a customer-facing feature is on must be
+     * something an operator reads here, not something they learn from a
+     * shopper. The model name is printed because it is a configuration choice;
+     * AI_API_KEY is not, here or anywhere else.
+     */
+    const ai = aiConfig(env);
+
+    if (ai) {
+      console.log(`ZyCart AI: ${ai.provider} (${ai.model})`);
+    } else {
+      console.warn(
+        `ZyCart AI: not configured - the assistant is unavailable (${aiUnavailableReason(env) ?? 'unknown'}).`,
+      );
+      console.warn('  The storefront is unaffected. Set AI_API_KEY in backend/.env to enable it.');
     }
   });
 }

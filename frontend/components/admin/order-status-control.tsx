@@ -138,8 +138,8 @@ export function OrderStatusControl({
         description={
           <>
             <span className="block">
-              <strong>{orderNumber}</strong> will be cancelled and any stock it is holding goes
-              back to the catalogue. This cannot be undone.
+              <strong>{orderNumber}</strong> will be cancelled and any stock it is holding goes back
+              to the catalogue. This cannot be undone.
             </span>
 
             <span className="mt-3 block">

@@ -60,9 +60,9 @@ export function CustomerStatusControl({
         description={
           isActive ? (
             <>
-              <strong>{name}</strong> will be signed out immediately and will not be able to sign
-              in again, place orders or write reviews. Their orders, reviews and history are all
-              kept, and you can reactivate the account at any time.
+              <strong>{name}</strong> will be signed out immediately and will not be able to sign in
+              again, place orders or write reviews. Their orders, reviews and history are all kept,
+              and you can reactivate the account at any time.
             </>
           ) : (
             <>

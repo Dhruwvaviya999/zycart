@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { adminRouter } from './admin.routes';
+import { aiRouter } from './ai.routes';
 import { authRouter } from './auth.routes';
 import { brandRouter } from './brand.routes';
 import { cartRouter } from './cart.routes';
@@ -21,6 +22,7 @@ apiRouter.use(healthRouter);
 // before any storefront router gets a chance to match a path.
 apiRouter.use(adminRouter);
 apiRouter.use(authRouter);
+apiRouter.use(aiRouter);
 apiRouter.use(userRouter);
 apiRouter.use(cartRouter);
 apiRouter.use(wishlistRouter);

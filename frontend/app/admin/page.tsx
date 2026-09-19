@@ -107,22 +107,19 @@ export default async function AdminDashboardPage({ searchParams }: PageProps<'/a
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <Panel
-          title="Recent orders"
-          action={{ href: '/admin/orders', label: 'All orders' }}
-        >
+        <Panel title="Recent orders" action={{ href: '/admin/orders', label: 'All orders' }}>
           <RecentOrders orders={data.recentOrders} />
         </Panel>
 
         <div className="grid gap-4">
-          <Panel
-            title="Top sellers"
-            description={`By units sold, last ${data.period.days} days`}
-          >
+          <Panel title="Top sellers" description={`By units sold, last ${data.period.days} days`}>
             <TopProducts products={data.topProducts} />
           </Panel>
 
-          <Panel title="Low stock" action={{ href: '/admin/products?stock=low_stock', label: 'View' }}>
+          <Panel
+            title="Low stock"
+            action={{ href: '/admin/products?stock=low_stock', label: 'View' }}
+          >
             <LowStock products={data.lowStockProducts} />
           </Panel>
         </div>
@@ -165,7 +162,9 @@ function Panel({
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h2 className="text-small font-semibold">{title}</h2>
-          {description && <p className="text-caption mt-0.5 text-muted-foreground">{description}</p>}
+          {description && (
+            <p className="text-caption mt-0.5 text-muted-foreground">{description}</p>
+          )}
         </div>
         {action && (
           <Link
@@ -238,8 +237,7 @@ function Trend({ current, previous }: { current: number; previous: number }) {
     >
       <Icon className="size-3" aria-hidden />
       {up ? '+' : ''}
-      {change}%
-      <span className="font-normal text-muted-foreground">vs previous period</span>
+      {change}%<span className="font-normal text-muted-foreground">vs previous period</span>
     </p>
   );
 }
@@ -331,7 +329,13 @@ function OrdersByStatus({ counts }: { counts: AdminDashboard['ordersByStatus'] }
 
 function RecentOrders({ orders }: { orders: AdminDashboard['recentOrders'] }) {
   if (orders.length === 0) {
-    return <AdminEmpty icon={ShoppingCart} title="No orders yet" body="Orders will appear here as customers place them." />;
+    return (
+      <AdminEmpty
+        icon={ShoppingCart}
+        title="No orders yet"
+        body="Orders will appear here as customers place them."
+      />
+    );
   }
 
   return (
@@ -403,7 +407,13 @@ function TopProducts({ products }: { products: AdminDashboard['topProducts'] }) 
 
 function LowStock({ products }: { products: AdminDashboard['lowStockProducts'] }) {
   if (products.length === 0) {
-    return <AdminEmpty icon={Package} title="Nothing running low" body="Every active product has healthy stock." />;
+    return (
+      <AdminEmpty
+        icon={Package}
+        title="Nothing running low"
+        body="Every active product has healthy stock."
+      />
+    );
   }
 
   return (

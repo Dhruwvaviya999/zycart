@@ -176,9 +176,7 @@ export default async function AdminOrderPage({ params }: PageProps<'/admin/order
                   {humanise(order.payment.status)}
                 </StatusBadge>
               </Row>
-              {order.payment.paidAt && (
-                <Row label="Paid">{formatDate(order.payment.paidAt)}</Row>
-              )}
+              {order.payment.paidAt && <Row label="Paid">{formatDate(order.payment.paidAt)}</Row>}
             </dl>
 
             {/* Reference ids only. ZyCart never receives card or UPI details, so
@@ -230,8 +228,7 @@ export default async function AdminOrderPage({ params }: PageProps<'/admin/order
               </>
             ) : (
               <p className="text-caption text-muted-foreground">
-                This account no longer exists. The order keeps its own copy of the delivery
-                details.
+                This account no longer exists. The order keeps its own copy of the delivery details.
               </p>
             )}
           </Panel>

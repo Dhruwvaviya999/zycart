@@ -38,10 +38,22 @@ export const adminProductQuerySchema = z
     brand: objectIdSchema.optional(),
     stock: z.enum(['in_stock', 'low_stock', 'out_of_stock']).optional(),
     /** Tri-state on purpose: absent means "either", which is the admin default. */
-    active: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-    featured: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-    bestSeller: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-    newArrival: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+    active: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
+    featured: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
+    bestSeller: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
+    newArrival: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
     sort: z.enum(PRODUCT_SORTS).default('newest'),
   })
   .strict();
@@ -67,7 +79,10 @@ export const adminCustomerQuerySchema = z
   .object({
     ...pagination,
     search,
-    active: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+    active: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
     sort: z.enum(CUSTOMER_SORTS).default('newest'),
   })
   .strict();
@@ -80,7 +95,10 @@ export const adminReviewQuerySchema = z
     search,
     status: z.enum(REVIEW_STATUSES).optional(),
     rating: z.coerce.number().int().min(1).max(5).optional(),
-    verified: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+    verified: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
     sort: z.enum(REVIEW_SORTS).default('newest'),
   })
   .strict();
@@ -89,7 +107,10 @@ export const adminCatalogueQuerySchema = z
   .object({
     ...pagination,
     search,
-    active: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+    active: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
   })
   .strict();
 

@@ -1,6 +1,11 @@
 'use client';
 
-import { AdminSearch, AdminSelect, FilterBar, useAdminFilters } from '@/components/admin/admin-filters';
+import {
+  AdminSearch,
+  AdminSelect,
+  FilterBar,
+  useAdminFilters,
+} from '@/components/admin/admin-filters';
 import type { AdminTaxonomyRow } from '@/types/admin';
 
 const STOCK_OPTIONS = [

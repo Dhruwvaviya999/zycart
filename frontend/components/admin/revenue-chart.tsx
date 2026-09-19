@@ -44,9 +44,7 @@ export function RevenueChart({ points, days }: { points: RevenuePoint[]; days: n
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <p className="text-price-lg">{formatPrice(total)}</p>
-          <p className="text-caption mt-0.5 text-muted-foreground">
-            over the last {days} days
-          </p>
+          <p className="text-caption mt-0.5 text-muted-foreground">over the last {days} days</p>
         </div>
 
         {/* Reserved height, so hovering does not nudge the chart down. */}
@@ -56,8 +54,7 @@ export function RevenueChart({ points, days }: { points: RevenuePoint[]; days: n
               <span className="block font-medium text-foreground">
                 {formatPrice(active.revenue)}
               </span>
-              {formatDay(active.date)} · {active.orders}{' '}
-              {active.orders === 1 ? 'order' : 'orders'}
+              {formatDay(active.date)} · {active.orders} {active.orders === 1 ? 'order' : 'orders'}
             </>
           )}
         </p>
@@ -71,7 +68,8 @@ export function RevenueChart({ points, days }: { points: RevenuePoint[]; days: n
         {points.map((point, index) => {
           // A day with money always draws something: a 1px sliver reads as
           // "a little", where nothing reads as "none".
-          const height = max === 0 ? 0 : Math.max((point.revenue / max) * 100, point.revenue > 0 ? 2 : 0);
+          const height =
+            max === 0 ? 0 : Math.max((point.revenue / max) * 100, point.revenue > 0 ? 2 : 0);
 
           return (
             <div

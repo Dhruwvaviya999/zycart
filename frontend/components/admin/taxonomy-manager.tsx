@@ -41,13 +41,7 @@ const API = {
  * editing happens in a dialog rather than on its own route: an operator
  * renaming a category should not lose their place.
  */
-export function TaxonomyManager({
-  kind,
-  rows,
-}: {
-  kind: TaxonomyKind;
-  rows: AdminTaxonomyRow[];
-}) {
+export function TaxonomyManager({ kind, rows }: { kind: TaxonomyKind; rows: AdminTaxonomyRow[] }) {
   const router = useRouter();
   const [editing, setEditing] = useState<AdminTaxonomyRow | null>(null);
   const [creating, setCreating] = useState(false);
@@ -140,7 +134,10 @@ export function TaxonomyManager({
 
           <ul className="space-y-2 sm:hidden">
             {rows.map((row) => (
-              <li key={row.id} className="flex items-center gap-3 rounded-xl border border-border p-3">
+              <li
+                key={row.id}
+                className="flex items-center gap-3 rounded-xl border border-border p-3"
+              >
                 <Thumb row={row} />
                 <div className="min-w-0 flex-1">
                   <p className="text-small truncate font-medium">{row.name}</p>
@@ -261,9 +258,7 @@ function TaxonomyDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <DialogTitle className="text-h4">
-          {row ? `Edit ${noun}` : `New ${noun}`}
-        </DialogTitle>
+        <DialogTitle className="text-h4">{row ? `Edit ${noun}` : `New ${noun}`}</DialogTitle>
         <DialogDescription className="text-caption text-muted-foreground">
           {kind === 'category'
             ? 'Categories group products in the shop and in filters.'
@@ -364,7 +359,10 @@ function TaxonomyFields({
           aria-invalid={Boolean(fields.name) || undefined}
           className="mt-1.5"
         />
-        <p role={fields.name ? 'alert' : undefined} className="text-caption min-h-4 pt-1 text-destructive">
+        <p
+          role={fields.name ? 'alert' : undefined}
+          className="text-caption min-h-4 pt-1 text-destructive"
+        >
           {fields.name ?? ''}
         </p>
       </div>

@@ -58,10 +58,7 @@ export default async function AdminCustomerPage({ params }: PageProps<'/admin/cu
         description={customer.email}
         back={{ href: '/admin/customers', label: 'Customers' }}
         action={
-          <StatusBadge
-            tone={customer.isActive ? 'success' : 'danger'}
-            className="self-center"
-          >
+          <StatusBadge tone={customer.isActive ? 'success' : 'danger'} className="self-center">
             {customer.isActive ? 'Active' : 'Deactivated'}
           </StatusBadge>
         }
@@ -187,8 +184,7 @@ export default async function AdminCustomerPage({ params }: PageProps<'/admin/cu
                 Reviews
               </h2>
               <p className="text-caption mt-2 text-muted-foreground">
-                {customer.reviewCount} approved{' '}
-                {customer.reviewCount === 1 ? 'review' : 'reviews'}
+                {customer.reviewCount} approved {customer.reviewCount === 1 ? 'review' : 'reviews'}
                 {customer.averageRating !== null &&
                   `, averaging ${customer.averageRating.toFixed(1)} stars`}
                 .

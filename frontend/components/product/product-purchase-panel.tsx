@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Check, Loader2, RotateCcw, ShieldCheck, ShoppingBag, Truck } from 'lucide-react';
+import { AiProductCta } from '@/components/ai/ai-cta';
 import { Button } from '@/components/ui/button';
 import { Price } from '@/components/product/price';
 import { QuantitySelector } from '@/components/product/quantity-selector';
@@ -188,6 +189,13 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
           {formError}
         </p>
       )}
+
+      {/*
+        Below the purchase controls, not beside them. A question about the
+        product is a step before buying it, so it must not compete with the
+        button that does. Renders nothing when the store has no assistant.
+      */}
+      <AiProductCta productId={product.id} productName={product.name} className="mt-4" />
 
       <dl className="text-caption mt-7 flex flex-wrap gap-x-6 gap-y-2 text-muted-foreground">
         <div className="flex gap-1.5">

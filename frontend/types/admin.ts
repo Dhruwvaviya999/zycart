@@ -117,13 +117,7 @@ export interface AdminProductRow {
 }
 
 export type ProductSort =
-  | 'newest'
-  | 'oldest'
-  | 'name_asc'
-  | 'price_asc'
-  | 'price_desc'
-  | 'stock_asc'
-  | 'stock_desc';
+  'newest' | 'oldest' | 'name_asc' | 'price_asc' | 'price_desc' | 'stock_asc' | 'stock_desc';
 
 export interface AdminProductQuery {
   page?: number;
@@ -304,7 +298,12 @@ export interface AdminReviewRow {
 
 export interface AdminReviewDetail extends AdminReviewRow {
   /** The purchase the review is evidence of — what makes it verifiable. */
-  order: { id: string; orderNumber: string; status: OrderStatus; deliveredAt: string | null } | null;
+  order: {
+    id: string;
+    orderNumber: string;
+    status: OrderStatus;
+    deliveredAt: string | null;
+  } | null;
 }
 
 export interface AdminReviewQuery {

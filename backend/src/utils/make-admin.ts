@@ -27,7 +27,10 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const revoke = args.includes('--revoke');
   const listOnly = args.includes('--list');
-  const email = args.find((arg) => !arg.startsWith('--'))?.trim().toLowerCase();
+  const email = args
+    .find((arg) => !arg.startsWith('--'))
+    ?.trim()
+    .toLowerCase();
 
   await connectDatabase(uri);
   console.log(`Database: ${mongoose.connection.name}\n`);

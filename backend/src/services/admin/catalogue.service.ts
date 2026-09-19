@@ -1,7 +1,12 @@
 import { Types, type QueryFilter } from 'mongoose';
 import { Brand } from '../../models/brand.model';
 import { Category } from '../../models/category.model';
-import { Product, STOCK_FILTERS, stockStateOf, type ProductDocument } from '../../models/product.model';
+import {
+  Product,
+  STOCK_FILTERS,
+  stockStateOf,
+  type ProductDocument,
+} from '../../models/product.model';
 import { escapeRegex } from '../../validators/common';
 import type { AdminCatalogueQuery, AdminProductQuery } from '../../validators/admin.validator';
 

@@ -33,13 +33,7 @@ import { cn } from '@/lib/utils';
  * surface-toned chrome that recedes behind dense content, and no editorial
  * flourishes competing with the data.
  */
-export function AdminShell({
-  user,
-  children,
-}: {
-  user: AuthUser;
-  children: React.ReactNode;
-}) {
+export function AdminShell({ user, children }: { user: AuthUser; children: React.ReactNode }) {
   const pathname = usePathname();
 
   /**
@@ -137,7 +131,9 @@ export function AdminShell({
           </div>
         </header>
 
-        <main id="main" className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:py-8">{children}</main>
+        <main id="main" className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:py-8">
+          {children}
+        </main>
       </div>
     </div>
   );

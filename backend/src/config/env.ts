@@ -34,6 +34,47 @@ const envSchema = z
       .string()
       .min(8, 'must match the secret configured on the Razorpay webhook')
       .optional(),
+
+    /**
+     * ZyCart AI (Phase 10). Server-only, every one of them.
+     *
+     * `AI_API_KEY` in particular must never be published to the browser: the
+     * assistant talks to the provider from Express and nowhere else, so there
+     * is no NEXT_PUBLIC_ counterpart to any of these and never should be.
+     */
+    AI_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((value) => value === 'true'),
+    AI_PROVIDER: z.enum(['anthropic', 'mock']).default('anthropic'),
+    AI_API_KEY: z.string().min(20, 'looks too short to be an API key').optional(),
+    AI_MODEL: z.string().trim().min(3).default('claude-opus-5'),
+
+    /** How long one model call may take before the assistant gives up on it. */
+    AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),
+
+    /** Requests per minute, counted per IP for guests and per account otherwise. */
+    AI_RATE_LIMIT_GUEST: z.coerce.number().int().min(1).max(1_000).default(10),
+    AI_RATE_LIMIT_USER: z.coerce.number().int().min(1).max(1_000).default(30),
+  })
+  /**
+   * The mock provider answers from a fixed script. It exists so tool and
+   * business-rule tests never need credentials, and so a contributor without an
+   * API key can still exercise the UI.
+   *
+   * In production it would be an assistant that looks real and is not, quoting
+   * scripted text over live catalogue data. That is worse than no assistant at
+   * all, so it stops the process rather than reaching a customer.
+   */
+  .superRefine((env, ctx) => {
+    if (env.AI_PROVIDER === 'mock' && env.NODE_ENV === 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['AI_PROVIDER'],
+        message:
+          'is "mock", which returns scripted replies - it must not be used in production. Set AI_PROVIDER=anthropic, or AI_ENABLED=false to run without the assistant',
+      });
+    }
   })
   /**
    * Half-configured payments is the dangerous state, so it is the one that stops

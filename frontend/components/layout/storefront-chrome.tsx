@@ -1,3 +1,4 @@
+import { AiLauncher } from '@/components/ai/ai-launcher';
 import { AnnouncementBar } from '@/components/layout/announcement-bar';
 import { Footer } from '@/components/layout/footer';
 import { Navbar } from '@/components/layout/navbar';
@@ -47,6 +48,14 @@ export async function StorefrontChrome({ children }: { children: React.ReactNode
       <Footer />
       <SearchOverlay />
       <ShopSync user={user} />
+
+      {/*
+        One launcher for the whole storefront, so the assistant is reachable
+        from the homepage, the shop and every product page without any of them
+        carrying a widget of their own. It renders nothing when this deployment
+        has no assistant configured.
+      */}
+      <AiLauncher />
     </>
   );
 }
