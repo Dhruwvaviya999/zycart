@@ -1,10 +1,13 @@
 import { AlertTriangle } from 'lucide-react';
+import { Suspense } from 'react';
 import { AiShopping } from '@/components/store/ai-shopping';
 import { CategorySection } from '@/components/store/category-section';
 import { Hero } from '@/components/store/hero';
 import { Newsletter } from '@/components/store/newsletter';
 import { ProductSection } from '@/components/store/product-section';
 import { PromoBanner } from '@/components/store/promo-banner';
+import { RecommendationSkeleton } from '@/components/recommendations/recommendation-skeleton';
+import { RecommendedProducts } from '@/components/recommendations/recommended-products';
 import { Container } from '@/components/layout/container';
 import { getCategories } from '@/services/category.service';
 import {
@@ -78,6 +81,25 @@ export default async function Home() {
               action={{ label: 'View all', href: '/shop?sort=rating' }}
             />
           )}
+
+          {/*
+            The personalised rail, streaming on its own.
+
+            It sits in a fixed position with a fixed shape whoever is looking:
+            a signed-in customer with history sees "Recommended for you", and
+            everybody else sees "Popular right now" in the same place, the same
+            size. The page never reflows around who you are — only the heading
+            and the products change, and the heading is chosen by the server
+            from what it actually did rather than by this page from where it
+            is rendering.
+          */}
+          <Suspense fallback={<RecommendationSkeleton count={4} />}>
+            <RecommendedProducts
+              context="homepage"
+              limit={8}
+              action={{ label: 'Browse everything', href: '/shop' }}
+            />
+          </Suspense>
 
           <PromoBanner banner={promoBanner} />
 

@@ -85,8 +85,14 @@ export interface Brand {
   isActive: boolean;
 }
 
-/** Matches the API's sort keys exactly — the storefront never invents its own. */
-export type SortKey = 'newest' | 'oldest' | 'price_asc' | 'price_desc' | 'rating';
+/**
+ * Matches the API's sort keys exactly — the storefront never invents its own.
+ *
+ * `relevance` arrived in Phase 11 and is the only one whose order depends on
+ * the search term; with no term the API falls back to `newest` rather than
+ * rejecting it, so a shared link that lost its query still renders.
+ */
+export type SortKey = 'newest' | 'oldest' | 'price_asc' | 'price_desc' | 'rating' | 'relevance';
 
 export interface Pagination {
   page: number;

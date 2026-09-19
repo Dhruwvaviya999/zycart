@@ -18,6 +18,10 @@ interface ActiveFiltersProps {
 /**
  * Every narrowing currently applied, each one removable. Without this the only
  * way back from a filtered view is to reopen the panel and remember what you set.
+ *
+ * Filters a smart search decided are deliberately left out: the "Smart filters
+ * applied" band above already shows and removes those, and listing a budget in
+ * both places is the same control twice with two different labels.
  */
 export function ActiveFilters({
   filters,
@@ -28,6 +32,7 @@ export function ActiveFilters({
   className,
 }: ActiveFiltersProps) {
   const chips: { key: string; label: string; remove: () => void }[] = [];
+  const interpreted = new Set(filters.interpreted);
 
   if (filters.query.trim()) {
     chips.push({
@@ -37,7 +42,7 @@ export function ActiveFilters({
     });
   }
 
-  if (filters.category) {
+  if (filters.category && !interpreted.has('category')) {
     const name = categories.find((entry) => entry.slug === filters.category)?.name;
     chips.push({
       key: 'category',
@@ -46,7 +51,7 @@ export function ActiveFilters({
     });
   }
 
-  if (filters.brand) {
+  if (filters.brand && !interpreted.has('brand')) {
     const name = brands.find((entry) => entry.slug === filters.brand)?.name;
     chips.push({
       key: 'brand',
@@ -55,7 +60,27 @@ export function ActiveFilters({
     });
   }
 
-  if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
+  if (filters.color && !interpreted.has('color')) {
+    chips.push({
+      key: 'color',
+      label: filters.color,
+      remove: () => onChange({ color: undefined }),
+    });
+  }
+
+  if (filters.minRating !== undefined && !interpreted.has('minRating')) {
+    chips.push({
+      key: 'rating',
+      label: `${filters.minRating}★ and up`,
+      remove: () => onChange({ minRating: undefined }),
+    });
+  }
+
+  if (
+    (filters.minPrice !== undefined || filters.maxPrice !== undefined) &&
+    !interpreted.has('minPrice') &&
+    !interpreted.has('maxPrice')
+  ) {
     const low = filters.minPrice ?? 0;
     const high = filters.maxPrice;
     chips.push({
@@ -68,7 +93,7 @@ export function ActiveFilters({
     });
   }
 
-  if (filters.inStockOnly) {
+  if (filters.inStockOnly && !interpreted.has('inStock')) {
     chips.push({
       key: 'stock',
       label: 'In stock only',

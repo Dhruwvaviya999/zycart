@@ -12,6 +12,7 @@ import type {
 } from '../validators/product.validator';
 import { resolveBrandId } from './brand.service';
 import { resolveCategoryId } from './category.service';
+import { rankByRelevance, tokenize, type RankableProduct } from './search/relevance';
 
 /**
  * Cards never render the long description or the spec table, so the list
@@ -28,7 +29,7 @@ const MATCHES_NOTHING = new Types.ObjectId('000000000000000000000000');
 
 type ProductFilter = QueryFilter<ProductDocument>;
 
-const SORTS: Record<ProductQuery['sort'], Record<string, 1 | -1>> = {
+const SORTS: Record<Exclude<ProductQuery['sort'], 'relevance'>, Record<string, 1 | -1>> = {
   // `_id` breaks ties so paging never repeats or skips a row.
   price_asc: { price: 1, _id: 1 },
   price_desc: { price: -1, _id: 1 },
@@ -37,26 +38,109 @@ const SORTS: Record<ProductQuery['sort'], Record<string, 1 | -1>> = {
   rating: { rating: -1, reviewCount: -1, _id: 1 },
 };
 
-/** Matches a product's own text, or the name of the brand/category it belongs to. */
-async function searchClauses(term: string): Promise<ProductFilter[]> {
-  const pattern = new RegExp(escapeRegex(term), 'i');
+/**
+ * How many matching products relevance ranking will consider.
+ *
+ * Relevance cannot be expressed as a Mongo sort — it weighs six fields against
+ * the search term — so the ranking happens in this process, which means it has
+ * to be bounded. Sixty is five pages of twelve: far more than anyone scrolls
+ * for a search they intend to refine, and small enough that scoring is
+ * microseconds. Beyond it the shopper is better served by narrowing, which is
+ * what the filters are for.
+ */
+const RELEVANCE_WINDOW = 60;
 
-  const [brands, categories] = await Promise.all([
-    Brand.find({ name: pattern }).select('_id'),
-    Category.find({ name: pattern }).select('_id'),
-  ]);
+/**
+ * Turns a search term into a filter.
+ *
+ * Every word has to match something; a word may match anything. "nike shoes"
+ * finds Nike footwear because "nike" matches the brand and "shoes" matches the
+ * category — which is how anyone would expect a shop to behave, and which this
+ * search did not do before Phase 11: it matched the entire phrase as one
+ * string, so "nike" found five products, "shoes" found eight, and "nike shoes"
+ * found none. Anyone typing more than one word got an empty page.
+ *
+ * Words are ANDed and fields are ORed. That ordering is what keeps a two-word
+ * search *narrower* than a one-word search rather than wider, which is the
+ * property that makes adding a word feel like refining rather than gambling.
+ */
+const MAX_SEARCH_TOKENS = 6;
 
-  return [
-    { name: pattern },
-    { shortDescription: pattern },
-    { sku: pattern },
-    { tags: pattern },
-    { brand: { $in: brands.map((brand) => brand._id) } },
-    { category: { $in: categories.map((category) => category._id) } },
-  ];
+/**
+ * Matches a word and its singular or plural form.
+ *
+ * Shoppers type "shoes"; catalogues are written "SuperRep Training Shoe". A
+ * plain substring match misses that in both directions, which is how a search
+ * for shoes ends up ranking a trouser first. Stripping a trailing "s" and
+ * making it optional covers the overwhelming majority of English product nouns
+ * without pulling in a stemming library for a catalogue of this size.
+ *
+ * Deliberately not a stemmer: "dress" must not become "dres".
+ */
+function searchPattern(token: string): string {
+  const stem = token.length >= 4 && token.endsWith('s') ? token.slice(0, -1) : token;
+  return `${escapeRegex(stem)}s?`;
 }
 
-async function buildFilter(query: ProductQuery): Promise<ProductFilter> {
+type MatchMode = 'all' | 'any';
+
+async function searchFilter(term: string, mode: MatchMode = 'all'): Promise<ProductFilter> {
+  // The same tokenizer the ranking uses, so a product cannot pass the filter on
+  // a word the scorer then ignores.
+  const tokens = tokenize(term).slice(0, MAX_SEARCH_TOKENS);
+
+  // Nothing usable — a query of punctuation, or of single letters.
+  if (tokens.length === 0) {
+    const pattern = new RegExp(escapeRegex(term), 'i');
+    return { $or: [{ name: pattern }, { sku: pattern }] };
+  }
+
+  /**
+   * Brands and categories are matched by name, so their ids have to be resolved
+   * before the product query runs. Both lists are fetched once for all tokens
+   * rather than once per token — two queries regardless of how long the search
+   * is — and split per token in memory.
+   */
+  const anyToken = new RegExp(tokens.map(escapeRegex).join('|'), 'i');
+
+  const [brands, categories] = await Promise.all([
+    Brand.find({ name: anyToken }).select('_id name'),
+    Category.find({ name: anyToken }).select('_id name'),
+  ]);
+
+  const idsMatching = (rows: { _id: unknown; name: string }[], token: string): Types.ObjectId[] =>
+    rows
+      .filter((row) => row.name.toLowerCase().includes(token))
+      .map((row) => row._id as Types.ObjectId);
+
+  const clauses: ProductFilter[] = tokens.map((token) => {
+    const pattern = new RegExp(searchPattern(token), 'i');
+    const brandIds = idsMatching(brands, token);
+    const categoryIds = idsMatching(categories, token);
+
+    return {
+      $or: [
+        { name: pattern },
+        { shortDescription: pattern },
+        { sku: pattern },
+        { tags: pattern },
+        ...(brandIds.length > 0 ? [{ brand: { $in: brandIds } }] : []),
+        ...(categoryIds.length > 0 ? [{ category: { $in: categoryIds } }] : []),
+      ],
+    };
+  });
+
+  // `$and` rather than `$or`, so the clause cannot collide with another filter
+  // that also wants `$or`.
+  return mode === 'all' ? { $and: clauses } : { $and: [{ $or: clauses }] };
+}
+
+/** How many words a search needs before widening it is worth trying. */
+const WIDENABLE_FROM_TOKENS = 2;
+
+const tokenCount = (term: string): number => tokenize(term).length;
+
+async function buildFilter(query: ProductQuery, mode: MatchMode = 'all'): Promise<ProductFilter> {
   const filter: ProductFilter = { isActive: true };
 
   if (query.ids) {
@@ -92,11 +176,65 @@ async function buildFilter(query: ProductQuery): Promise<ProductFilter> {
     filter.stock = query.inStock ? { $gt: 0 } : 0;
   }
 
+  if (query.color) {
+    /**
+     * Matched on a word boundary rather than on the whole string.
+     *
+     * Real catalogues name colourways, not colours: this one has "Triple
+     * Black", "Gloss Black" and "Midnight" but only one plain "Black". An
+     * anchored match would find the one and miss the rest, so a shopper asking
+     * for black shoes would be told the store has almost none.
+     *
+     * The boundary is what keeps it honest — "Black" matches "Triple Black"
+     * because that product genuinely is black, and does not match
+     * "Blackcurrant" because that would be a different colour.
+     */
+    filter['colors.name'] = new RegExp(`\\b${escapeRegex(query.color)}\\b`, 'i');
+  }
+
+  if (query.size) {
+    filter.sizes = {
+      $elemMatch: { label: new RegExp(`^${escapeRegex(query.size)}$`, 'i'), inStock: true },
+    };
+  }
+
   if (query.search) {
-    filter.$or = await searchClauses(query.search);
+    Object.assign(filter, await searchFilter(query.search, mode));
   }
 
   return filter;
+}
+
+/**
+ * Resolves the filter, widening the search when the strict one finds nothing.
+ *
+ * Requiring every word keeps a two-word search narrower than a one-word one,
+ * which is what makes adding a word feel like refining. It also means a
+ * descriptive search finds nothing at all: "laptop for coding" asks for a
+ * product whose text contains both "laptop" and "coding", and no catalogue
+ * writes product copy that way.
+ *
+ * So the strict rule is tried first and kept whenever it works. Only when it
+ * returns nothing does the search widen to "any of these words", with relevance
+ * ranking putting whatever matched most first. Precision when precision is
+ * possible, results when it is not — and never a blank page for a shopper who
+ * simply described what they wanted.
+ *
+ * Costs two extra counts, and only on searches that would otherwise have been
+ * empty.
+ */
+async function resolveFilter(
+  query: ProductQuery,
+): Promise<{ filter: ProductFilter; total: number; widened: boolean }> {
+  const strict = await buildFilter(query);
+  const total = await Product.countDocuments(strict);
+
+  if (total > 0 || !query.search || tokenCount(query.search) < WIDENABLE_FROM_TOKENS) {
+    return { filter: strict, total, widened: false };
+  }
+
+  const loose = await buildFilter(query, 'any');
+  return { filter: loose, total: await Product.countDocuments(loose), widened: true };
 }
 
 export interface Pagination {
@@ -106,20 +244,72 @@ export interface Pagination {
   totalPages: number;
 }
 
+/**
+ * Relevance-ordered results.
+ *
+ * Reads one bounded window of matches, scores them here, then pages within
+ * that window. The window is the honest limitation: a relevance search can show
+ * the best sixty matches, not the best six hundred, because ranking them in
+ * this process is what makes the order explainable in the first place.
+ *
+ * `total` stays the true match count so the header does not lie about how much
+ * the catalogue holds; `totalPages` is capped to what this sort can actually
+ * serve, so paging never lands on a blank page.
+ */
+async function listByRelevance(query: ProductQuery, filter: ProductFilter, total: number) {
+  const candidates = await Product.find(filter)
+    .select(LIST_FIELDS)
+    .populate('category', REFERENCE_FIELDS)
+    .populate('brand', REFERENCE_FIELDS)
+    // A stable read order, so the window holds the same products each time and
+    // the ranking below is the only thing deciding position.
+    .sort({ createdAt: -1, _id: 1 })
+    .limit(RELEVANCE_WINDOW);
+
+  const ranked = rankByRelevance(
+    candidates.map((item) => item.toJSON()) as unknown as RankableProduct[],
+    {
+      terms: query.search ?? '',
+      ...(query.color ? { color: query.color } : {}),
+      ...(query.maxPrice === undefined ? {} : { maxPrice: query.maxPrice }),
+    },
+  );
+
+  const skip = (query.page - 1) * query.limit;
+  const reachable = Math.min(total, RELEVANCE_WINDOW);
+
+  const pagination: Pagination = {
+    page: query.page,
+    limit: query.limit,
+    total,
+    totalPages: Math.max(1, Math.ceil(reachable / query.limit)),
+  };
+
+  return { items: ranked.slice(skip, skip + query.limit), pagination };
+}
+
 export async function listProducts(query: ProductQuery) {
-  const filter = await buildFilter(query);
+  const { filter, total } = await resolveFilter(query);
+
+  /**
+   * Relevance with nothing to rank is just "newest", and saying so here means a
+   * shared or bookmarked `?sort=relevance` URL with the search term removed
+   * still renders a sensible page instead of an arbitrary one.
+   */
+  if (query.sort === 'relevance' && query.search) {
+    return listByRelevance(query, filter, total);
+  }
+
+  const sort = query.sort === 'relevance' ? SORTS.newest : SORTS[query.sort];
   const skip = (query.page - 1) * query.limit;
 
-  const [items, total] = await Promise.all([
-    Product.find(filter)
-      .select(LIST_FIELDS)
-      .populate('category', REFERENCE_FIELDS)
-      .populate('brand', REFERENCE_FIELDS)
-      .sort(SORTS[query.sort])
-      .skip(skip)
-      .limit(query.limit),
-    Product.countDocuments(filter),
-  ]);
+  const items = await Product.find(filter)
+    .select(LIST_FIELDS)
+    .populate('category', REFERENCE_FIELDS)
+    .populate('brand', REFERENCE_FIELDS)
+    .sort(sort)
+    .skip(skip)
+    .limit(query.limit);
 
   const pagination: Pagination = {
     page: query.page,
@@ -129,6 +319,57 @@ export async function listProducts(query: ProductQuery) {
   };
 
   return { items: items.map((item) => item.toJSON()), pagination };
+}
+
+/**
+ * The colour families the catalogue actually stocks.
+ *
+ * Catalogues name colourways, not colours — this one has "Triple Black",
+ * "Gloss Black", "Midnight" and "Obsidian" where a shopper thinks "black". A
+ * filter listing all forty colourway names is a list nobody reads, so the
+ * families below are matched against the real names and only the ones with
+ * stock behind them are offered.
+ *
+ * The families are a fixed vocabulary rather than something derived, because
+ * "which of these words is a colour" is not a question the data can answer:
+ * "Sail / Orange" and "Peacock Teal" both contain a family name and neither is
+ * one. Matching a known list against real names keeps the filter honest in both
+ * directions — nothing is offered that the store cannot deliver, and nothing is
+ * invented that the store does not sell.
+ */
+const COLOR_FAMILIES = [
+  'Black',
+  'White',
+  'Grey',
+  'Blue',
+  'Green',
+  'Teal',
+  'Pink',
+  'Orange',
+  'Brown',
+  'Tan',
+  'Sand',
+  'Silver',
+  'Gold',
+] as const;
+
+export async function listColorFamilies(): Promise<string[]> {
+  const names = (await Product.distinct('colors.name', { isActive: true })) as string[];
+  const haystack = names.join(' | ').toLowerCase();
+
+  return COLOR_FAMILIES.filter((family) =>
+    new RegExp(`\\b${family.toLowerCase()}\\b`).test(haystack),
+  );
+}
+
+/**
+ * How many products a query matches, without fetching any.
+ *
+ * Shares `buildFilter` with `listProducts`, so a count and the page it
+ * describes can never disagree about what the criteria mean.
+ */
+export async function countProducts(query: ProductQuery): Promise<number> {
+  return (await resolveFilter(query)).total;
 }
 
 /** Shared by the three merchandising endpoints, which differ only by flag. */

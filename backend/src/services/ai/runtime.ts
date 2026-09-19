@@ -2,6 +2,7 @@ import { aiConfig, type AiConfig } from '../../config/ai';
 import type { Env } from '../../config/env';
 import { AppError } from '../../utils/AppError';
 import { createAnthropicProvider } from './anthropic.provider';
+import { createGeminiProvider } from './gemini.provider';
 import { createMockProvider } from './mock.provider';
 import type { AiProvider } from './provider';
 
@@ -14,7 +15,14 @@ import type { AiProvider } from './provider';
  * SDK that implements it.
  */
 function createAiProvider(config: AiConfig): AiProvider {
-  return config.provider === 'mock' ? createMockProvider() : createAnthropicProvider(config);
+  switch (config.provider) {
+    case 'mock':
+      return createMockProvider();
+    case 'gemini':
+      return createGeminiProvider(config);
+    case 'anthropic':
+      return createAnthropicProvider(config);
+  }
 }
 
 /**

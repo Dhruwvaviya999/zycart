@@ -227,6 +227,7 @@ async function runToolCalls(
     if (budget.remaining <= 0) {
       results.push({
         toolCallId: call.id,
+        name: call.name,
         content: JSON.stringify({
           error: 'No tool calls left for this request. Answer with what you already have.',
         }),
@@ -242,6 +243,7 @@ async function runToolCalls(
 
     results.push({
       toolCallId: call.id,
+      name: call.name,
       content: JSON.stringify(outcome.payload),
       isError: outcome.isError,
     });

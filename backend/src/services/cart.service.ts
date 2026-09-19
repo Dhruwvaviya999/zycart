@@ -7,6 +7,7 @@ import {
   type AddCartItemInput,
   type MergeCartInput,
 } from '../validators/cart.validator';
+import { record } from './activity/activity.service';
 
 /** Below this the storefront says how few are left rather than implying plenty. */
 const LOW_STOCK_THRESHOLD = 10;
@@ -279,6 +280,14 @@ export async function addItem(userId: string, input: AddCartItemInput): Promise<
   }
 
   await cart.save();
+
+  /**
+   * Recorded after the save, so only a cart that actually accepted the item
+   * becomes a signal. Fire-and-forget: a recommendation write must never be
+   * able to fail an add-to-cart.
+   */
+  record({ userId, event: 'add_to_cart', productId: input.productId });
+
   return resolveCart(toRawLines(cart));
 }
 

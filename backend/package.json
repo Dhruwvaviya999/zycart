@@ -17,13 +17,15 @@
     "seed:reviews": "tsx src/utils/seed-reviews.ts",
     "make-admin": "tsx src/utils/make-admin.ts",
     "test": "node --import tsx --test \"tests/*.test.ts\"",
-    "ai:verify": "tsx src/utils/verify-ai.ts"
+    "ai:verify": "tsx src/utils/verify-ai.ts",
+    "discovery:verify": "tsx src/utils/verify-discovery.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",
+    "@google/genai": "^2.23.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",

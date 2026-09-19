@@ -36,6 +36,9 @@ function scripted(responses: AiGenerateResponse[]): Recorder {
     requests,
     provider: {
       name: 'test',
+      // Structured interpretation is not what these cases exercise; a provider
+      // that refuses it proves the loop never reaches for it.
+      generateStructured: () => Promise.reject(new Error('not used in this test')),
       generate(request) {
         // Cloned, because the service keeps appending to the same array.
         requests.push({ ...request, turns: [...request.turns] });
@@ -48,6 +51,7 @@ function scripted(responses: AiGenerateResponse[]): Recorder {
 const failing = (error: unknown): AiProvider => ({
   name: 'failing',
   generate: () => Promise.reject(error),
+  generateStructured: () => Promise.reject(error),
 });
 
 const toolCall = (name: string, input: unknown = {}): AiGenerateResponse => ({
@@ -289,6 +293,7 @@ describe('failure', () => {
 
     const provider: AiProvider = {
       name: 'aborting',
+      generateStructured: () => Promise.reject(new Error('not used in this test')),
       generate: (request) =>
         request.signal?.aborted
           ? Promise.reject(new AiProviderError('aborted', 'timeout'))

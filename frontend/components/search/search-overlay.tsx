@@ -9,6 +9,9 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { popularSearches, recentSearches } from '@/data/navigation';
 import { imageAlt } from '@/lib/product';
 import { useProductSearch } from '@/components/search/use-product-search';
+import { interpretSearch } from '@/services/smart-search.service';
+import { buildShopHref, defaultFilters } from '@/components/shop/shop-filters';
+import type { SortKey } from '@/types/product';
 import { useUiStore } from '@/store/ui-store';
 import { formatPrice } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -21,6 +24,13 @@ export function SearchOverlay() {
   const router = useRouter();
 
   const { products, loading, error, isEmpty, hasQuery } = useProductSearch(query);
+
+  /**
+   * Interpretation runs on submit only. The live preview above stays a plain
+   * catalogue search — it fires as the shopper types, and a model call per
+   * keystroke is exactly what this phase set out not to do.
+   */
+  const [submitting, setSubmitting] = useState(false);
 
   // Cmd/Ctrl-K opens search from anywhere on the site.
   useEffect(() => {
@@ -39,11 +49,41 @@ export function SearchOverlay() {
     if (!next) setQuery('');
   }
 
-  function submit(term: string) {
+  async function submit(term: string) {
     const trimmed = term.trim();
-    if (!trimmed) return;
-    setOpen(false);
-    router.push(`/shop?q=${encodeURIComponent(trimmed)}`);
+    if (!trimmed || submitting) return;
+
+    setSubmitting(true);
+
+    try {
+      const result = await interpretSearch({ query: trimmed });
+
+      setOpen(false);
+      router.push(
+        buildShopHref({
+          ...defaultFilters,
+          // The extracted terms, not the whole sentence — the rest of it has
+          // already become the filters below.
+          query: result.filters.query,
+          category: result.filters.category,
+          brand: result.filters.brand,
+          color: result.filters.color,
+          minPrice: result.filters.minPrice,
+          maxPrice: result.filters.maxPrice,
+          minRating: result.filters.minRating,
+          inStockOnly: result.filters.inStock ?? false,
+          sort: result.filters.sort as SortKey,
+          interpreted: result.interpreted,
+        }),
+      );
+    } catch {
+      // Interpretation is an enhancement. If it is unreachable the shopper
+      // still gets the search they asked for.
+      setOpen(false);
+      router.push(`/shop?q=${encodeURIComponent(trimmed)}&sort=relevance`);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -54,13 +94,14 @@ export function SearchOverlay() {
       >
         <DialogTitle className="sr-only">Search ZyCart</DialogTitle>
         <DialogDescription className="sr-only">
-          Search products, brands and categories across the ZyCart catalogue.
+          Search products, brands and categories across the ZyCart catalogue, or describe what you
+          are looking for.
         </DialogDescription>
 
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            submit(query);
+            void submit(query);
           }}
           className="flex items-center gap-3 border-b border-border px-4 sm:px-5"
         >
@@ -71,12 +112,19 @@ export function SearchOverlay() {
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search products, brands and categories..."
-            aria-label="Search products, brands and categories"
+            placeholder="Search, or describe what you need..."
+            aria-label="Search products and brands, or describe what you need"
             className="text-body h-14 w-full bg-transparent outline-none placeholder:text-muted-foreground sm:h-16"
           />
 
-          {loading && <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />}
+          {(loading || submitting) && (
+            <Loader2
+              className={cn(
+                'size-4 shrink-0 animate-spin',
+                submitting ? 'text-brand' : 'text-muted-foreground',
+              )}
+            />
+          )}
 
           {query && (
             <button
@@ -108,13 +156,13 @@ export function SearchOverlay() {
                 icon={Clock}
                 title="Recent searches"
                 terms={recentSearches}
-                onPick={submit}
+                onPick={(term) => void submit(term)}
               />
               <Suggestions
                 icon={TrendingUp}
                 title="Popular searches"
                 terms={popularSearches}
-                onPick={submit}
+                onPick={(term) => void submit(term)}
               />
             </div>
           )}
@@ -179,7 +227,7 @@ export function SearchOverlay() {
 
               <button
                 type="button"
-                onClick={() => submit(query)}
+                onClick={() => void submit(query)}
                 className="focus-ring text-small mt-3 w-full rounded-xl border border-border py-2.5 font-medium transition-colors hover:bg-muted"
               >
                 See all results for “{query.trim()}”

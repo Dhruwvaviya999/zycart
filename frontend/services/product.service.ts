@@ -12,6 +12,8 @@ export interface ProductListParams {
   maxPrice?: number;
   minRating?: number;
   inStock?: boolean;
+  /** Matched against the product's own colourways, on a word boundary. */
+  color?: string;
   sort?: SortKey;
   /** Resolves the ids the cart and wishlist keep in local storage. */
   ids?: string[];
@@ -35,6 +37,7 @@ function toQuery(params: ProductListParams): Record<string, string | number | bo
   if (params.maxPrice !== undefined) query.maxPrice = params.maxPrice;
   if (params.minRating !== undefined) query.minRating = params.minRating;
   if (params.inStock !== undefined) query.inStock = params.inStock;
+  if (params.color) query.color = params.color;
   if (params.sort) query.sort = params.sort;
   if (params.ids?.length) query.ids = params.ids.join(',');
 
@@ -47,6 +50,18 @@ export function getProducts(params: ProductListParams = {}): Promise<ProductList
 
 export function getProductBySlug(slug: string): Promise<Product> {
   return request<Product>(`/api/products/${encodeURIComponent(slug)}`);
+}
+
+/**
+ * Colour families worth offering as a filter, from what the catalogue stocks.
+ * Fails soft: the shop renders without a colour filter rather than not at all.
+ */
+export async function getColorFamilies(): Promise<string[]> {
+  try {
+    return await request<string[]>('/api/products/colors');
+  } catch {
+    return [];
+  }
 }
 
 export function getFeaturedProducts(limit = 8): Promise<ProductSummary[]> {

@@ -6,6 +6,7 @@ import {
   type AiGenerateResponse,
   type AiProvider,
   type AiStopReason,
+  type AiStructuredRequest,
   type AiToolCall,
   type AiTurn,
 } from './provider';
@@ -195,6 +196,48 @@ export function createAnthropicProvider(config: AiConfig): AiProvider {
         };
       } catch (error) {
         throw toProviderError(error);
+      }
+    },
+
+    async generateStructured(request: AiStructuredRequest): Promise<unknown> {
+      try {
+        const response = await client.messages.create(
+          {
+            model: config.model,
+            max_tokens: request.maxOutputTokens,
+            output_config: {
+              effort: EFFORT,
+              // Constrained by the API rather than by the prompt, so "reply
+              // with JSON only" is a guarantee instead of an instruction.
+              format: { type: 'json_schema', schema: request.schema },
+            },
+            system: request.system,
+            messages: [{ role: 'user', content: request.prompt }],
+          },
+          { signal: request.signal },
+        );
+
+        if (response.stop_reason === 'refusal') {
+          throw new AiProviderError('Provider declined the request', 'upstream');
+        }
+
+        const text = response.content
+          .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+          .map((block) => block.text)
+          .join('')
+          .trim();
+
+        if (!text) throw new AiProviderError('Provider returned no content', 'upstream');
+
+        try {
+          return JSON.parse(text);
+        } catch {
+          // Constrained decoding makes this unlikely, and it is still checked:
+          // truncation at `max_tokens` can cut a valid object in half.
+          throw new AiProviderError('Provider returned malformed JSON', 'upstream');
+        }
+      } catch (error) {
+        throw error instanceof AiProviderError ? error : toProviderError(error);
       }
     },
   };

@@ -1,8 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState, useTransition } from 'react';
-import { PackageSearch, Search, SlidersHorizontal, X } from 'lucide-react';
+import { useCallback, useState, useTransition } from 'react';
+import { SlidersHorizontal, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import {
@@ -13,13 +13,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Breadcrumbs } from '@/components/common/breadcrumbs';
-import { EmptyState } from '@/components/common/empty-state';
 import { ProductGridSkeleton } from '@/components/common/loading-state';
 import { Container } from '@/components/layout/container';
 import { ProductGrid } from '@/components/product/product-grid';
 import { ActiveFilters } from '@/components/shop/active-filters';
 import { FilterPanel } from '@/components/shop/filter-panel';
 import { ShopPagination } from '@/components/shop/shop-pagination';
+import { SmartSearchField } from '@/components/search/smart-search-field';
+import { SmartSearchSummary } from '@/components/search/smart-search-summary';
+import { SearchEmptyState } from '@/components/search/search-empty-state';
 import {
   buildShopHref,
   countActiveFilters,
@@ -30,6 +32,13 @@ import {
 import type { Brand, Category, Pagination, ProductSummary, SortKey } from '@/types/product';
 import { cn } from '@/lib/utils';
 
+/**
+ * Filter fields whose URL name differs from the patch key that changes them.
+ * `inStock` is stored as `inStockOnly` on the client but is called `inStock`
+ * everywhere the server and the interpretation refer to it.
+ */
+const FIELD_ALIASES: Record<string, string> = { inStock: 'inStockOnly' };
+
 interface ShopClientProps {
   filters: ShopFilters;
   products: ProductSummary[];
@@ -37,6 +46,7 @@ interface ShopClientProps {
   categories: Category[];
   brands: Brand[];
   priceCeiling: number;
+  colors: string[];
 }
 
 export function ShopClient({
@@ -46,10 +56,19 @@ export function ShopClient({
   categories,
   brands,
   priceCeiling,
+  colors,
 }: ShopClientProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  /**
+   * Set only when interpretation was attempted and failed. Kept in component
+   * state rather than in the URL: it describes one attempt, not the page, and
+   * a refresh of a standard-results page should not keep apologising for a
+   * model call that is no longer being made.
+   */
+  const [notice, setNotice] = useState<string>();
 
   const activeCount = countActiveFilters(filters);
 
@@ -63,12 +82,27 @@ export function ShopClient({
       // Any change other than paging returns to the first page, or you can end
       // up on page 4 of a two-page result.
       const next: ShopFilters = { ...filters, ...patch, page: patch.page ?? 1 };
+
+      /**
+       * Any filter the shopper changes by hand stops being one the search
+       * decided — so it survives the next smart search, and stops being
+       * presented as something the interpretation chose. Explicit choices win,
+       * and this is where that begins.
+       */
+      if (patch.interpreted === undefined) {
+        const touched = Object.keys(patch).filter((key) => key !== 'page');
+        next.interpreted = filters.interpreted.filter(
+          (field) => !touched.includes(field) && !touched.includes(FIELD_ALIASES[field] ?? field),
+        );
+      }
+
       startTransition(() => router.push(buildShopHref(next), { scroll: false }));
     },
     [filters, router],
   );
 
   function reset() {
+    setNotice(undefined);
     startTransition(() => router.push(buildShopHref(defaultFilters), { scroll: false }));
   }
 
@@ -111,6 +145,7 @@ export function ShopClient({
                 categories={categories}
                 brands={brands}
                 priceCeiling={priceCeiling}
+                colors={colors}
                 onChange={apply}
               />
             </div>
@@ -119,9 +154,9 @@ export function ShopClient({
 
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3 border-b border-border pb-4">
-            <ShopSearchField
-              value={filters.query}
-              onCommit={(query) => apply({ query })}
+            <SmartSearchField
+              filters={filters}
+              onNotice={setNotice}
               className="w-full sm:w-auto sm:max-w-sm sm:min-w-56 sm:flex-1"
             />
 
@@ -174,6 +209,7 @@ export function ShopClient({
                     categories={categories}
                     brands={brands}
                     priceCeiling={priceCeiling}
+                    colors={colors}
                     onChange={apply}
                   />
                 </div>
@@ -217,6 +253,15 @@ export function ShopClient({
             </div>
           </div>
 
+          <SmartSearchSummary
+            filters={filters}
+            categories={categories}
+            brands={brands}
+            notice={notice}
+            onChange={apply}
+            className="mt-4"
+          />
+
           <ActiveFilters
             filters={filters}
             categories={categories}
@@ -247,80 +292,10 @@ export function ShopClient({
           ) : pending ? (
             <ProductGridSkeleton count={8} className="mt-8" />
           ) : (
-            <EmptyState
-              icon={PackageSearch}
-              title="No products found."
-              body="Nothing matches this combination of filters. Try widening the price range, or clear a filter or two."
-              action={{ label: 'Clear all filters', onClick: reset }}
-              secondaryAction={{ label: 'Back to home', href: '/' }}
-              className="mt-8"
-            />
+            <SearchEmptyState filters={filters} onChange={apply} onReset={reset} className="mt-8" />
           )}
         </div>
       </div>
     </Container>
-  );
-}
-
-interface ShopSearchFieldProps {
-  value: string;
-  onCommit: (value: string) => void;
-  className?: string;
-}
-
-/**
- * Narrows the current result set. Typing is debounced so a search is one
- * navigation rather than one per character.
- */
-function ShopSearchField({ value, onCommit, className }: ShopSearchFieldProps) {
-  const [draft, setDraft] = useState(value);
-  const [syncedWith, setSyncedWith] = useState(value);
-
-  // Adjust during render so the field follows the URL when it changes from
-  // somewhere else (a chip, Clear all) without an extra render pass.
-  if (syncedWith !== value) {
-    setSyncedWith(value);
-    setDraft(value);
-  }
-
-  // Only the timer callback writes state, so typing is one navigation rather
-  // than one per character.
-  useEffect(() => {
-    if (draft === value) return;
-
-    const timer = window.setTimeout(() => onCommit(draft), 350);
-    return () => window.clearTimeout(timer);
-  }, [draft, value, onCommit]);
-
-  return (
-    <div className={className}>
-      <label htmlFor="shop-search" className="sr-only">
-        Search within these products
-      </label>
-
-      <div className="flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-3 transition-shadow focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/45">
-        <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-
-        <input
-          id="shop-search"
-          type="search"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Search these products..."
-          className="text-small w-full min-w-0 bg-transparent outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:appearance-none"
-        />
-
-        {draft && (
-          <button
-            type="button"
-            onClick={() => setDraft('')}
-            aria-label="Clear search"
-            className="focus-ring inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <X className="size-3.5" />
-          </button>
-        )}
-      </div>
-    </div>
   );
 }

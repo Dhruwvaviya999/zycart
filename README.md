@@ -7,12 +7,14 @@ Smart shopping, beautifully simplified.
 This repository contains **Phase 1 (project foundation)**, **Phase 2 (storefront
 UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
 & wishlist)**, **Phase 6 (checkout & orders)**, **Phase 7 (Razorpay payments)**,
-**Phase 8 (reviews & ratings)**, **Phase 9 (admin console)** and **Phase 10 (AI
-shopping assistant)** — a Next.js storefront backed by a real MongoDB catalogue,
+**Phase 8 (reviews & ratings)**, **Phase 9 (admin console)**, **Phase 10 (AI
+shopping assistant)** and **Phase 11 (AI discovery, smart search &
+recommendations)** — a Next.js storefront backed by a real MongoDB catalogue,
 customer accounts, a persistent cart, ordering paid either online or on
 delivery, ratings written only by customers who received what they are rating, a
-console to run the store, and a shopping assistant that answers from the live
-catalogue, served over an Express + TypeScript API.
+console to run the store, a shopping assistant that answers from the live
+catalogue, and natural-language search with behaviour-based recommendations,
+served over an Express + TypeScript API.
 
 Orders can be paid online through Razorpay or settled in cash on delivery, and
 every rating on the site comes from a verified purchase.
@@ -24,11 +26,19 @@ same ones `/shop` shows, and it has no route to the database, no way to place an
 order and no access to anyone's account details. It is optional: leave
 `AI_API_KEY` blank and the entire store works exactly as before.
 
+**ZyCart discovers as well as it answers.** Typing a sentence into the shop's
+search box — "black shoes under ₹15,000", "highly rated headphones" — resolves
+to ordinary catalogue filters and an ordinary shareable URL, so paging, sorting,
+the filter panel and the back button all keep working. Similar products and
+recommendations are deterministic server-side code rather than model calls: the
+same page shows the same products every time, and every result can be explained.
+
 Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md), [phase 4](docs/phase-4.md),
 [phase 5](docs/phase-5.md), [phase 6](docs/phase-6.md),
 [phase 7](docs/phase-7.md), [phase 8](docs/phase-8.md),
-[phase 9](docs/phase-9.md), [phase 10](docs/phase-10.md).
+[phase 9](docs/phase-9.md), [phase 10](docs/phase-10.md),
+[phase 11](docs/phase-11.md).
 
 ---
 
@@ -47,19 +57,20 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 
 ### Backend
 
-| Tool          | Purpose                                              |
-| ------------- | ---------------------------------------------------- |
-| Node.js       | Runtime                                              |
-| Express       | HTTP framework                                       |
-| TypeScript    | Static typing                                        |
-| MongoDB       | Database                                             |
-| Mongoose      | ODM                                                  |
-| Zod           | Schema and env validation                            |
-| Razorpay      | Online payments                                      |
-| Anthropic SDK | AI provider for the shopping assistant (server-only) |
-| dotenv        | Environment loading                                  |
-| cors          | Cross-origin access control                          |
-| helmet        | Security headers                                     |
+| Tool              | Purpose                            |
+| ----------------- | ---------------------------------- |
+| Node.js           | Runtime                            |
+| Express           | HTTP framework                     |
+| TypeScript        | Static typing                      |
+| MongoDB           | Database                           |
+| Mongoose          | ODM                                |
+| Zod               | Schema and env validation          |
+| Razorpay          | Online payments                    |
+| Anthropic SDK     | AI provider — Claude (server-only) |
+| Google Gen AI SDK | AI provider — Gemini (server-only) |
+| dotenv            | Environment loading                |
+| cors              | Cross-origin access control        |
+| helmet            | Security headers                   |
 
 ### Development
 
@@ -86,6 +97,7 @@ zycart/
 │   │   ├── product/       # Product card, grid, gallery, price, rating, tabs
 │   │   ├── reviews/       # Rating summary, selector, cards, form, filters
 │   │   ├── ai/            # Launcher, panel, chat, messages, product cards
+│   │   ├── recommendations/ # Rails, skeletons, product-view tracking
 │   │   ├── search/        # Search trigger and overlay
 │   │   ├── shop/          # Listing page, filters
 │   │   ├── store/         # Homepage sections
@@ -106,11 +118,14 @@ zycart/
 │       ├── controllers/   # Request handlers
 │       ├── middleware/    # Error handling, 404, auth, role, adminOnly
 │       ├── models/        # product, category, brand, cart, order,
-│       │                  #   webhook-event, review
+│       │                  #   webhook-event, review, user-activity
 │       ├── routes/        # Route definitions only
 │       ├── services/      # Database and business logic (incl. payment, razorpay)
 │       │   ├── admin/     # Dashboard, catalogue, orders, customers, reviews
-│       │   └── ai/        # Provider abstraction, prompts, tool registry
+│       │   ├── ai/        # Provider abstraction, prompts, tools, interpreter
+│       │   ├── activity/  # Minimal behaviour recording for recommendations
+│       │   ├── recommendation/ # Similarity and deterministic scoring
+│       │   └── search/    # Query classification, relevance, smart search
 │       ├── utils/         # AppError, asyncHandler, slugify, seed, money,
 │       │                  #   payment-signature, migrate-phase7,
 │       │                  #   migrate-phase8, seed-reviews, make-admin
@@ -327,14 +342,16 @@ Run from the repository root:
 
 AI-specific, run from `backend/`:
 
-| Command          | Effect                                                            |
-| ---------------- | ----------------------------------------------------------------- |
-| `pnpm test`      | 75 unit tests for the AI layer — no database, no API key needed   |
-| `pnpm ai:verify` | 43 checks of every AI tool against a real MongoDB, then cleans up |
+| Command                 | Effect                                                            |
+| ----------------------- | ----------------------------------------------------------------- |
+| `pnpm test`             | 75 unit tests for the AI layer — no database, no API key needed   |
+| `pnpm ai:verify`        | 43 checks of every AI tool against a real MongoDB, then cleans up |
+| `pnpm discovery:verify` | 63 checks of search, similarity and recommendations               |
 
-`ai:verify` creates its own products under a `ZYCART-AI-TEST-` SKU prefix,
-never touches a record it did not create, and removes exactly those at the end —
-so it is safe to point at a real database.
+Both verify scripts create their own records under a reserved prefix
+(`ZYCART-AI-TEST-`, `ZYCART-P11-`), never touch a record they did not create,
+and remove exactly those at the end — so both are safe to point at a real
+database.
 
 Per application:
 
@@ -367,15 +384,16 @@ Per application:
 | `RAZORPAY_KEY_SECRET`     | Group\*  | none                    | Razorpay API secret — **server-only**                                       |
 | `RAZORPAY_WEBHOOK_SECRET` | Group\*  | none                    | Webhook signing secret — **server-only**, and different from the key secret |
 | `AI_ENABLED`              | No       | `true`                  | `false` runs ZyCart with no shopping assistant                              |
-| `AI_PROVIDER`             | No       | `anthropic`             | `anthropic`, or `mock` for tests and offline UI work                        |
-| `AI_API_KEY`              | No†      | none                    | AI provider key — **server-only**; blank means the assistant is unavailable |
-| `AI_MODEL`                | No       | `claude-opus-5`         | Model id                                                                    |
+| `AI_PROVIDER`             | No       | `anthropic`             | `anthropic`, `gemini`, or `mock` for tests and offline UI work              |
+| `AI_API_KEY`              | No†      | none                    | AI provider key — **server-only**; blank means AI features are unavailable  |
+| `AI_MODEL`                | No       | per provider            | Model id. Defaults to `claude-opus-5` or `gemini-2.5-flash`                 |
 | `AI_TIMEOUT_MS`           | No       | `30000`                 | Per model call; the whole request has its own 55 s deadline                 |
 | `AI_RATE_LIMIT_GUEST`     | No       | `10`                    | Chat requests per minute, per IP                                            |
 | `AI_RATE_LIMIT_USER`      | No       | `30`                    | Chat requests per minute, per account                                       |
 
-† Optional, and the assistant is simply unavailable without it — the storefront,
-cart, checkout, orders and account are unaffected. The server says so at
+† Optional. Without it the assistant is unavailable and smart search falls back
+to keyword search — the storefront, cart, checkout, orders, account,
+recommendations and similar products are all unaffected. The server says so at
 startup rather than leaving it to be discovered by a customer. `AI_PROVIDER=mock`
 returns scripted replies and is **refused in production**: an assistant that
 looks real and is not is worse than an honestly unavailable one.
@@ -506,6 +524,29 @@ code execution, no checkout, no payment, and no access to profiles, addresses or
 order history. Product data in a reply is assembled by the server from what the
 tools returned, so a product card's price is the catalogue's price regardless of
 what the assistant wrote. See [docs/phase-10.md](docs/phase-10.md).
+
+### Discovery
+
+| Method | Path                              | Auth     | Purpose                                   |
+| ------ | --------------------------------- | -------- | ----------------------------------------- |
+| `POST` | `/api/search/smart`               | optional | Interpret a search into catalogue filters |
+| `GET`  | `/api/products/:idOrSlug/similar` | —        | Deterministic similar products            |
+| `GET`  | `/api/recommendations`            | optional | Personalised when there is signal to use  |
+| `GET`  | `/api/products/colors`            | —        | Colour families worth filtering on        |
+| `POST` | `/api/products/:idOrSlug/view`    | ✓        | Records an intentional product-page visit |
+
+`/api/search/smart` returns an **interpretation**, not products: the storefront
+turns it into an ordinary `/shop` URL, so paging, sorting, filters, the back
+button and shared links all keep working. A short literal query never reaches a
+model at all, and a model that is slow, throttled or unconfigured falls through
+to keyword search rather than failing.
+
+Similar products and recommendations involve **no model call** — they are
+deterministic scoring over catalogue fields and, for a signed-in customer, their
+own recent activity. `personalized: false` is returned honestly whenever there
+is not enough signal, which is what stops "Recommended for you" appearing above
+a list nobody was recommended. Identity always comes from the session cookie;
+`?userId=` is ignored. See [docs/phase-11.md](docs/phase-11.md).
 
 ### Payments
 
@@ -694,8 +735,13 @@ than forking them, and closed the unauthenticated catalogue write endpoints.
 Phase 10 added ZyCart AI — a shopping assistant that reads the live catalogue
 and writes to the real cart through five permission-checked server-side tools,
 with no route to the database and no ability to place an order or take a
-payment.
+payment. Phase 11 took discovery out of the chat window: natural-language search
+that resolves to ordinary shareable filters, deterministic similar products, and
+recommendations built from a customer's own recent activity — with the model
+used for reading sentences and nothing else, and every path still working when
+it is unavailable. It also proved the Phase 10 provider boundary by adding a
+second vendor, Gemini, in one file.
 
 Later phases can build on that foundation: semantic and vector search, review
-summaries, image search, personalised recommendations and saved conversations.
-None of them require reopening the tool boundary this phase established.
+summaries, image search and saved conversations. None of them require reopening
+the boundaries these phases established.

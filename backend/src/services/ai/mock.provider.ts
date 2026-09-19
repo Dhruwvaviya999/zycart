@@ -1,4 +1,11 @@
-import type { AiGenerateRequest, AiGenerateResponse, AiProvider, AiToolCall } from './provider';
+import type {
+  AiGenerateRequest,
+  AiGenerateResponse,
+  AiProvider,
+  AiStructuredRequest,
+  AiToolCall,
+  AiToolSchema,
+} from './provider';
 
 /**
  * A provider that answers from a script instead of a model.
@@ -217,13 +224,104 @@ function scripted(request: AiGenerateRequest): AiGenerateResponse {
  * @param script Responses to return in order, for a test that needs an exact
  *   sequence. Once exhausted — or when omitted — the heuristic above takes over.
  */
+/** Colour words the seeded catalogue actually uses, lowercased. */
+const COLOURS = [
+  'black',
+  'white',
+  'blue',
+  'green',
+  'grey',
+  'gray',
+  'red',
+  'pink',
+  'brown',
+  'beige',
+  'tan',
+  'teal',
+  'navy',
+  'silver',
+  'gold',
+];
+
+/** Words that mean "well reviewed" rather than a number. */
+const HIGHLY_RATED =
+  /\b(highly[- ]rated|best[- ]rated|top[- ]rated|well[- ]reviewed|good reviews)\b/g;
+const IN_STOCK = /\b(in stock|available now|available)\b/g;
+const CHEAPEST = /\b(cheapest|lowest price|budget)\b/g;
+
+/**
+ * A `/g` regex carries `lastIndex` between calls, so a module-level one shared
+ * by `.test()` and `.replace()` silently starts the next request mid-string and
+ * misses a match it found a moment ago. Resetting before each test is the fix.
+ */
+const has = (pattern: RegExp, text: string): boolean => {
+  pattern.lastIndex = 0;
+  return pattern.test(text);
+};
+
+/**
+ * A deterministic stand-in for query interpretation.
+ *
+ * It reads the same hints a model would be asked to read — a budget, a colour,
+ * a rating adjective, an availability request — and returns them as structured
+ * fields. Crude compared with a model, and that is fine: its job is to let the
+ * search pipeline, its validation and its fallbacks be tested end to end
+ * without credentials, not to understand English.
+ *
+ * The result is filtered to the fields the caller's schema actually declares,
+ * so the mock cannot invent a field the contract does not have.
+ */
+function interpret(prompt: string, schema: AiToolSchema): Record<string, unknown> {
+  const text = prompt.toLowerCase();
+  const out: Record<string, unknown> = {};
+
+  const maxPrice = budgetFrom(text);
+  if (maxPrice !== undefined) out.maxPrice = maxPrice;
+
+  const colour = COLOURS.find((name) => new RegExp(`\\b${name}\\b`).test(text));
+  if (colour) out.color = colour.charAt(0).toUpperCase() + colour.slice(1);
+
+  if (has(HIGHLY_RATED, text)) out.minRating = 4;
+  if (has(IN_STOCK, text)) out.inStock = true;
+  if (has(CHEAPEST, text)) out.sort = 'price_asc';
+
+  /**
+   * Whatever is left after the parts that became filters. Stop words go too,
+   * because "something for office use" should search for "office use" rather
+   * than for the word "something".
+   */
+  const keywords = text
+    .replace(RUPEES, ' ')
+    .replace(new RegExp(`\\b(${COLOURS.join('|')})\\b`, 'g'), ' ')
+    .replace(HIGHLY_RATED, ' ')
+    .replace(IN_STOCK, ' ')
+    .replace(CHEAPEST, ' ')
+    .replace(
+      /\b(i|need|want|looking|for|a|an|the|some|something|please|show|me|find|get|under|below|less|than|with|good|nice|and|to|my|in|of|that|is|are|can|you)\b/g,
+      ' ',
+    )
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (keywords) out.query = keywords.slice(0, 60);
+
+  const allowed = new Set(Object.keys(schema.properties));
+  return Object.fromEntries(Object.entries(out).filter(([key]) => allowed.has(key)));
+}
+
 export function createMockProvider(script: AiGenerateResponse[] = []): AiProvider {
   const queued = [...script];
 
   return {
     name: 'mock',
+
     generate(request: AiGenerateRequest): Promise<AiGenerateResponse> {
       return Promise.resolve(queued.shift() ?? scripted(request));
+    },
+
+    generateStructured(request: AiStructuredRequest): Promise<unknown> {
+      return Promise.resolve(interpret(request.prompt, request.schema));
     },
   };
 }

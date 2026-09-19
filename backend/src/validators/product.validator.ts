@@ -75,7 +75,20 @@ export const updateProductSchema = createProductSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'at least one field must be provided');
 
-export const SORT_KEYS = ['price_asc', 'price_desc', 'newest', 'oldest', 'rating'] as const;
+/**
+ * `relevance` is new in Phase 11 and is the only sort whose order depends on
+ * the search term. With no `search` it has nothing to rank, so the service
+ * falls back to `newest` — the schema accepts it either way rather than making
+ * a legal-looking URL a 400.
+ */
+export const SORT_KEYS = [
+  'price_asc',
+  'price_desc',
+  'newest',
+  'oldest',
+  'rating',
+  'relevance',
+] as const;
 
 export const productQuerySchema = z
   .object({
@@ -88,6 +101,20 @@ export const productQuerySchema = z
     maxPrice: z.coerce.number().nonnegative().finite().optional(),
     minRating: z.coerce.number().min(0).max(5).optional(),
     inStock: queryBoolean,
+
+    /**
+     * Variant filters, added in Phase 11.
+     *
+     * They live here rather than in a smart-search-only schema because the
+     * assistant must not have a query capability the storefront lacks: a colour
+     * the AI can filter on is a colour a shopper can filter on, from the panel
+     * or from the URL. One query layer, one set of rules.
+     *
+     * Matched against the product's own options, so an invented colourway
+     * returns nothing rather than everything.
+     */
+    color: z.string().trim().max(40).optional(),
+    size: z.string().trim().max(20).optional(),
     /** Comma-separated ids — how the cart and wishlist resolve what they stored. */
     ids: z.string().trim().max(2000).optional(),
     sort: z.enum(SORT_KEYS).default('newest'),

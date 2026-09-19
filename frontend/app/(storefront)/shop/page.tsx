@@ -3,7 +3,7 @@ import { ShopClient } from '@/components/shop/shop-client';
 import { parseShopParams, PAGE_SIZE } from '@/components/shop/shop-filters';
 import { getBrandsSafe } from '@/services/brand.service';
 import { getCategoriesSafe } from '@/services/category.service';
-import { getProducts } from '@/services/product.service';
+import { getColorFamilies, getProducts } from '@/services/product.service';
 
 export const metadata: Metadata = {
   title: 'Shop',
@@ -30,7 +30,7 @@ export default async function ShopPage({ searchParams }: PageProps<'/shop'>) {
 
   // Filters and chrome are fetched together; a failure in either list leaves the
   // page usable rather than taking it down.
-  const [result, categories, brands, priceCeiling] = await Promise.all([
+  const [result, categories, brands, priceCeiling, colors] = await Promise.all([
     getProducts({
       page: filters.page,
       limit: PAGE_SIZE,
@@ -41,11 +41,13 @@ export default async function ShopPage({ searchParams }: PageProps<'/shop'>) {
       maxPrice: filters.maxPrice,
       minRating: filters.minRating,
       inStock: filters.inStockOnly ? true : undefined,
+      color: filters.color,
       sort: filters.sort,
     }),
     getCategoriesSafe(),
     getBrandsSafe(),
     getPriceCeiling(),
+    getColorFamilies(),
   ]);
 
   return (
@@ -56,6 +58,7 @@ export default async function ShopPage({ searchParams }: PageProps<'/shop'>) {
       categories={categories}
       brands={brands}
       priceCeiling={priceCeiling}
+      colors={colors}
     />
   );
 }

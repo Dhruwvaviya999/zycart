@@ -10,8 +10,10 @@ import { ProductGridSkeleton } from '@/components/common/loading-state';
 import { ProductPurchasePanel } from '@/components/product/product-purchase-panel';
 import { ProductTabs } from '@/components/product/product-tabs';
 import { ProductReviews } from '@/components/reviews/product-reviews';
+import { ProductViewTracker } from '@/components/recommendations/product-view-tracker';
+import { SimilarProducts } from '@/components/recommendations/similar-products';
 import { ApiError } from '@/services/api';
-import { getProductBySlug, getProducts, getRelatedProducts } from '@/services/product.service';
+import { getProductBySlug, getRelatedProducts } from '@/services/product.service';
 import type { Product, ProductReference } from '@/types/product';
 
 /** A missing product is a 404; anything else is a real failure worth surfacing. */
@@ -42,6 +44,9 @@ export default async function ProductPage({ params }: PageProps<'/products/[slug
 
   return (
     <>
+      {/* Records the visit after paint; never blocks the page. */}
+      <ProductViewTracker slug={slug} />
+
       <Container className="py-8 sm:py-10">
         <Breadcrumbs
           items={[
@@ -127,12 +132,21 @@ export default async function ProductPage({ params }: PageProps<'/products/[slug
         </section>
       </Container>
 
+      {/*
+        Two rails answering two different questions, each streaming on its own
+        so neither can hold up the product.
+
+        "Similar products" is Phase 11's deterministic scorer: same category,
+        brand, tags, price band and variants, weighted and ranked. "More from
+        this category" is Phase 3's simpler rail and stays as it was — there is
+        no point replacing a rail that already answers its own question well.
+      */}
       <Suspense fallback={<RailSkeleton />}>
-        <RelatedRail slug={slug} category={product.category} />
+        <SimilarProducts slug={slug} limit={4} />
       </Suspense>
 
       <Suspense fallback={<RailSkeleton />}>
-        <AlsoLikeRail excludeId={product.id} />
+        <RelatedRail slug={slug} category={product.category} />
       </Suspense>
     </>
   );
@@ -152,27 +166,6 @@ async function RelatedRail({ slug, category }: { slug: string; category: Product
           action={{ label: 'View category', href: `/shop?category=${category.slug}` }}
         />
         <ProductGrid products={related} columns={4} className="mt-9" />
-      </Container>
-    </section>
-  );
-}
-
-async function AlsoLikeRail({ excludeId }: { excludeId: string }) {
-  const alsoLike = await getProducts({ sort: 'rating', limit: 5 })
-    .then((result) => result.items.filter((item) => item.id !== excludeId).slice(0, 4))
-    .catch(() => []);
-
-  if (alsoLike.length === 0) return null;
-
-  return (
-    <section className="section-tight">
-      <Container>
-        <SectionHeading
-          title="You may also like"
-          description="Highly rated pieces from across the catalogue."
-          action={{ label: 'Browse everything', href: '/shop' }}
-        />
-        <ProductGrid products={alsoLike} columns={4} className="mt-9" />
       </Container>
     </section>
   );

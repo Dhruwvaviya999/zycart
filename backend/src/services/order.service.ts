@@ -14,6 +14,7 @@ import { generateOrderNumber } from '../utils/orderNumber';
 import { isObjectId } from '../validators/common';
 import type { CancelOrderInput, OrderQuery } from '../validators/order.validator';
 import { priceCart, resolveAddress } from './checkout.service';
+import { record } from './activity/activity.service';
 
 /** Raised when the catalogue has moved on since the cart was filled. */
 export class AvailabilityError extends AppError {
@@ -258,6 +259,16 @@ export async function createOrder(
         await clearPurchasedCartLines(userId, orderedItemIds, session);
       }
     });
+
+    /**
+     * Purchase signals come from here — an order that actually committed —
+     * rather than from the browser telling us it thinks one did. Recorded after
+     * the transaction so a rolled-back order leaves no trace, and outside it so
+     * a recommendation write can never hold open or fail a payment path.
+     */
+    for (const line of lines) {
+      record({ userId, event: 'purchase', productId: line.productId });
+    }
 
     return orderNumber;
   } finally {

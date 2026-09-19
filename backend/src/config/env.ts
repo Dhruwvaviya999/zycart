@@ -46,9 +46,15 @@ const envSchema = z
       .enum(['true', 'false'])
       .default('true')
       .transform((value) => value === 'true'),
-    AI_PROVIDER: z.enum(['anthropic', 'mock']).default('anthropic'),
+    AI_PROVIDER: z.enum(['anthropic', 'gemini', 'mock']).default('anthropic'),
     AI_API_KEY: z.string().min(20, 'looks too short to be an API key').optional(),
-    AI_MODEL: z.string().trim().min(3).default('claude-opus-5'),
+    /**
+     * Left undefined on purpose. Each provider has a different default model,
+     * and a single literal default here would mean switching `AI_PROVIDER`
+     * silently asked one vendor for another vendor's model id. `aiConfig`
+     * resolves it instead.
+     */
+    AI_MODEL: z.string().trim().min(3).optional(),
 
     /** How long one model call may take before the assistant gives up on it. */
     AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),

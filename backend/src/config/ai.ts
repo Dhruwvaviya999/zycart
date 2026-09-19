@@ -9,14 +9,30 @@ import type { Env } from './env';
  * is never logged, printed at startup, or included in an error message.
  */
 
+export type AiProviderName = 'anthropic' | 'gemini' | 'mock';
+
 /** A provider that is actually usable, with its credentials already resolved. */
 export interface AiConfig {
-  provider: 'anthropic' | 'mock';
-  /** Present for `anthropic`; the mock provider needs no credentials. */
+  provider: AiProviderName;
+  /** Present for a real provider; the mock needs no credentials. */
   apiKey: string;
   model: string;
   timeoutMs: number;
 }
+
+/**
+ * The model each vendor is asked for when `AI_MODEL` is unset.
+ *
+ * Flash rather than Pro for Gemini: the two jobs ZyCart gives a model —
+ * shopping chat and one-shot query interpretation — are retrieval and
+ * classification, where Flash is the right size, and it is the tier a free API
+ * key can actually run.
+ */
+const DEFAULT_MODEL: Record<AiProviderName, string> = {
+  anthropic: 'claude-opus-5',
+  gemini: 'gemini-2.5-flash',
+  mock: 'mock-1',
+};
 
 /**
  * The AI configuration, or null when this deployment runs without an assistant.
@@ -34,16 +50,18 @@ export interface AiConfig {
 export function aiConfig(env: Env): AiConfig | null {
   if (!env.AI_ENABLED) return null;
 
+  const model = env.AI_MODEL ?? DEFAULT_MODEL[env.AI_PROVIDER];
+
   if (env.AI_PROVIDER === 'mock') {
-    return { provider: 'mock', apiKey: '', model: env.AI_MODEL, timeoutMs: env.AI_TIMEOUT_MS };
+    return { provider: 'mock', apiKey: '', model, timeoutMs: env.AI_TIMEOUT_MS };
   }
 
   if (!env.AI_API_KEY) return null;
 
   return {
-    provider: 'anthropic',
+    provider: env.AI_PROVIDER,
     apiKey: env.AI_API_KEY,
-    model: env.AI_MODEL,
+    model,
     timeoutMs: env.AI_TIMEOUT_MS,
   };
 }
@@ -56,7 +74,7 @@ export const isAiConfigured = (env: Env): boolean => aiConfig(env) !== null;
  */
 export function aiUnavailableReason(env: Env): string | null {
   if (!env.AI_ENABLED) return 'AI_ENABLED is false';
-  if (env.AI_PROVIDER === 'anthropic' && !env.AI_API_KEY) return 'AI_API_KEY is not set';
+  if (env.AI_PROVIDER !== 'mock' && !env.AI_API_KEY) return 'AI_API_KEY is not set';
   return null;
 }
 

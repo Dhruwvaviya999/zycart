@@ -10,7 +10,9 @@ import { healthRouter } from './health.routes';
 import { orderRouter } from './order.routes';
 import { paymentRouter } from './payment.routes';
 import { productRouter } from './product.routes';
+import { recommendationRouter } from './recommendation.routes';
 import { reviewRouter } from './review.routes';
+import { searchRouter } from './search.routes';
 import { userRouter } from './user.routes';
 import { wishlistRouter } from './wishlist.routes';
 
@@ -23,6 +25,8 @@ apiRouter.use(healthRouter);
 apiRouter.use(adminRouter);
 apiRouter.use(authRouter);
 apiRouter.use(aiRouter);
+apiRouter.use(searchRouter);
+apiRouter.use(recommendationRouter);
 apiRouter.use(userRouter);
 apiRouter.use(cartRouter);
 apiRouter.use(wishlistRouter);

@@ -39,6 +39,15 @@ export interface AiToolCall {
 
 export interface AiToolResult {
   toolCallId: string;
+  /**
+   * The tool that produced this result.
+   *
+   * Redundant for providers that match a result to its call by id alone, and
+   * required by those that key function responses by name. The neutral shape
+   * has to carry everything any provider needs, or a provider ends up
+   * reconstructing it by parsing an id.
+   */
+  name: string;
   content: string;
   isError: boolean;
 }
@@ -81,9 +90,33 @@ export interface AiGenerateResponse {
   raw?: unknown;
 }
 
+/**
+ * A request for one object, described by a JSON Schema.
+ *
+ * Separate from `generate` because it is a different job with a different
+ * failure mode: there is no conversation, no tools and no prose — either an
+ * object matching the schema comes back or the caller falls back. Each provider
+ * implements it with its own native structured-output mechanism rather than by
+ * asking for JSON in a prompt and hoping.
+ */
+export interface AiStructuredRequest {
+  system: string;
+  prompt: string;
+  schema: AiToolSchema;
+  maxOutputTokens: number;
+  signal?: AbortSignal;
+}
+
 export interface AiProvider {
   readonly name: string;
   generate(request: AiGenerateRequest): Promise<AiGenerateResponse>;
+  /**
+   * Returns the parsed JSON the model produced — and nothing more. It is still
+   * model output, so the caller validates it against a Zod schema before any
+   * part of it reaches a query. A provider that cannot produce valid JSON
+   * throws rather than returning a guess.
+   */
+  generateStructured(request: AiStructuredRequest): Promise<unknown>;
 }
 
 export type AiFailureKind = 'timeout' | 'auth' | 'rate_limit' | 'upstream' | 'unknown';

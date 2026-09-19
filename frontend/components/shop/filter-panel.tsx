@@ -21,6 +21,15 @@ interface FilterPanelProps {
   brands: Brand[];
   /** Highest price in the catalogue, so the slider covers the real range. */
   priceCeiling: number;
+  /**
+   * Colour families the catalogue actually stocks, added in Phase 11.
+   *
+   * Families rather than colourways: the catalogue names things "Triple Black"
+   * and "Gloss Black", and a filter listing all forty of those would be a list
+   * nobody reads. These are matched on a word boundary server-side, so "Black"
+   * finds every black colourway without claiming a colour the product lacks.
+   */
+  colors?: string[];
   onChange: (patch: Partial<ShopFilters>) => void;
 }
 
@@ -32,6 +41,7 @@ export function FilterPanel({
   categories,
   brands,
   priceCeiling,
+  colors = [],
   onChange,
 }: FilterPanelProps) {
   // The slider is dragged locally and only committed on release, so a single
@@ -57,7 +67,7 @@ export function FilterPanel({
   return (
     <Accordion
       multiple
-      defaultValue={['category', 'price', 'brand', 'rating', 'availability']}
+      defaultValue={['category', 'price', 'brand', 'color', 'rating', 'availability']}
       className="divide-y divide-border"
     >
       <FilterGroup value="category" label="Category">
@@ -118,6 +128,33 @@ export function FilterPanel({
           ))}
         </ul>
       </FilterGroup>
+
+      {colors.length > 0 && (
+        <FilterGroup value="color" label="Colour">
+          <div className="flex flex-wrap gap-2">
+            {colors.map((color) => {
+              const active = filters.color === color;
+
+              return (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => onChange({ color: active ? undefined : color })}
+                  aria-pressed={active}
+                  className={cn(
+                    'focus-ring text-caption rounded-full border px-3 py-1.5 font-medium transition-colors',
+                    active
+                      ? 'border-brand/40 bg-brand-subtle text-brand'
+                      : 'border-border hover:bg-muted',
+                  )}
+                >
+                  {color}
+                </button>
+              );
+            })}
+          </div>
+        </FilterGroup>
+      )}
 
       <FilterGroup value="rating" label="Rating">
         <ul className="space-y-1">

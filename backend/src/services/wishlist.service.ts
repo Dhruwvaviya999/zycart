@@ -4,6 +4,7 @@ import { Wishlist } from '../models/wishlist.model';
 import { AppError } from '../utils/AppError';
 import type { MoveToCartInput } from '../validators/wishlist.validator';
 import { addItem, type ResolvedCart } from './cart.service';
+import { record } from './activity/activity.service';
 
 export interface ResolvedWishlistItem {
   id: string;
@@ -91,6 +92,10 @@ export async function addWishlistItem(
   if (!wishlist.items.some((item) => String(item.product) === productId)) {
     wishlist.items.push({ product: new Types.ObjectId(productId), addedAt: new Date() });
     await wishlist.save();
+
+    // Only a genuine addition is a signal. Re-saving an item that was already
+    // there says nothing new about what the customer wants.
+    record({ userId, event: 'wishlist_add', productId });
   }
 
   return resolve(wishlist);

@@ -6,6 +6,7 @@ import { Brand } from '../models/brand.model';
 import { Cart } from '../models/cart.model';
 import { Category } from '../models/category.model';
 import { Product } from '../models/product.model';
+import { UserActivity } from '../models/user-activity.model';
 import { executeTool, toolsFor } from '../services/ai/tools';
 import type { AiProductView } from '../services/ai/tools/product-view';
 import type { ToolContext } from '../services/ai/tools/types';
@@ -167,9 +168,18 @@ async function removeFixtures(): Promise<void> {
   const products = await Product.deleteMany({ sku: new RegExp(`^${SKU_PREFIX}-`) });
   const carts = await Cart.deleteMany({ user: new Types.ObjectId(TEST_USER_ID) });
 
+  /**
+   * Added in Phase 11. `cartService.addItem` now records an activity row, so
+   * exercising the cart tool leaves rows this script did not used to create —
+   * and a verification script that leaves anything behind is not one you can
+   * point at a real database.
+   */
+  const activity = await UserActivity.deleteMany({ user: new Types.ObjectId(TEST_USER_ID) });
+
   console.log(
-    `\nCleaned up ${String(products.deletedCount)} test product(s) and ` +
-      `${String(carts.deletedCount)} test cart(s). Nothing else was touched.`,
+    `\nCleaned up ${String(products.deletedCount)} test product(s), ` +
+      `${String(carts.deletedCount)} test cart(s) and ` +
+      `${String(activity.deletedCount)} activity row(s). Nothing else was touched.`,
   );
 }
 
