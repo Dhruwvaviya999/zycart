@@ -4,7 +4,6 @@ import { Product } from '../models/product.model';
 import { Review, type ReviewStatus } from '../models/review.model';
 import { AppError } from '../utils/AppError';
 import type {
-  AdminReviewQuery,
   CreateReviewInput,
   ModerateReviewInput,
   MyReviewQuery,
@@ -694,39 +693,6 @@ export async function deleteReview(userId: string, reviewId: string): Promise<vo
 /* ------------------------------------------------------------------ */
 /* Moderation                                                          */
 /* ------------------------------------------------------------------ */
-
-/** The moderation queue. Admin only — enforced on the route, not here. */
-export async function listAllReviews(query: AdminReviewQuery) {
-  const filter = query.status ? { status: query.status } : {};
-
-  const [reviews, total] = await Promise.all([
-    Review.find(filter)
-      .populate('user', AUTHOR_FIELDS)
-      .populate('product', 'name slug')
-      .sort({ createdAt: -1, _id: 1 })
-      .skip((query.page - 1) * query.limit)
-      .limit(query.limit),
-    Review.countDocuments(filter),
-  ]);
-
-  return {
-    items: reviews.map((review) => {
-      const product = review.product as unknown as { _id?: Types.ObjectId; name?: string } | null;
-
-      return {
-        ...toOwnReview(review),
-        isMine: undefined,
-        product: { id: String(product?._id ?? review.product), name: product?.name ?? '' },
-      };
-    }),
-    pagination: {
-      page: query.page,
-      limit: query.limit,
-      total,
-      totalPages: Math.max(1, Math.ceil(total / query.limit)),
-    },
-  };
-}
 
 /**
  * Approves or rejects a review.

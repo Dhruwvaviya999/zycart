@@ -4,9 +4,7 @@ import { AppError } from '../utils/AppError';
 import { AUTH_COOKIE } from '../utils/cookies';
 import { verifyToken } from '../utils/jwt';
 import {
-  adminReviewQuerySchema,
   createReviewSchema,
-  moderateReviewSchema,
   myReviewQuerySchema,
   productIdParamSchema,
   reviewIdParamSchema,
@@ -109,25 +107,4 @@ export async function listMyReviews(req: Request, res: Response): Promise<void> 
   const { items, pagination } = await reviewService.listMyReviews(currentUserId(req), query);
 
   res.json({ success: true, data: items, pagination });
-}
-
-/* ---------------------------------------------------------------- */
-/* Admin                                                             */
-/* ---------------------------------------------------------------- */
-
-export async function listAllReviews(req: Request, res: Response): Promise<void> {
-  const query = adminReviewQuerySchema.parse(req.query);
-
-  const { items, pagination } = await reviewService.listAllReviews(query);
-
-  res.json({ success: true, data: items, pagination });
-}
-
-export async function moderateReview(req: Request, res: Response): Promise<void> {
-  const input = moderateReviewSchema.parse(req.body);
-
-  res.json({
-    success: true,
-    data: await reviewService.moderateReview(reviewId(req), input),
-  });
 }

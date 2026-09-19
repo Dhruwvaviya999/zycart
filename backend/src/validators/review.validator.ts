@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { REVIEW_STATUSES, MAX_REVIEW_IMAGES } from '../models/review.model';
+import { MAX_REVIEW_IMAGES } from '../models/review.model';
 import { objectIdSchema } from './common';
 
 /**
@@ -126,15 +126,6 @@ export const myReviewQuerySchema = z
   })
   .strict();
 
-/** The moderation queue, which may be filtered by the state being moderated. */
-export const adminReviewQuerySchema = z
-  .object({
-    page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(50).default(20),
-    status: z.enum(REVIEW_STATUSES).optional(),
-  })
-  .strict();
-
 /**
  * All an admin may change.
  *
@@ -155,5 +146,4 @@ export type CreateReviewInput = z.infer<typeof createReviewSchema>;
 export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
 export type ReviewQuery = z.infer<typeof reviewQuerySchema>;
 export type MyReviewQuery = z.infer<typeof myReviewQuerySchema>;
-export type AdminReviewQuery = z.infer<typeof adminReviewQuerySchema>;
 export type ModerateReviewInput = z.infer<typeof moderateReviewSchema>;

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as controller from '../controllers/product.controller';
+import { adminOnly } from '../middleware/adminOnly';
 import { asyncHandler } from '../utils/asyncHandler';
 
 export const productRouter = Router();
@@ -11,10 +12,10 @@ productRouter.get('/products/best-sellers', asyncHandler(controller.getBestSelle
 productRouter.get('/products/new-arrivals', asyncHandler(controller.getNewArrivals));
 
 productRouter.get('/products', asyncHandler(controller.getProducts));
-productRouter.post('/products', asyncHandler(controller.createProduct));
-
 productRouter.get('/products/:idOrSlug/related', asyncHandler(controller.getRelatedProducts));
 productRouter.get('/products/:idOrSlug', asyncHandler(controller.getProduct));
 
-productRouter.patch('/products/:id', asyncHandler(controller.updateProduct));
-productRouter.delete('/products/:id', asyncHandler(controller.deleteProduct));
+/** Writing is administrator-only, for the reasons set out in category.routes.ts. */
+productRouter.post('/products', ...adminOnly, asyncHandler(controller.createProduct));
+productRouter.patch('/products/:id', ...adminOnly, asyncHandler(controller.updateProduct));
+productRouter.delete('/products/:id', ...adminOnly, asyncHandler(controller.deleteProduct));

@@ -2,7 +2,6 @@ import { Router } from 'express';
 import * as controller from '../controllers/review.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { rateLimit } from '../middleware/rateLimit.middleware';
-import { requireRole } from '../middleware/role.middleware';
 import { asyncHandler } from '../utils/asyncHandler';
 
 export const reviewRouter = Router();
@@ -20,17 +19,6 @@ reviewRouter.get(
   '/products/:productId/reviews/summary',
   asyncHandler(controller.getProductReviewSummary),
 );
-
-/**
- * Admin routes are declared before the customer guard so they can carry their
- * own, stricter one. `requireRole` runs after `requireAuth`, so a signed-out
- * request is a 401 and a signed-in customer is a 403 — different problems with
- * different answers.
- */
-reviewRouter.use('/admin/reviews', asyncHandler(requireAuth), requireRole('ADMIN'));
-
-reviewRouter.get('/admin/reviews', asyncHandler(controller.listAllReviews));
-reviewRouter.patch('/admin/reviews/:reviewId/status', asyncHandler(controller.moderateReview));
 
 // Everything below is the signed-in customer acting on their own reviews; there
 // is no route that takes a user id.

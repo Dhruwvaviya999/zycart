@@ -63,8 +63,11 @@ pnpm workspaces, ESLint, Prettier, Git.
 zycart/
 ├── frontend/              # Next.js app (App Router)
 │   ├── app/               # Routes, layout, design tokens (globals.css)
+│   │   ├── (storefront)/  # Shopper-facing routes + the shop's chrome
+│   │   └── admin/         # Admin console (its own shell, own chrome)
 │   ├── components/        # Shared React components
 │   │   ├── account/       # Account dashboard
+│   │   ├── admin/         # Console shell, filters, tables, forms
 │   │   ├── cart/          # Cart
 │   │   ├── common/        # Breadcrumbs, empty/loading/error states
 │   │   ├── layout/        # Navbar, footer, container, theme
@@ -90,14 +93,15 @@ zycart/
 │   └── src/
 │       ├── config/        # env.ts (validation), database.ts (Mongoose connection)
 │       ├── controllers/   # Request handlers
-│       ├── middleware/    # Error handling, 404
+│       ├── middleware/    # Error handling, 404, auth, role, adminOnly
 │       ├── models/        # product, category, brand, cart, order,
 │       │                  #   webhook-event, review
 │       ├── routes/        # Route definitions only
 │       ├── services/      # Database and business logic (incl. payment, razorpay)
+│       │   └── admin/     # Dashboard, catalogue, orders, customers, reviews
 │       ├── utils/         # AppError, asyncHandler, slugify, seed, money,
 │       │                  #   payment-signature, migrate-phase7,
-│       │                  #   migrate-phase8, seed-reviews
+│       │                  #   migrate-phase8, seed-reviews, make-admin
 │       ├── validators/    # Zod request and query schemas
 │       ├── app.ts         # Express app assembly
 │       └── server.ts      # Env load -> DB connect -> listen
@@ -250,6 +254,11 @@ Open <http://localhost:3000>. The storefront reads its catalogue from the API, s
 | `/cart`            | Cart, saved for later and order summary                     |
 | `/wishlist`        | Saved products                                              |
 | `/account`         | Profile, orders, wishlist, addresses, settings              |
+| `/admin`           | Admin console — requires an `ADMIN` account (see below)     |
+
+Shopper-facing routes live in the `(storefront)` route group, which gives them
+the navbar, promo bar and footer. The console has its own shell and inherits
+none of it. Route groups do not change URLs.
 
 Light and dark themes are both designed; the toggle sits in the navbar (and in
 the mobile menu). `Ctrl`/`Cmd` + `K` opens search from anywhere.
@@ -273,6 +282,7 @@ Run from the repository root:
 | `pnpm migrate:phase7` | Backfill pre-Phase-7 orders and indexes                            |
 | `pnpm migrate:phase8` | Recompute rating aggregates, create review indexes                 |
 | `pnpm seed:reviews`   | Populate development with genuine reviews (`--clean` removes them) |
+| `pnpm make-admin`     | Grant, revoke or list administrator access (see below)             |
 
 Per application:
 
@@ -461,7 +471,8 @@ index. Ratings are derived from approved reviews and maintained atomically. See
 | `GET`  | `/api/brands`                     | Active brands                          |
 
 Products, categories and brands also expose `POST`, `PATCH` and `DELETE`. Those
-write endpoints are unauthenticated development APIs until auth lands.
+write endpoints require an `ADMIN` session — they were unauthenticated until
+Phase 9 closed that gap. Reads stay public, because the storefront needs them.
 
 **Response `200`**
 
@@ -475,6 +486,70 @@ write endpoints are unauthenticated development APIs until auth lands.
 
 Full schemas, every query parameter and more examples are in
 [docs/phase-3.md](docs/phase-3.md).
+
+### Admin
+
+Every path below `/api/admin` passes through `requireAuth` and then
+`requireRole('ADMIN')` before any handler runs — the guard is mounted once, on
+the router, so a route added later cannot be unprotected by omission.
+
+| Method   | Path                                  | Purpose                                      |
+| -------- | ------------------------------------- | -------------------------------------------- |
+| `GET`    | `/api/admin/dashboard`                | Metrics, revenue series, attention counts    |
+| `GET`    | `/api/admin/products`                 | Catalogue listing, **including inactive**    |
+| `POST`   | `/api/admin/products`                 | Create                                       |
+| `GET`    | `/api/admin/products/:id`             | One product                                  |
+| `PATCH`  | `/api/admin/products/:id`             | Update                                       |
+| `DELETE` | `/api/admin/products/:id`             | Delete                                       |
+| `GET`    | `/api/admin/categories`               | With product counts                          |
+| `POST`   | `/api/admin/categories`               | Create                                       |
+| `PATCH`  | `/api/admin/categories/:id`           | Update                                       |
+| `DELETE` | `/api/admin/categories/:id`           | Delete                                       |
+| `GET`    | `/api/admin/brands`                   | With product counts                          |
+| `POST`   | `/api/admin/brands`                   | Create                                       |
+| `PATCH`  | `/api/admin/brands/:id`               | Update                                       |
+| `DELETE` | `/api/admin/brands/:id`               | Delete                                       |
+| `GET`    | `/api/admin/orders`                   | Every order, filterable                      |
+| `GET`    | `/api/admin/orders/:orderRef`         | One order + customer + `allowedStatuses`     |
+| `PATCH`  | `/api/admin/orders/:orderRef/status`  | **Fulfilment state only**                    |
+| `GET`    | `/api/admin/customers`                | Customers with lifetime spend                |
+| `GET`    | `/api/admin/customers/:id`            | One customer (addresses counted, not listed) |
+| `PATCH`  | `/api/admin/customers/:id/status`     | Deactivate / reactivate                      |
+| `GET`    | `/api/admin/reviews`                  | Every review, filterable by status           |
+| `GET`    | `/api/admin/reviews/:reviewId`        | One review + its order evidence              |
+| `PATCH`  | `/api/admin/reviews/:reviewId/status` | Approve / reject                             |
+
+Two things are deliberately absent:
+
+- **No `mark-paid`.** Payment state is grounded in what Razorpay reports. An
+  administrative shortcut that asserted it would make every **Paid** badge in
+  ZyCart mean less. Cancelling an order whose payment has settled is refused
+  for the administrator exactly as it is for the customer.
+- **No role change.** Promotion to administrator is not a dropdown in a
+  customer list.
+
+**Not signed in - `401`** · **Signed in as a customer - `403`**
+
+```json
+{
+  "success": false,
+  "message": "You do not have permission to perform this action"
+}
+```
+
+#### Granting administrator access
+
+No account is an administrator by default, and no page creates one. Run from
+the repository root:
+
+```bash
+pnpm make-admin owner@example.com          # grant
+pnpm make-admin owner@example.com --revoke # revoke
+pnpm make-admin --list                     # who currently has it
+```
+
+Full detail — metric definitions, the status transition table, the role gate and
+the responsive strategy — is in [docs/phase-9.md](docs/phase-9.md).
 
 ### Errors
 
@@ -523,5 +598,7 @@ delivery orders, order history and cancellation. Phase 7 added Razorpay online
 payment — server-created gateway orders, signature and webhook verification,
 idempotent payment finalisation and atomic inventory. Phase 8 added reviews and
 ratings, written only by customers with a delivered order for the product they
-are rating. AI features
-arrive in later phases.
+are rating. Phase 9 added the admin console — dashboard, catalogue, orders,
+customers and review moderation — reusing the storefront's own services rather
+than forking them, and closed the unauthenticated catalogue write endpoints. AI
+features arrive in later phases.

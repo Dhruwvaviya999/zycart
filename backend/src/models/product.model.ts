@@ -1,6 +1,31 @@
 import { model, Schema, type InferSchemaType } from 'mongoose';
 import { baseSchemaOptions } from './shared';
 
+/**
+ * What "low stock" means, defined once.
+ *
+ * The dashboard's low-stock panel and the admin product filter both read this,
+ * so a product cannot be low on one screen and healthy on another. Five is a
+ * judgement, not a calculation — ZyCart has no lead-time or velocity data to
+ * compute a reorder point from, and inventing one would be worse than a number
+ * an operator can reason about.
+ */
+export const LOW_STOCK_THRESHOLD = 5;
+
+export type StockState = 'in_stock' | 'low_stock' | 'out_of_stock';
+
+export function stockStateOf(stock: number): StockState {
+  if (stock <= 0) return 'out_of_stock';
+  return stock <= LOW_STOCK_THRESHOLD ? 'low_stock' : 'in_stock';
+}
+
+/** The same three states as a Mongo filter, so the list query agrees with the label. */
+export const STOCK_FILTERS: Record<StockState, Record<string, unknown>> = {
+  out_of_stock: { stock: { $lte: 0 } },
+  low_stock: { stock: { $gt: 0, $lte: LOW_STOCK_THRESHOLD } },
+  in_stock: { stock: { $gt: LOW_STOCK_THRESHOLD } },
+};
+
 /** A selectable colourway. `hex` drives the swatch the storefront renders. */
 const colorSchema = new Schema(
   { name: { type: String, required: true, trim: true }, hex: { type: String, required: true } },

@@ -458,17 +458,190 @@ export async function getOrder(userId: string, orderRef: string): Promise<OrderD
 }
 
 /**
- * Cancels an order and puts the stock back — if this order was ever holding any.
+ * Loads one order by number or id, with **no ownership filter**.
  *
- * `stockCommitted` is what makes that conditional safe. A cash-on-delivery order
- * took its stock at creation and gives it back here. An online order that was
- * never paid took none, and restoring for it would conjure inventory out of an
- * abandoned checkout. The flag is cleared as part of the same update, so a
- * second cancellation cannot restore a second time.
+ * Exported for the admin routes, which are guarded by `requireRole('ADMIN')`
+ * rather than by ownership. Deliberately a separate function from
+ * `findOwnedOrder` rather than an optional flag on it: a scoping rule that can
+ * be switched off by passing an argument is a scoping rule waiting to be
+ * switched off by accident.
+ */
+export async function findOrderByRef(
+  orderRef: string,
+  session?: mongoose.ClientSession,
+): Promise<OrderDoc> {
+  const filter = isObjectId(orderRef)
+    ? { _id: orderRef }
+    : { orderNumber: orderRef.toUpperCase() };
+
+  const query = Order.findOne(filter);
+  if (session) query.session(session);
+
+  const order = await query;
+  if (!order) throw new AppError('Order not found', 404);
+
+  return order;
+}
+
+/**
+ * The order lifecycle, as a graph rather than as scattered `if` statements.
  *
- * A paid order is refused rather than cancelled, because cancelling one means
- * refunding it, and a refund the customer was promised but did not receive is
- * worse than a button that was never offered. Those go through support.
+ * One declaration, on the server, consulted by the only function that changes a
+ * status — so "may this order move there?" has exactly one answer, and the
+ * admin console asks rather than decides. Nothing reaches DELIVERED without
+ * having been SHIPPED, and neither DELIVERED nor CANCELLED leads anywhere:
+ * those are where an order's fulfilment story ends.
+ */
+export const ORDER_STATUS_FLOW: Readonly<Record<OrderStatus, readonly OrderStatus[]>> = {
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['PROCESSING', 'CANCELLED'],
+  PROCESSING: ['SHIPPED', 'CANCELLED'],
+  SHIPPED: ['DELIVERED'],
+  DELIVERED: [],
+  CANCELLED: [],
+};
+
+/**
+ * Where this order may go next.
+ *
+ * Sent to the admin console so the interface offers only reachable states
+ * rather than every value of the enum. The server still checks — this exists so
+ * that a dropdown never contains a choice that would be refused.
+ */
+export function allowedNextStatuses(order: OrderDoc): OrderStatus[] {
+  const next = [...(ORDER_STATUS_FLOW[order.status] ?? [])];
+
+  // A settled payment cannot be cancelled here; see `applyCancellation`.
+  return SETTLED_PAYMENT_STATUSES.includes(order.payment.status)
+    ? next.filter((status) => status !== 'CANCELLED')
+    : next;
+}
+
+/**
+ * Cancels one order in place, inside a caller's transaction.
+ *
+ * This is the only code in ZyCart that puts stock back, and the customer's own
+ * cancellation and the administrator's operational one both go through it —
+ * which is what stops the admin console from growing a second, subtly different
+ * copy of inventory restoration.
+ *
+ * `stockCommitted` is what makes restoring conditional and safe. A
+ * cash-on-delivery order took its stock at creation and gives it back here. An
+ * online order that was never paid took none, and restoring for it would
+ * conjure inventory out of an abandoned checkout. The flag is cleared in the
+ * same write, so a second cancellation cannot restore a second time.
+ */
+async function applyCancellation(
+  order: OrderDoc,
+  reason: string,
+  session: mongoose.ClientSession,
+): Promise<void> {
+  if (order.status === 'CANCELLED') {
+    throw new AppError('This order has already been cancelled', 409);
+  }
+
+  if (!CANCELLABLE_STATUSES.includes(order.status)) {
+    throw new AppError(
+      `An order that is already ${order.status.toLowerCase()} can no longer be cancelled`,
+      409,
+    );
+  }
+
+  /**
+   * A settled payment is refused — for the customer *and* for the administrator.
+   *
+   * Cancelling a paid order means refunding it, and ZyCart has no
+   * customer-refund machinery: the only refund Phase 7 performs is the
+   * automatic one for a captured payment that cannot be fulfilled. An admin
+   * button that cancelled a paid order would quietly keep the money, which is
+   * worse than one that declines and says why.
+   */
+  if (SETTLED_PAYMENT_STATUSES.includes(order.payment.status)) {
+    throw new AppError(
+      'This order has already been paid. Cancelling it would require a refund, which has to be arranged through support.',
+      409,
+    );
+  }
+
+  if (order.stockCommitted) {
+    for (const item of order.items) {
+      if (!item.product) continue;
+
+      await Product.updateOne(
+        { _id: item.product },
+        { $inc: { stock: item.quantity } },
+        { session },
+      );
+    }
+
+    order.stockCommitted = false;
+  }
+
+  order.status = 'CANCELLED';
+  order.cancellationReason = reason;
+  order.cancelledAt = new Date();
+
+  await order.save({ session });
+}
+
+/**
+ * Moves an order along its lifecycle, on an administrator's instruction.
+ *
+ * Deliberately narrow. It changes fulfilment state and nothing else: the
+ * snapshot, the pricing, the address and — above all — the payment are not
+ * reachable from here, so marking an order DELIVERED can never be used as a
+ * back door to assert that it was paid for.
+ *
+ * Cancelling routes through the same `applyCancellation` the customer's own
+ * cancellation uses, so the stock comes back exactly once and by exactly the
+ * same rules.
+ */
+export async function setOrderStatus(
+  orderRef: string,
+  next: OrderStatus,
+  note?: string,
+): Promise<OrderDetail> {
+  const session = await mongoose.startSession();
+
+  try {
+    let updated: OrderDoc | undefined;
+
+    await session.withTransaction(async () => {
+      const order = await findOrderByRef(orderRef, session);
+
+      if (order.status === next) {
+        throw new AppError(`This order is already ${next.toLowerCase()}.`, 409);
+      }
+
+      if (!ORDER_STATUS_FLOW[order.status].includes(next)) {
+        throw new AppError(
+          `An order that is ${order.status.toLowerCase()} cannot be moved to ${next.toLowerCase()}.`,
+          409,
+        );
+      }
+
+      if (next === 'CANCELLED') {
+        await applyCancellation(order, note?.trim() || 'Cancelled by ZyCart', session);
+      } else {
+        order.status = next;
+        await order.save({ session });
+      }
+
+      updated = order;
+    });
+
+    if (!updated) throw new AppError('Could not update the order', 500);
+    return toDetail(updated);
+  } finally {
+    await session.endSession();
+  }
+}
+
+/**
+ * Cancels an order the customer owns.
+ *
+ * The ownership lookup is the only thing this adds over the shared
+ * cancellation; everything that touches stock or state lives in one place.
  */
 export async function cancelOrder(
   userId: string,
@@ -483,45 +656,9 @@ export async function cancelOrder(
     await session.withTransaction(async () => {
       const order = await findOwnedOrder(userId, orderRef, session);
 
-      if (order.status === 'CANCELLED') {
-        throw new AppError('This order has already been cancelled', 409);
-      }
+      const reason = input.note?.trim() ? `${input.reason} — ${input.note.trim()}` : input.reason;
 
-      if (!CANCELLABLE_STATUSES.includes(order.status)) {
-        throw new AppError(
-          `An order that is already ${order.status.toLowerCase()} can no longer be cancelled`,
-          409,
-        );
-      }
-
-      if (SETTLED_PAYMENT_STATUSES.includes(order.payment.status)) {
-        throw new AppError(
-          'This order has already been paid. Please contact support to cancel it and arrange a refund.',
-          409,
-        );
-      }
-
-      if (order.stockCommitted) {
-        for (const item of order.items) {
-          if (!item.product) continue;
-
-          await Product.updateOne(
-            { _id: item.product },
-            { $inc: { stock: item.quantity } },
-            { session },
-          );
-        }
-
-        order.stockCommitted = false;
-      }
-
-      order.status = 'CANCELLED';
-      order.cancellationReason = input.note?.trim()
-        ? `${input.reason} — ${input.note.trim()}`
-        : input.reason;
-      order.cancelledAt = new Date();
-
-      await order.save({ session });
+      await applyCancellation(order, reason, session);
       cancelled = order;
     });
 

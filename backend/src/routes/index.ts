@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { adminRouter } from './admin.routes';
 import { authRouter } from './auth.routes';
 import { brandRouter } from './brand.routes';
 import { cartRouter } from './cart.routes';
@@ -15,6 +16,10 @@ import { wishlistRouter } from './wishlist.routes';
 export const apiRouter = Router();
 
 apiRouter.use(healthRouter);
+
+// Declared early so the whole `/api/admin` namespace passes its own guard
+// before any storefront router gets a chance to match a path.
+apiRouter.use(adminRouter);
 apiRouter.use(authRouter);
 apiRouter.use(userRouter);
 apiRouter.use(cartRouter);

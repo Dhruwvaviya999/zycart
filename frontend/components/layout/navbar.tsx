@@ -84,7 +84,19 @@ export function Navbar({ categories, user }: NavbarProps) {
           </ul>
         </nav>
 
-        <SearchTrigger className="mx-auto hidden max-w-sm md:flex" />
+        {/*
+          `min-w-0` is load-bearing, not tidying.
+
+          A flex item defaults to `min-width: auto`, which means it refuses to
+          shrink below its content — so at exactly 1024px, where the primary nav
+          first appears alongside the logo, the search and the icon group, the
+          four of them demanded 982px inside a 945px content box and the row
+          spilled past the container. `min-w-0` lets the search give up the
+          difference, which is right because it is the only element here with no
+          natural size: the label already truncates, and a search box is
+          supposed to take whatever room is left over.
+        */}
+        <SearchTrigger className="mx-auto hidden min-w-0 max-w-sm md:flex" />
 
         <div className="ml-auto flex items-center gap-0.5 md:ml-0">
           <SearchTrigger variant="icon" className="md:hidden" />
