@@ -6,16 +6,18 @@ Smart shopping, beautifully simplified.
 
 This repository contains **Phase 1 (project foundation)**, **Phase 2 (storefront
 UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
-& wishlist)** and **Phase 6 (checkout & orders)** — a Next.js storefront backed
-by a real MongoDB catalogue, customer accounts, a persistent cart and cash-on-
-delivery ordering, served over an Express + TypeScript API.
+& wishlist)**, **Phase 6 (checkout & orders)** and **Phase 7 (Razorpay
+payments)** — a Next.js storefront backed by a real MongoDB catalogue, customer
+accounts, a persistent cart, and ordering paid either online or on delivery,
+served over an Express + TypeScript API.
 
-Online payment and AI functionality do not exist yet; orders are placed unpaid
-and settled on delivery.
+Orders can be paid online through Razorpay or settled in cash on delivery. AI
+functionality does not exist yet.
 
 Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md), [phase 4](docs/phase-4.md),
-[phase 5](docs/phase-5.md), [phase 6](docs/phase-6.md).
+[phase 5](docs/phase-5.md), [phase 6](docs/phase-6.md),
+[phase 7](docs/phase-7.md).
 
 ---
 
@@ -42,6 +44,7 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 | MongoDB    | Database                    |
 | Mongoose   | ODM                         |
 | Zod        | Schema and env validation   |
+| Razorpay   | Online payments             |
 | dotenv     | Environment loading         |
 | cors       | Cross-origin access control |
 | helmet     | Security headers            |
@@ -63,6 +66,8 @@ zycart/
 │   │   ├── cart/          # Cart
 │   │   ├── common/        # Breadcrumbs, empty/loading/error states
 │   │   ├── layout/        # Navbar, footer, container, theme
+│   │   ├── order/         # Order card, status, timeline, cancellation
+│   │   ├── payment/       # Method selector, processing, failure, status
 │   │   ├── product/       # Product card, grid, gallery, price, rating
 │   │   ├── search/        # Search trigger and overlay
 │   │   ├── shop/          # Listing page, filters
@@ -72,7 +77,8 @@ zycart/
 │   ├── data/              # Marketing copy, navigation, sample reviews/account
 │   ├── hooks/             # Custom React hooks
 │   ├── lib/               # Framework-agnostic helpers (format.ts, utils.ts)
-│   ├── services/          # API clients: api, product, category, brand
+│   ├── services/          # API clients: api, product, category, brand,
+│   │                      #   cart, wishlist, order, user, payment
 │   ├── store/             # Zustand stores (cart, wishlist, UI)
 │   ├── types/             # Shared TypeScript types
 │   └── public/            # Static assets
@@ -82,10 +88,11 @@ zycart/
 │       ├── config/        # env.ts (validation), database.ts (Mongoose connection)
 │       ├── controllers/   # Request handlers
 │       ├── middleware/    # Error handling, 404
-│       ├── models/        # product, category, brand
+│       ├── models/        # product, category, brand, cart, order, webhook-event
 │       ├── routes/        # Route definitions only
-│       ├── services/      # Database and business logic
-│       ├── utils/         # AppError, asyncHandler, slugify, seed
+│       ├── services/      # Database and business logic (incl. payment, razorpay)
+│       ├── utils/         # AppError, asyncHandler, slugify, seed, money,
+│       │                  #   payment-signature, migrate-phase7
 │       ├── validators/    # Zod request and query schemas
 │       ├── app.ts         # Express app assembly
 │       └── server.ts      # Env load -> DB connect -> listen
@@ -153,6 +160,12 @@ Generate a signing key with:
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
+**Online payment is optional.** Leave the three `RAZORPAY_*` variables blank to
+run cash-on-delivery only — checkout simply does not offer the online option,
+and the server reports it at startup. To enable it, set all three (and
+`NEXT_PUBLIC_RAZORPAY_KEY_ID` on the frontend); setting only some of them is
+refused at startup. Full walkthrough in [docs/phase-7.md](docs/phase-7.md#setup).
+
 ### 5. Start MongoDB
 
 Local install:
@@ -174,6 +187,16 @@ pnpm seed
 
 This loads 6 categories, 21 brands and 36 products. It clears those three
 collections first, so it is safe to re-run and it touches nothing else.
+
+If your database already holds orders created before Phase 7, run the one-off
+migration as well:
+
+```bash
+pnpm migrate:phase7
+```
+
+It backfills the `stockCommitted` flag and creates the payment indexes. Additive
+and idempotent — it never drops or overwrites anything.
 
 ### 7. Start the backend
 
@@ -219,28 +242,30 @@ the mobile menu). `Ctrl`/`Cmd` + `K` opens search from anywhere.
 
 Run from the repository root:
 
-| Command             | Effect                                 |
-| ------------------- | -------------------------------------- |
-| `pnpm dev`          | Start backend and frontend together    |
-| `pnpm dev:backend`  | Start the API on port 5000 with reload |
-| `pnpm dev:frontend` | Start Next.js on port 3000             |
-| `pnpm build`        | Build both applications                |
-| `pnpm typecheck`    | Type-check both applications           |
-| `pnpm lint`         | Lint both applications                 |
-| `pnpm format`       | Format the repository with Prettier    |
-| `pnpm seed`         | Load the development catalogue         |
+| Command               | Effect                                  |
+| --------------------- | --------------------------------------- |
+| `pnpm dev`            | Start backend and frontend together     |
+| `pnpm dev:backend`    | Start the API on port 5000 with reload  |
+| `pnpm dev:frontend`   | Start Next.js on port 3000              |
+| `pnpm build`          | Build both applications                 |
+| `pnpm typecheck`      | Type-check both applications            |
+| `pnpm lint`           | Lint both applications                  |
+| `pnpm format`         | Format the repository with Prettier     |
+| `pnpm seed`           | Load the development catalogue          |
+| `pnpm migrate:phase7` | Backfill pre-Phase-7 orders and indexes |
 
 Per application:
 
-| Location    | Command      | Effect                               |
-| ----------- | ------------ | ------------------------------------ |
-| `backend/`  | `pnpm dev`   | `tsx watch src/server.ts`            |
-| `backend/`  | `pnpm build` | Compile TypeScript to `dist/`        |
-| `backend/`  | `pnpm start` | Run the compiled server from `dist/` |
-| `backend/`  | `pnpm seed`  | Load the development catalogue       |
-| `frontend/` | `pnpm dev`   | Next.js dev server                   |
-| `frontend/` | `pnpm build` | Production build                     |
-| `frontend/` | `pnpm start` | Serve the production build           |
+| Location    | Command               | Effect                               |
+| ----------- | --------------------- | ------------------------------------ |
+| `backend/`  | `pnpm dev`            | `tsx watch src/server.ts`            |
+| `backend/`  | `pnpm build`          | Compile TypeScript to `dist/`        |
+| `backend/`  | `pnpm start`          | Run the compiled server from `dist/` |
+| `backend/`  | `pnpm seed`           | Load the development catalogue       |
+| `backend/`  | `pnpm migrate:phase7` | One-off Phase 7 data migration       |
+| `frontend/` | `pnpm dev`            | Next.js dev server                   |
+| `frontend/` | `pnpm build`          | Production build                     |
+| `frontend/` | `pnpm start`          | Serve the production build           |
 
 ---
 
@@ -248,20 +273,32 @@ Per application:
 
 ### `backend/.env`
 
-| Variable         | Required | Default                 | Description                                    |
-| ---------------- | -------- | ----------------------- | ---------------------------------------------- |
-| `PORT`           | No       | `5000`                  | API port                                       |
-| `NODE_ENV`       | No       | `development`           | development, test, or production               |
-| `MONGODB_URI`    | **Yes**  | none                    | Mongoose connection string                     |
-| `CLIENT_URL`     | No       | `http://localhost:3000` | Origin allowed by CORS                         |
-| `JWT_SECRET`     | **Yes**  | none                    | Signing key for session tokens; 32+ characters |
-| `JWT_EXPIRES_IN` | No       | `7d`                    | Session lifetime, e.g. `12h` or `7d`           |
+| Variable                  | Required | Default                 | Description                                                                 |
+| ------------------------- | -------- | ----------------------- | --------------------------------------------------------------------------- |
+| `PORT`                    | No       | `5000`                  | API port                                                                    |
+| `NODE_ENV`                | No       | `development`           | development, test, or production                                            |
+| `MONGODB_URI`             | **Yes**  | none                    | Mongoose connection string                                                  |
+| `CLIENT_URL`              | No       | `http://localhost:3000` | Origin allowed by CORS                                                      |
+| `JWT_SECRET`              | **Yes**  | none                    | Signing key for session tokens; 32+ characters                              |
+| `JWT_EXPIRES_IN`          | No       | `7d`                    | Session lifetime, e.g. `12h` or `7d`                                        |
+| `RAZORPAY_KEY_ID`         | Group\*  | none                    | Razorpay key id, `rzp_test_…` or `rzp_live_…`                               |
+| `RAZORPAY_KEY_SECRET`     | Group\*  | none                    | Razorpay API secret — **server-only**                                       |
+| `RAZORPAY_WEBHOOK_SECRET` | Group\*  | none                    | Webhook signing secret — **server-only**, and different from the key secret |
+
+\* All three together, or none of them. Setting some but not others fails
+validation at startup; setting none runs ZyCart cash-on-delivery only. A
+`rzp_live_` key outside `NODE_ENV=production` is refused, and a `rzp_test_` key
+in production is refused.
 
 ### `frontend/.env.local`
 
-| Variable              | Required | Default                 | Description      |
-| --------------------- | -------- | ----------------------- | ---------------- |
-| `NEXT_PUBLIC_API_URL` | No       | `http://localhost:5000` | Backend base URL |
+| Variable                      | Required | Default                 | Description                                                          |
+| ----------------------------- | -------- | ----------------------- | -------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`         | No       | `http://localhost:5000` | Backend base URL                                                     |
+| `NEXT_PUBLIC_RAZORPAY_KEY_ID` | No       | none                    | Razorpay key id; public by design — Checkout needs it in the browser |
+
+The Razorpay **key secret** and **webhook secret** must never appear in a
+`NEXT_PUBLIC_` variable, or anywhere the browser can reach.
 
 Startup fails with a readable message listing every invalid or missing variable,
 rather than running half-configured.
@@ -337,18 +374,37 @@ Prices and stock are always the server's, never the browser's — see
 
 ### Checkout and orders
 
-| Method | Path                           | Auth | Purpose                        |
-| ------ | ------------------------------ | ---- | ------------------------------ |
-| `GET`  | `/api/checkout/summary`        | ✓    | Live cart, addresses, blockers |
-| `GET`  | `/api/orders`                  | ✓    | Paginated order history        |
-| `POST` | `/api/orders`                  | ✓    | Place a cash-on-delivery order |
-| `GET`  | `/api/orders/:orderRef`        | ✓    | One order, by number or id     |
-| `POST` | `/api/orders/:orderRef/cancel` | ✓    | Cancel and restore stock       |
+| Method | Path                           | Auth | Purpose                              |
+| ------ | ------------------------------ | ---- | ------------------------------------ |
+| `GET`  | `/api/checkout/summary`        | ✓    | Live cart, addresses, blockers       |
+| `GET`  | `/api/orders`                  | ✓    | Paginated order history              |
+| `POST` | `/api/orders`                  | ✓    | Place an order (`COD` or `RAZORPAY`) |
+| `GET`  | `/api/orders/:orderRef`        | ✓    | One order, by number or id           |
+| `POST` | `/api/orders/:orderRef/cancel` | ✓    | Cancel and restore stock             |
 
 Orders are snapshots: renaming, repricing or deleting a product never changes
-what a past order says. Stock moves inside a MongoDB transaction, so an order
-can never exist without its stock being taken. See
+what a past order says. Stock moves inside a MongoDB transaction, so a
+cash-on-delivery order can never exist without its stock being taken. See
 [docs/phase-6.md](docs/phase-6.md).
+
+### Payments
+
+| Method | Path                                    | Auth      | Purpose                              |
+| ------ | --------------------------------------- | --------- | ------------------------------------ |
+| `POST` | `/api/payments/razorpay/create`         | ✓         | Open or reuse a Checkout session     |
+| `POST` | `/api/payments/razorpay/verify`         | ✓         | Verify the Checkout callback         |
+| `GET`  | `/api/payments/orders/:orderRef/status` | ✓         | Authoritative payment state          |
+| `POST` | `/api/payments/razorpay/webhook`        | signature | Razorpay's asynchronous notification |
+
+An online order is created **unpaid and holding no stock**; stock is taken and
+the cart cleared only when the payment is confirmed, so an abandoned Checkout
+window never locks inventory. One finalisation function serves both the browser
+callback and the webhook, and it is idempotent — the same payment confirmed
+twice decrements stock once.
+
+No endpoint accepts an amount. The figure charged is derived from the stored
+order on the server, and is checked again against the Razorpay API before an
+order is confirmed. See [docs/phase-7.md](docs/phase-7.md).
 
 ### Catalogue
 
@@ -422,5 +478,7 @@ the storefront UI on mock data. Phase 3 replaced that mock data with a real
 MongoDB catalogue and the API that serves it. Phase 4 added customer accounts,
 sessions and saved addresses. Phase 5 made the cart and wishlist real and
 persistent, for guests and customers alike. Phase 6 added checkout, cash-on-
-delivery orders, order history and cancellation. Online payment and AI features
+delivery orders, order history and cancellation. Phase 7 added Razorpay online
+payment — server-created gateway orders, signature and webhook verification,
+idempotent payment finalisation and atomic inventory. AI features
 arrive in later phases.

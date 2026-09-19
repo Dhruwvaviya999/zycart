@@ -3,14 +3,19 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { AlertTriangle, Check, Loader2, MapPin, Plus, Wallet } from 'lucide-react';
+import { AlertTriangle, Check, Loader2, Lock, MapPin, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AuthError } from '@/components/auth/auth-error';
 import { CheckoutSummaryPanel } from '@/components/checkout/checkout-summary-panel';
+import { PaymentFailed, type PaymentFailureKind } from '@/components/payment/payment-failed';
+import { PaymentMethodSelector } from '@/components/payment/payment-method-selector';
+import { PaymentProcessing } from '@/components/payment/payment-processing';
+import { useRazorpayPayment } from '@/hooks/use-razorpay-payment';
 import { toErrorMessage } from '@/services/api';
 import { createOrder } from '@/services/order.service';
 import { useCartStore } from '@/store/cart-store';
 import { formatPrice } from '@/lib/format';
+import type { PaymentMethod } from '@/types/order';
 import type { CheckoutSummary } from '@/types/checkout';
 import { cn } from '@/lib/utils';
 
@@ -19,40 +24,126 @@ export function CheckoutClient({ summary }: { summary: CheckoutSummary }) {
   const refreshCart = useCartStore((state) => state.refresh);
 
   const [addressId, setAddressId] = useState(summary.selectedAddressId ?? '');
-  const [submitting, setSubmitting] = useState(false);
+  const [method, setMethod] = useState<PaymentMethod>(
+    summary.onlinePaymentAvailable ? 'RAZORPAY' : 'COD',
+  );
+
   const [error, setError] = useState<string>();
   const [addressError, setAddressError] = useState<string>();
+
+  /**
+   * The order this checkout created, once it exists.
+   *
+   * Kept so that a retry after a failed payment pays for the *same* order
+   * rather than placing a second one — which is also why the cart is not
+   * cleared until the money is confirmed.
+   */
+  const [placedOrderId, setPlacedOrderId] = useState<string>();
+
+  const payment = useRazorpayPayment();
+  const [placing, setPlacing] = useState(false);
 
   const blocked = summary.issues.length > 0;
   const noAddress = summary.addresses.length === 0;
 
-  async function placeOrder() {
-    if (submitting) return;
+  /** One flag for "a submission is in flight", covering both payment methods. */
+  const busy = placing || payment.busy;
 
-    if (!addressId) {
-      setAddressError('Choose where this order should be delivered');
-      return;
-    }
+  const total = summary.pricing.total;
 
-    setSubmitting(true);
+  function requireAddress(): boolean {
+    if (addressId) return true;
+    setAddressError('Choose where this order should be delivered');
+    return false;
+  }
+
+  /** Cash on delivery: the Phase 6 path, untouched. */
+  async function placeCodOrder() {
+    setPlacing(true);
     setError(undefined);
-    setAddressError(undefined);
 
     try {
-      const order = await createOrder(addressId);
-
-      // The bought lines are gone from the server cart; bring the badge and the
-      // cart page in step before leaving checkout.
+      const order = await createOrder(addressId, 'COD');
       await refreshCart();
-
       router.replace(`/order-confirmation/${order.orderNumber}`);
     } catch (cause) {
       setError(toErrorMessage(cause));
       // The catalogue may have moved on — re-read so the issues list is current.
       router.refresh();
-      setSubmitting(false);
+      setPlacing(false);
     }
   }
+
+  /**
+   * Online payment: create the unpaid order, then pay for it.
+   *
+   * The order is created once and remembered. Everything after that point is a
+   * payment attempt against it, so failing and trying again never produces a
+   * second order.
+   */
+  async function payOnline() {
+    let orderId = placedOrderId;
+
+    if (!orderId) {
+      setPlacing(true);
+      setError(undefined);
+
+      try {
+        const order = await createOrder(addressId, 'RAZORPAY');
+        orderId = order.id;
+        setPlacedOrderId(order.id);
+      } catch (cause) {
+        setError(toErrorMessage(cause));
+        router.refresh();
+        setPlacing(false);
+        return;
+      } finally {
+        setPlacing(false);
+      }
+    }
+
+    const result = await payment.pay(orderId);
+
+    if (result.kind === 'success') {
+      // The bought lines are gone from the server cart; bring the badge and the
+      // cart page in step before leaving checkout.
+      await refreshCart();
+      router.replace(`/order-confirmation/${result.order.orderNumber}`);
+      return;
+    }
+
+    // Uncertain, but money may have moved — the confirmation page reads the
+    // server's state and says so honestly, which is better than guessing here.
+    if (result.kind === 'pending' || result.kind === 'unfulfillable') {
+      await refreshCart();
+      router.replace(`/order-confirmation/${result.order.orderNumber}`);
+    }
+  }
+
+  async function submit() {
+    if (busy) return;
+    if (!requireAddress()) return;
+
+    setAddressError(undefined);
+
+    if (method === 'COD') {
+      await placeCodOrder();
+    } else {
+      await payOnline();
+    }
+  }
+
+  const failure: PaymentFailureKind | null =
+    payment.attempt?.kind === 'cancelled'
+      ? 'cancelled'
+      : payment.attempt?.kind === 'failed'
+        ? 'failed'
+        : payment.attempt?.kind === 'unfulfillable'
+          ? 'unfulfillable'
+          : null;
+
+  const cta =
+    method === 'COD' ? `Place COD order · ${formatPrice(total)}` : `Pay ${formatPrice(total)}`;
 
   return (
     <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_23rem] lg:gap-12">
@@ -111,7 +202,7 @@ export function CheckoutClient({ summary }: { summary: CheckoutSummary }) {
             </div>
           ) : (
             <>
-              <fieldset className="mt-5">
+              <fieldset className="mt-5" disabled={busy || Boolean(placedOrderId)}>
                 <legend className="sr-only">Choose a delivery address</legend>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -182,6 +273,12 @@ export function CheckoutClient({ summary }: { summary: CheckoutSummary }) {
               >
                 {addressError ?? ''}
               </p>
+
+              {placedOrderId && (
+                <p className="text-caption text-muted-foreground">
+                  Your order is reserved, so the delivery address is fixed for this attempt.
+                </p>
+              )}
             </>
           )}
         </section>
@@ -191,26 +288,18 @@ export function CheckoutClient({ summary }: { summary: CheckoutSummary }) {
             Payment
           </h2>
 
-          {/* One method, presented as a choice rather than an assumption, so the
-              customer sees what they are agreeing to. */}
-          <div className="mt-5 flex gap-3 rounded-2xl border border-brand bg-brand-subtle/30 p-4">
-            <span
-              aria-hidden
-              className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border-2 border-brand bg-brand"
-            >
-              <Check className="size-2.5 text-brand-foreground" />
-            </span>
-
-            <div className="min-w-0">
-              <p className="text-small flex items-center gap-2 font-semibold">
-                <Wallet className="size-4" aria-hidden />
-                Cash on delivery
-              </p>
-              <p className="text-caption mt-1 text-muted-foreground">
-                Pay when your order arrives. Card and UPI payments are coming soon.
-              </p>
-            </div>
-          </div>
+          <PaymentMethodSelector
+            value={method}
+            onChange={(next) => {
+              setMethod(next);
+              setError(undefined);
+              payment.reset();
+            }}
+            onlineAvailable={summary.onlinePaymentAvailable}
+            // Once an online order exists, switching to cash would place a
+            // second order for the same basket.
+            disabled={busy || Boolean(placedOrderId)}
+          />
         </section>
       </div>
 
@@ -221,25 +310,55 @@ export function CheckoutClient({ summary }: { summary: CheckoutSummary }) {
           <AuthError message={error} />
         </div>
 
+        <PaymentProcessing phase={payment.phase} />
+
+        {failure && (
+          <PaymentFailed
+            kind={failure}
+            detail={payment.attempt?.kind === 'failed' ? payment.attempt.message : undefined}
+            onRetry={failure === 'unfulfillable' ? undefined : submit}
+            retrying={busy}
+          />
+        )}
+
+        {payment.attempt?.kind === 'error' && (
+          <div className="mt-4">
+            <AuthError message={payment.attempt.message} />
+          </div>
+        )}
+
         <Button
           size="cta-lg"
           variant="brand"
-          onClick={placeOrder}
-          disabled={submitting || blocked || noAddress}
+          onClick={submit}
+          disabled={busy || blocked || noAddress}
           className="mt-4 w-full"
         >
-          {submitting ? (
+          {busy ? (
             <>
-              <Loader2 className="size-4 animate-spin" data-icon="inline-start" />
-              Placing your order...
+              <Loader2 className="size-4 animate-spin" data-icon="inline-start" aria-hidden />
+              {payment.phase === 'payment-open'
+                ? 'Waiting for payment…'
+                : payment.phase === 'verifying-payment' || payment.phase === 'confirming'
+                  ? 'Confirming…'
+                  : 'Just a moment…'}
             </>
+          ) : failure ? (
+            `Try again · ${formatPrice(total)}`
           ) : (
-            `Place order · ${formatPrice(summary.pricing.total)}`
+            cta
           )}
         </Button>
 
-        <p className="text-caption mt-3 text-center text-muted-foreground">
-          You will pay {formatPrice(summary.pricing.total)} in cash when the order is delivered.
+        <p className="text-caption mt-3 flex items-center justify-center gap-1.5 text-center text-muted-foreground">
+          {method === 'COD' ? (
+            `You will pay ${formatPrice(total)} in cash when the order is delivered.`
+          ) : (
+            <>
+              <Lock className="size-3.5 shrink-0" aria-hidden />
+              {formatPrice(total)} charged securely via Razorpay.
+            </>
+          )}
         </p>
 
         <Link

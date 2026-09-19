@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { isRazorpayConfigured } from '../config/env';
 import * as orderService from '../services/order.service';
 import { AppError } from '../utils/AppError';
 import {
@@ -33,10 +34,17 @@ export async function getOrder(req: Request, res: Response): Promise<void> {
  * confirmation page renders what the database actually holds.
  */
 export async function createOrder(req: Request, res: Response): Promise<void> {
-  const { addressId } = createOrderSchema.parse(req.body);
+  const { addressId, paymentMethod } = createOrderSchema.parse(req.body);
+
+  // Refused rather than quietly downgraded to cash on delivery: a customer who
+  // chose to pay online must not be told an order is placed under terms they
+  // did not pick.
+  if (paymentMethod === 'RAZORPAY' && !isRazorpayConfigured(req.env)) {
+    throw new AppError('Online payment is not available at the moment.', 503);
+  }
 
   const userId = currentUserId(req);
-  const orderNumber = await orderService.createOrder(userId, addressId);
+  const orderNumber = await orderService.createOrder(userId, addressId, paymentMethod);
 
   res.status(201).json({ success: true, data: await orderService.getOrder(userId, orderNumber) });
 }

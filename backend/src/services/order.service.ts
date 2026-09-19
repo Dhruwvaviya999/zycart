@@ -1,6 +1,13 @@
 import mongoose, { Types } from 'mongoose';
 import { Cart } from '../models/cart.model';
-import { CANCELLABLE_STATUSES, Order, type OrderStatus } from '../models/order.model';
+import {
+  CANCELLABLE_STATUSES,
+  Order,
+  PAYABLE_PAYMENT_STATUSES,
+  SETTLED_PAYMENT_STATUSES,
+  type OrderStatus,
+  type PaymentMethod,
+} from '../models/order.model';
 import { Product } from '../models/product.model';
 import { AppError } from '../utils/AppError';
 import { generateOrderNumber } from '../utils/orderNumber';
@@ -9,7 +16,7 @@ import type { CancelOrderInput, OrderQuery } from '../validators/order.validator
 import { priceCart, resolveAddress } from './checkout.service';
 
 /** Raised when the catalogue has moved on since the cart was filled. */
-class AvailabilityError extends AppError {
+export class AvailabilityError extends AppError {
   constructor(message: string) {
     super(message, 409);
   }
@@ -87,15 +94,27 @@ async function buildOrderItems(lines: PlannedLine[], session: mongoose.ClientSes
  *
  * The filter carries the sufficiency check, so the read and the write are one
  * operation — two customers racing for the last unit cannot both succeed,
- * because the second update matches nothing. Inside the transaction a failure
+ * because the second update matches nothing. Inside a transaction a failure
  * here aborts everything, so stock is never taken for an order that was not
- * created.
+ * created, and never taken twice for a payment confirmed twice.
+ *
+ * Shared by both paths on purpose: cash on delivery takes stock when the order
+ * is placed, online payment takes it when the money is confirmed, and there is
+ * exactly one piece of code that knows how to do it.
  */
-async function reserveStock(
-  items: { product: Types.ObjectId; quantity: number; productName: string }[],
+export async function commitStock(
+  items: readonly {
+    product?: Types.ObjectId | null;
+    quantity: number;
+    productName: string;
+  }[],
   session: mongoose.ClientSession,
 ): Promise<void> {
   for (const item of items) {
+    // A deleted product leaves a snapshot with no reference; there is no row to
+    // decrement, and the order still records exactly what was bought.
+    if (!item.product) continue;
+
     const updated = await Product.findOneAndUpdate(
       { _id: item.product, isActive: true, stock: { $gte: item.quantity } },
       { $inc: { stock: -item.quantity } },
@@ -110,21 +129,44 @@ async function reserveStock(
   }
 }
 
-export interface CreateOrderResult {
-  orderNumber: string;
+/**
+ * Removes the bought lines from the cart — only those, and only by id, so
+ * anything added in another tab meanwhile survives.
+ */
+export async function clearPurchasedCartLines(
+  userId: Types.ObjectId | string,
+  cartItemIds: Types.ObjectId[],
+  session: mongoose.ClientSession,
+): Promise<void> {
+  if (cartItemIds.length === 0) return;
+
+  await Cart.updateOne(
+    { user: userId },
+    { $pull: { items: { _id: { $in: cartItemIds } } } },
+    { session },
+  );
 }
 
 /**
  * Places the order.
  *
- * The whole thing runs in one transaction: validate, snapshot, take stock,
- * write the order, drop the purchased lines from the cart. Anything that throws
- * rolls all of it back, which is what guarantees the two states nobody ever
- * wants — an order with no stock taken, or stock taken with no order — cannot
- * occur. The cart is emptied last and only inside the successful path, so a
- * failure always leaves the customer's cart exactly as it was.
+ * What runs inside the transaction now depends on how the order will be paid.
+ *
+ * Cash on delivery is unchanged from Phase 6: validate, snapshot, take stock,
+ * write the order, clear the bought cart lines — all or nothing.
+ *
+ * Online payment stops after writing the order. Stock is **not** taken and the
+ * cart is **not** cleared, because at this moment nothing has been paid and
+ * most Razorpay Checkout windows that open are never completed. Holding
+ * inventory for every abandoned attempt would make the last unit of a popular
+ * product unbuyable by anyone who actually intends to pay. Both happen instead
+ * at payment finalisation, in one transaction of their own.
  */
-export async function createOrder(userId: string, addressId: string): Promise<string> {
+export async function createOrder(
+  userId: string,
+  addressId: string,
+  paymentMethod: PaymentMethod,
+): Promise<string> {
   const address = await resolveAddress(userId, addressId);
 
   const cart = await Cart.findOne({ user: userId });
@@ -139,7 +181,9 @@ export async function createOrder(userId: string, addressId: string): Promise<st
     selectedSize: item.selectedSize ?? null,
   }));
 
-  const orderedItemIds = cart.items.map((item) => String(item._id));
+  const orderedItemIds = cart.items.map((item) => new Types.ObjectId(String(item._id)));
+
+  const takesStockNow = paymentMethod === 'COD';
 
   const session = await mongoose.startSession();
 
@@ -147,9 +191,11 @@ export async function createOrder(userId: string, addressId: string): Promise<st
     let orderNumber = '';
 
     await session.withTransaction(async () => {
+      // Validated for both methods: an online order is still only offered for
+      // items that are available right now, even though the stock is taken later.
       const items = await buildOrderItems(lines, session);
 
-      await reserveStock(items, session);
+      if (takesStockNow) await commitStock(items, session);
 
       const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
 
@@ -179,8 +225,15 @@ export async function createOrder(userId: string, addressId: string): Promise<st
                   country: address.country,
                 },
                 pricing: priceCart(subtotal),
-                payment: { method: 'COD', status: 'PENDING', provider: null },
+                payment: {
+                  method: paymentMethod,
+                  status: 'PENDING',
+                  provider: paymentMethod === 'RAZORPAY' ? 'razorpay' : null,
+                },
                 status: 'PENDING',
+                stockCommitted: takesStockNow,
+                // Remembered for the online path, which clears the cart later.
+                sourceCartItemIds: orderedItemIds,
               },
             ],
             { session },
@@ -199,12 +252,11 @@ export async function createOrder(userId: string, addressId: string): Promise<st
       orderNumber = created.orderNumber;
 
       // Only the lines that were actually bought: anything added in another tab
-      // mid-checkout survives.
-      await Cart.updateOne(
-        { user: userId },
-        { $pull: { items: { _id: { $in: orderedItemIds.map((id) => new Types.ObjectId(id)) } } } },
-        { session },
-      );
+      // mid-checkout survives. Deferred to payment for the online path, so an
+      // abandoned payment leaves the cart untouched.
+      if (takesStockNow) {
+        await clearPurchasedCartLines(userId, orderedItemIds, session);
+      }
     });
 
     return orderNumber;
@@ -214,6 +266,37 @@ export async function createOrder(userId: string, addressId: string): Promise<st
 }
 
 type OrderDoc = InstanceType<typeof Order>;
+
+/**
+ * Whether this order can still be paid online.
+ *
+ * Read by the API so the "Pay now" affordance and the endpoint that backs it
+ * agree on one rule, rather than the interface guessing and the server
+ * deciding.
+ */
+export function canRetryPayment(order: OrderDoc): boolean {
+  return (
+    order.payment.method === 'RAZORPAY' &&
+    order.status === 'PENDING' &&
+    PAYABLE_PAYMENT_STATUSES.includes(order.payment.status)
+  );
+}
+
+/**
+ * Whether the customer may cancel this order themselves.
+ *
+ * An order with money already taken is excluded: refunding a captured payment
+ * on request is a customer-refund system, which this phase does not build, and
+ * offering a button that silently does not refund would be worse than not
+ * offering it. Those orders are cancellable by support, and the interface says
+ * so instead of pretending.
+ */
+export function canCancel(order: OrderDoc): boolean {
+  return (
+    CANCELLABLE_STATUSES.includes(order.status) &&
+    !SETTLED_PAYMENT_STATUSES.includes(order.payment.status)
+  );
+}
 
 /** The order list only needs enough to recognise an order, never the whole thing. */
 export interface OrderListItem {
@@ -225,6 +308,7 @@ export interface OrderListItem {
   createdAt: string;
   paymentMethod: string;
   paymentStatus: string;
+  canPayNow: boolean;
   /** A couple of thumbnails so the row is recognisable at a glance. */
   preview: { name: string; image: string }[];
 }
@@ -239,6 +323,7 @@ function toListItem(order: OrderDoc): OrderListItem {
     createdAt: order.createdAt.toISOString(),
     paymentMethod: order.payment.method,
     paymentStatus: order.payment.status,
+    canPayNow: canRetryPayment(order),
     preview: order.items.slice(0, 3).map((item) => ({
       name: item.productName,
       image: item.productImage,
@@ -280,7 +365,7 @@ export async function listOrders(userId: string, query: OrderQuery) {
  * another customer's order is simply not found — the response cannot
  * distinguish "someone else's" from "does not exist", which is the point.
  */
-async function findOwnedOrder(
+export async function findOwnedOrder(
   userId: string,
   orderRef: string,
   session?: mongoose.ClientSession,
@@ -299,18 +384,54 @@ async function findOwnedOrder(
   return order;
 }
 
+/**
+ * What the customer is told about their payment.
+ *
+ * The gateway order id is included because it is the reference a customer
+ * quotes to support, and it is useless to anyone without the API secret. The
+ * superseded ids from earlier attempts are not: they are an audit trail for the
+ * server, not information the order page has any use for.
+ */
+export interface OrderPaymentView {
+  method: string;
+  status: string;
+  provider: string | null;
+  razorpayOrderId: string | null;
+  razorpayPaymentId: string | null;
+  paidAt: string | null;
+  failureReason: string | null;
+  refundId: string | null;
+  refundedAt: string | null;
+}
+
+function toPaymentView(order: OrderDoc): OrderPaymentView {
+  const payment = order.payment;
+
+  return {
+    method: payment.method,
+    status: payment.status,
+    provider: payment.provider ?? null,
+    razorpayOrderId: payment.razorpayOrderId ?? null,
+    razorpayPaymentId: payment.razorpayPaymentId ?? null,
+    paidAt: payment.paidAt ? payment.paidAt.toISOString() : null,
+    failureReason: payment.failureReason ?? null,
+    refundId: payment.refundId ?? null,
+    refundedAt: payment.refundedAt ? payment.refundedAt.toISOString() : null,
+  };
+}
+
 export interface OrderDetail extends Omit<OrderListItem, 'preview'> {
   items: OrderDoc['items'];
   shippingAddress: OrderDoc['shippingAddress'];
   pricing: OrderDoc['pricing'];
-  payment: OrderDoc['payment'];
+  payment: OrderPaymentView;
   cancellationReason: string | null;
   cancelledAt: string | null;
   updatedAt: string;
   canCancel: boolean;
 }
 
-function toDetail(order: OrderDoc): OrderDetail {
+export function toDetail(order: OrderDoc): OrderDetail {
   return {
     id: String(order._id),
     orderNumber: order.orderNumber,
@@ -321,13 +442,14 @@ function toDetail(order: OrderDoc): OrderDetail {
     updatedAt: order.updatedAt.toISOString(),
     paymentMethod: order.payment.method,
     paymentStatus: order.payment.status,
+    canPayNow: canRetryPayment(order),
     items: order.items,
     shippingAddress: order.shippingAddress,
     pricing: order.pricing,
-    payment: order.payment,
+    payment: toPaymentView(order),
     cancellationReason: order.cancellationReason ?? null,
     cancelledAt: order.cancelledAt ? order.cancelledAt.toISOString() : null,
-    canCancel: CANCELLABLE_STATUSES.includes(order.status),
+    canCancel: canCancel(order),
   };
 }
 
@@ -336,15 +458,17 @@ export async function getOrder(userId: string, orderRef: string): Promise<OrderD
 }
 
 /**
- * Cancels an order and puts the stock back.
+ * Cancels an order and puts the stock back — if this order was ever holding any.
  *
- * Both halves run in one transaction, so an order can never end up cancelled
- * with the stock still held, or the stock returned against an order that is
- * still live. Restoring is unconditional `$inc` — unlike taking stock, giving
- * it back can never fail for lack of it.
+ * `stockCommitted` is what makes that conditional safe. A cash-on-delivery order
+ * took its stock at creation and gives it back here. An online order that was
+ * never paid took none, and restoring for it would conjure inventory out of an
+ * abandoned checkout. The flag is cleared as part of the same update, so a
+ * second cancellation cannot restore a second time.
  *
- * Nothing is refunded because nothing was charged: this phase is cash on
- * delivery, and payment status stays PENDING.
+ * A paid order is refused rather than cancelled, because cancelling one means
+ * refunding it, and a refund the customer was promised but did not receive is
+ * worse than a button that was never offered. Those go through support.
  */
 export async function cancelOrder(
   userId: string,
@@ -370,14 +494,25 @@ export async function cancelOrder(
         );
       }
 
-      for (const item of order.items) {
-        if (!item.product) continue;
-
-        await Product.updateOne(
-          { _id: item.product },
-          { $inc: { stock: item.quantity } },
-          { session },
+      if (SETTLED_PAYMENT_STATUSES.includes(order.payment.status)) {
+        throw new AppError(
+          'This order has already been paid. Please contact support to cancel it and arrange a refund.',
+          409,
         );
+      }
+
+      if (order.stockCommitted) {
+        for (const item of order.items) {
+          if (!item.product) continue;
+
+          await Product.updateOne(
+            { _id: item.product },
+            { $inc: { stock: item.quantity } },
+            { session },
+          );
+        }
+
+        order.stockCommitted = false;
       }
 
       order.status = 'CANCELLED';

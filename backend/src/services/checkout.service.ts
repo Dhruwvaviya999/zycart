@@ -1,3 +1,4 @@
+import { isRazorpayConfigured, type Env } from '../config/env';
 import { User } from '../models/user.model';
 import { AppError } from '../utils/AppError';
 import { getCart, type ResolvedCart, type ResolvedCartItem } from './cart.service';
@@ -56,6 +57,15 @@ export interface CheckoutSummary {
   issues: CheckoutIssue[];
   notices: string[];
   canPlaceOrder: boolean;
+  /**
+   * Whether this deployment can take online payment at all.
+   *
+   * Driven by whether Razorpay credentials are configured, so a cash-only
+   * deployment simply does not offer the option rather than offering one that
+   * fails when pressed. The checkout page reads this instead of guessing from a
+   * public key it can see.
+   */
+  onlinePaymentAvailable: boolean;
 }
 
 /**
@@ -129,6 +139,7 @@ export async function resolveAddress(userId: string, addressId: string): Promise
  * quote a different subtotal than the page before it.
  */
 export async function getCheckoutSummary(
+  env: Env,
   userId: string,
   requestedAddressId?: string,
 ): Promise<CheckoutSummary> {
@@ -158,5 +169,6 @@ export async function getCheckoutSummary(
     issues,
     notices: cart.notices,
     canPlaceOrder: cart.items.length > 0 && issues.length === 0 && addresses.length > 0,
+    onlinePaymentAvailable: isRazorpayConfigured(env),
   };
 }

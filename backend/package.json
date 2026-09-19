@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
-    "seed": "tsx src/utils/seed.ts"
+    "seed": "tsx src/utils/seed.ts",
+    "migrate:phase7": "tsx src/utils/migrate-phase7.ts"
   },
   "engines": {
     "node": ">=20"
@@ -25,6 +26,7 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.10.1",
+    "razorpay": "^2.9.8",
     "zod": "^4.6.5"
   },
   "devDependencies": {

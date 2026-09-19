@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { OrderStatusBadge } from '@/components/order/order-status-badge';
+import { paymentMethodLabel, paymentStatusLabel } from '@/components/payment/payment-status';
 import { formatDate, formatPrice } from '@/lib/format';
 import type { OrderListItem } from '@/types/order';
 
@@ -57,17 +58,25 @@ export function OrderCard({ order }: { order: OrderListItem }) {
         <p className="text-price ml-auto tabular-nums">{formatPrice(order.total)}</p>
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-4">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border pt-4">
+        {/* Kept subtle: payment state is a footnote on a card whose headline is
+            the order status, and it is words rather than colour alone. */}
         <p className="text-caption text-muted-foreground">
-          {order.paymentMethod === 'COD' ? 'Cash on delivery' : order.paymentMethod} ·{' '}
-          {order.paymentStatus === 'PENDING' ? 'Not yet paid' : order.paymentStatus}
+          {paymentMethodLabel(order.paymentMethod)} ·{' '}
+          <span
+            className={
+              order.paymentStatus === 'FAILED' ? 'font-medium text-destructive' : undefined
+            }
+          >
+            {paymentStatusLabel(order.paymentStatus, order.paymentMethod)}
+          </span>
         </p>
 
         <Link
           href={`/account/orders/${order.orderNumber}`}
-          className="focus-ring text-small group inline-flex shrink-0 items-center gap-1.5 rounded-md font-medium text-foreground transition-colors hover:text-brand"
+          className="focus-ring text-small group ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md font-medium text-foreground transition-colors hover:text-brand"
         >
-          View order
+          {order.canPayNow ? 'Complete payment' : 'View order'}
           <ArrowRight className="size-4 transition-transform duration-300 ease-(--ease-brand) group-hover:translate-x-0.5" />
         </Link>
       </div>

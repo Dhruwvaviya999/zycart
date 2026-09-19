@@ -31,4 +31,10 @@ export interface CheckoutSummary {
   issues: CheckoutIssue[];
   notices: string[];
   canPlaceOrder: boolean;
+  /**
+   * Whether this deployment can take online payment at all. Driven by the
+   * server's Razorpay configuration, so the option is never offered when
+   * pressing it would fail.
+   */
+  onlinePaymentAvailable: boolean;
 }

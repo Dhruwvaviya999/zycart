@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ORDER_STATUSES } from '../models/order.model';
+import { ORDER_STATUSES, PAYMENT_METHODS } from '../models/order.model';
 import { objectIdSchema } from './common';
 
 /** Kept short and fixed: a free-text box here buys nothing. */
@@ -19,7 +19,12 @@ export const CANCELLATION_REASONS = [
 export const createOrderSchema = z
   .object({
     addressId: objectIdSchema,
-    paymentMethod: z.literal('COD').default('COD'),
+    /**
+     * Which of the two flows to run — not a claim about payment state. Choosing
+     * RAZORPAY creates an unpaid order and nothing more; the money is a
+     * separate, verified step.
+     */
+    paymentMethod: z.enum(PAYMENT_METHODS).default('COD'),
   })
   .strict();
 

@@ -1,22 +1,124 @@
 import { z } from 'zod';
 
-const envSchema = z.object({
-  PORT: z.coerce.number().int().positive().default(5000),
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  MONGODB_URI: z
-    .string({ error: 'is required - set it in backend/.env (no default is assumed)' })
-    .min(1),
-  CLIENT_URL: z.string().min(1).default('http://localhost:3000'),
+const envSchema = z
+  .object({
+    PORT: z.coerce.number().int().positive().default(5000),
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    MONGODB_URI: z
+      .string({ error: 'is required - set it in backend/.env (no default is assumed)' })
+      .min(1),
+    CLIENT_URL: z.string().min(1).default('http://localhost:3000'),
 
-  // Authentication is always on from Phase 4, so the secret is required. A short
-  // one is worse than no auth at all, hence the length floor rather than min(1).
-  JWT_SECRET: z
-    .string({ error: 'is required - set it in backend/.env (use a long random value)' })
-    .min(32, 'must be at least 32 characters'),
-  JWT_EXPIRES_IN: z.string().min(2).default('7d'),
-});
+    // Authentication is always on from Phase 4, so the secret is required. A short
+    // one is worse than no auth at all, hence the length floor rather than min(1).
+    JWT_SECRET: z
+      .string({ error: 'is required - set it in backend/.env (use a long random value)' })
+      .min(32, 'must be at least 32 characters'),
+    JWT_EXPIRES_IN: z.string().min(2).default('7d'),
+
+    /**
+     * Razorpay. Optional as a group, mandatory as a set — see the refinement
+     * below. All three are server-only: the key id is additionally published to
+     * the browser as NEXT_PUBLIC_RAZORPAY_KEY_ID, but the two secrets must never
+     * leave this process.
+     */
+    RAZORPAY_KEY_ID: z
+      .string()
+      .regex(/^rzp_(test|live)_[A-Za-z0-9]+$/, 'must look like rzp_test_... or rzp_live_...')
+      .optional(),
+    RAZORPAY_KEY_SECRET: z
+      .string()
+      .min(16, 'looks too short to be a Razorpay key secret')
+      .optional(),
+    RAZORPAY_WEBHOOK_SECRET: z
+      .string()
+      .min(8, 'must match the secret configured on the Razorpay webhook')
+      .optional(),
+  })
+  /**
+   * Half-configured payments is the dangerous state, so it is the one that stops
+   * startup.
+   *
+   * A key id with no secret would let the server create Razorpay orders it can
+   * never verify; a missing webhook secret would leave the recovery path for
+   * lost browser callbacks silently dead. Either way the failure would surface
+   * only once a real customer was mid-payment. Refusing to boot surfaces it now.
+   *
+   * Configuring none of the three is a legitimate deployment — cash on delivery
+   * only — and is reported at startup rather than passed over in silence.
+   */
+  .superRefine((env, ctx) => {
+    const keys = ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET'] as const;
+    const missing = keys.filter((key) => !env[key]);
+
+    if (missing.length === 0 || missing.length === keys.length) return;
+
+    for (const key of missing) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [key],
+        message:
+          'is required once any Razorpay variable is set - configure all three, or none of them to run cash-on-delivery only',
+      });
+    }
+  })
+  /**
+   * A live key in a development build is almost always a mistake, and the cost
+   * of the mistake is real money moving. Test keys in production are the
+   * mirror-image mistake: real customers paying into a sandbox.
+   */
+  .superRefine((env, ctx) => {
+    if (!env.RAZORPAY_KEY_ID) return;
+
+    const isLive = env.RAZORPAY_KEY_ID.startsWith('rzp_live_');
+
+    if (isLive && env.NODE_ENV !== 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['RAZORPAY_KEY_ID'],
+        message: `is a live key but NODE_ENV is "${env.NODE_ENV}" - use a rzp_test_ key outside production`,
+      });
+    }
+
+    if (!isLive && env.NODE_ENV === 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['RAZORPAY_KEY_ID'],
+        message:
+          'is a test key but NODE_ENV is "production" - real payments would not be collected',
+      });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
+
+/** Narrowed to the shape the payment code needs: all three present, none optional. */
+export interface RazorpayConfig {
+  keyId: string;
+  keySecret: string;
+  webhookSecret: string;
+}
+
+/**
+ * The Razorpay credentials, or null when this deployment takes cash only.
+ *
+ * Callers that need the credentials must go through here rather than reading
+ * the optional fields, which is what keeps "is online payment configured?" a
+ * single decision made in one place.
+ */
+export function razorpayConfig(env: Env): RazorpayConfig | null {
+  if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET || !env.RAZORPAY_WEBHOOK_SECRET) {
+    return null;
+  }
+
+  return {
+    keyId: env.RAZORPAY_KEY_ID,
+    keySecret: env.RAZORPAY_KEY_SECRET,
+    webhookSecret: env.RAZORPAY_WEBHOOK_SECRET,
+  };
+}
+
+export const isRazorpayConfigured = (env: Env): boolean => razorpayConfig(env) !== null;
 
 /**
  * `KEY=` in a .env file yields an empty string, which would otherwise satisfy

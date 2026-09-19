@@ -1,6 +1,12 @@
 import { request, requestList, send, type RequestOptions } from '@/services/api';
 import type { CheckoutSummary } from '@/types/checkout';
-import type { CancellationReason, Order, OrderListResponse, OrderStatus } from '@/types/order';
+import type {
+  CancellationReason,
+  Order,
+  OrderListResponse,
+  OrderStatus,
+  PaymentMethod,
+} from '@/types/order';
 
 export function getCheckoutSummary(
   addressId?: string,
@@ -16,9 +22,15 @@ export function getCheckoutSummary(
 /**
  * Places the order and answers with the order the server actually stored, so
  * the confirmation page renders what exists rather than what was hoped for.
+ *
+ * For RAZORPAY this creates an **unpaid** order and nothing more — no stock is
+ * taken and the cart is untouched until the payment is confirmed server-side.
  */
-export function createOrder(addressId: string): Promise<Order> {
-  return send<Order>('post', '/api/orders', { addressId, paymentMethod: 'COD' });
+export function createOrder(
+  addressId: string,
+  paymentMethod: PaymentMethod = 'COD',
+): Promise<Order> {
+  return send<Order>('post', '/api/orders', { addressId, paymentMethod });
 }
 
 export interface OrderListParams {

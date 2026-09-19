@@ -5,6 +5,12 @@ import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft, MapPin, Wallet } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { CancelOrderDialog } from '@/components/order/cancel-order-dialog';
+import { PayNowButton } from '@/components/payment/pay-now-button';
+import {
+  PaymentStatusBadge,
+  paymentMethodLabel,
+  paymentStatusExplanation,
+} from '@/components/payment/payment-status';
 import { OrderStatusBadge } from '@/components/order/order-status-badge';
 import { OrderTimeline } from '@/components/order/order-timeline';
 import { ApiError } from '@/services/api';
@@ -197,15 +203,51 @@ export default async function OrderDetailPage({
               <Wallet className="size-4 text-muted-foreground" aria-hidden />
               Payment
             </h3>
-            <p className="text-caption mt-3 text-muted-foreground">
-              {order.payment.method === 'COD' ? 'Cash on delivery' : order.payment.method}
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-caption text-muted-foreground">
+                {paymentMethodLabel(order.payment.method)}
+              </p>
+              <PaymentStatusBadge status={order.payment.status} method={order.payment.method} />
+            </div>
+
+            <p className="text-caption mt-2 text-pretty text-muted-foreground">
+              {paymentStatusExplanation(order.payment.status, order.payment.method)}
             </p>
-            <p className="text-caption mt-1 text-muted-foreground">
-              {order.payment.status === 'PENDING'
-                ? 'Payable when your order arrives'
-                : order.payment.status}
-            </p>
+
+            {order.payment.paidAt && (
+              <p className="text-caption mt-1 text-muted-foreground">
+                Paid on {formatDate(order.payment.paidAt)}
+              </p>
+            )}
+
+            {order.payment.status === 'FAILED' && order.payment.failureReason && (
+              <p className="text-caption mt-1 text-pretty text-muted-foreground">
+                {order.payment.failureReason}
+              </p>
+            )}
+
+            {/* The gateway reference, because it is what support will ask for.
+                It is useless to anyone without the API secret. */}
+            {order.payment.razorpayPaymentId && (
+              <p className="text-caption mt-2 break-all text-muted-foreground">
+                Reference {order.payment.razorpayPaymentId}
+              </p>
+            )}
           </div>
+
+          {/* Offered only when the server says this order may still be paid,
+              so the button and the endpoint behind it cannot disagree. */}
+          {order.canPayNow && (
+            <div className="rounded-2xl border border-brand/30 bg-brand-subtle/20 p-5">
+              <h3 className="text-small font-semibold">This order is waiting for payment</h3>
+              <p className="text-caption mt-1.5 mb-4 text-pretty text-muted-foreground">
+                Nothing has been charged yet. Complete the payment and we will get it moving — your
+                items are not reserved until it goes through.
+              </p>
+              <PayNowButton orderId={order.id} total={order.pricing.total} />
+            </div>
+          )}
 
           {order.canCancel && (
             <div className="rounded-2xl border border-border p-5">

@@ -13,6 +13,6 @@ export async function getSummary(req: Request, res: Response): Promise<void> {
 
   res.json({
     success: true,
-    data: await checkoutService.getCheckoutSummary(currentUserId(req), addressId),
+    data: await checkoutService.getCheckoutSummary(req.env, currentUserId(req), addressId),
   });
 }
