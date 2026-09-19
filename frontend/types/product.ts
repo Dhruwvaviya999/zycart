@@ -1,3 +1,5 @@
+import type { RatingDistribution } from '@/types/review';
+
 /** A populated `category` or `brand` reference as the API returns it. */
 export interface ProductReference {
   id: string;
@@ -39,6 +41,7 @@ export interface ProductSummary {
   colors: ProductColor[];
   sizes: ProductSize[];
   tags: string[];
+  /** Derived from approved reviews; zero until a product has been reviewed. */
   rating: number;
   reviewCount: number;
   isFeatured: boolean;
@@ -52,6 +55,14 @@ export interface Product extends ProductSummary {
   description: string;
   highlights: string[];
   specifications: ProductSpecification[];
+  /**
+   * How many approved reviews gave each star.
+   *
+   * Carried on the product so the review section can draw its distribution
+   * without a second request. The list endpoints leave it behind — a card only
+   * needs the average.
+   */
+  ratingBreakdown: RatingDistribution;
   updatedAt: string;
 }
 
@@ -85,18 +96,6 @@ export interface Pagination {
 }
 
 export type ProductBadgeKind = 'new' | 'sale' | 'bestseller' | 'limited';
-
-/** Static mock — reviews are a later phase, so these are not backed by the API. */
-export interface Review {
-  id: string;
-  author: string;
-  initials: string;
-  rating: number;
-  date: string;
-  title: string;
-  body: string;
-  verified: boolean;
-}
 
 /** A cart line stores only what the shopper chose; prices always come from the API. */
 export interface CartLine {

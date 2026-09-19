@@ -8,6 +8,7 @@ import { healthRouter } from './health.routes';
 import { orderRouter } from './order.routes';
 import { paymentRouter } from './payment.routes';
 import { productRouter } from './product.routes';
+import { reviewRouter } from './review.routes';
 import { userRouter } from './user.routes';
 import { wishlistRouter } from './wishlist.routes';
 
@@ -21,6 +22,9 @@ apiRouter.use(wishlistRouter);
 apiRouter.use(checkoutRouter);
 apiRouter.use(orderRouter);
 apiRouter.use(paymentRouter);
+// Declared before the product router so `/products/:id/reviews` is matched
+// here rather than falling through to the catalogue's own parameter routes.
+apiRouter.use(reviewRouter);
 apiRouter.use(productRouter);
 apiRouter.use(categoryRouter);
 apiRouter.use(brandRouter);

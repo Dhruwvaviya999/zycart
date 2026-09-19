@@ -75,7 +75,17 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
       <p className="text-body mt-3 text-pretty text-muted-foreground">{product.shortDescription}</p>
 
       <div className="mt-5 flex flex-wrap items-center gap-4">
-        <Rating value={product.rating} reviewCount={product.reviewCount} showStars size="md" />
+        {/* A rating nobody can act on is a missed affordance: this jumps
+            straight to the reviews behind it. Unrated products get plain text,
+            because there is nothing to jump to. */}
+        {product.reviewCount > 0 ? (
+          <a href="#reviews" className="focus-ring rounded-md transition-opacity hover:opacity-80">
+            <Rating value={product.rating} reviewCount={product.reviewCount} showStars size="md" />
+            <span className="sr-only">Read all {product.reviewCount} reviews</span>
+          </a>
+        ) : (
+          <Rating value={product.rating} reviewCount={product.reviewCount} showStars size="md" />
+        )}
         <span
           className={cn(
             'text-caption inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium',

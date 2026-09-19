@@ -56,8 +56,39 @@ const productSchema = new Schema(
     highlights: { type: [String], default: [] },
     specifications: { type: [specificationSchema], default: [] },
 
+    /**
+     * Rating aggregates, derived entirely from approved reviews.
+     *
+     * `rating` and `reviewCount` are what the storefront renders, and they are
+     * kept as stored fields rather than computed per request because sorting
+     * and filtering by rating happen in the database. They are never written by
+     * hand: every change goes through `applyRatingDelta`, which recomputes
+     * `rating` from `ratingSum` and `reviewCount` inside the same atomic update.
+     *
+     * `ratingSum` is the exact integer total of every approved rating. Keeping
+     * it means an average can be maintained by addition rather than by
+     * re-reading every review, and it is the sum — not the average — that stays
+     * exact: 14/3 is stored as a sum of 14 over 3 reviews, and only the
+     * displayed `rating` is rounded.
+     */
     rating: { type: Number, min: 0, max: 5, default: 0 },
     reviewCount: { type: Number, min: 0, default: 0 },
+    ratingSum: { type: Number, min: 0, default: 0 },
+
+    /** How many approved reviews gave each star, for the distribution bars. */
+    ratingBreakdown: {
+      type: new Schema(
+        {
+          1: { type: Number, min: 0, default: 0 },
+          2: { type: Number, min: 0, default: 0 },
+          3: { type: Number, min: 0, default: 0 },
+          4: { type: Number, min: 0, default: 0 },
+          5: { type: Number, min: 0, default: 0 },
+        },
+        { _id: false },
+      ),
+      default: () => ({}),
+    },
 
     isFeatured: { type: Boolean, default: false },
     isBestSeller: { type: Boolean, default: false },

@@ -53,8 +53,13 @@ export const createProductSchema = z.object({
   highlights: z.array(z.string().trim().min(1).max(200)).max(12).optional(),
   specifications: z.array(specificationSchema).max(30).optional(),
 
-  rating: z.number().min(0).max(5).optional(),
-  reviewCount: z.number().int().nonnegative().optional(),
+  /**
+   * `rating`, `reviewCount`, `ratingSum` and `ratingBreakdown` are absent on
+   * purpose. From Phase 8 they are derived from approved reviews and maintained
+   * atomically by the review service, so accepting them here would let a write
+   * to the catalogue contradict the reviews underneath it. `.strict()` turns an
+   * attempt to send one into a 400.
+   */
 
   isFeatured: z.boolean().optional(),
   isBestSeller: z.boolean().optional(),

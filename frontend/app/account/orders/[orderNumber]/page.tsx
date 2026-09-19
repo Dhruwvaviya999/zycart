@@ -6,6 +6,7 @@ import { ArrowLeft, MapPin, Wallet } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { CancelOrderDialog } from '@/components/order/cancel-order-dialog';
 import { PayNowButton } from '@/components/payment/pay-now-button';
+import { OrderItemReview } from '@/components/reviews/order-item-review';
 import {
   PaymentStatusBadge,
   paymentMethodLabel,
@@ -122,6 +123,14 @@ export default async function OrderDetailPage({
                       <p className="text-caption mt-auto pt-2 text-muted-foreground">
                         {formatPrice(item.unitPrice)} × {item.quantity}
                       </p>
+
+                      {/* Offered only on a delivered order, and only for a line
+                          that still points at a product. The component asks the
+                          server whether this customer may review before showing
+                          anything, so the button never leads to a refusal. */}
+                      {order.status === 'DELIVERED' && item.product && (
+                        <OrderItemReview productId={item.product} productName={item.productName} />
+                      )}
                     </div>
 
                     <p className="text-price shrink-0 tabular-nums">

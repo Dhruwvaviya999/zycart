@@ -12,7 +12,9 @@
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
     "seed": "tsx src/utils/seed.ts",
-    "migrate:phase7": "tsx src/utils/migrate-phase7.ts"
+    "migrate:phase7": "tsx src/utils/migrate-phase7.ts",
+    "migrate:phase8": "tsx src/utils/migrate-phase8.ts",
+    "seed:reviews": "tsx src/utils/seed-reviews.ts"
   },
   "engines": {
     "node": ">=20"

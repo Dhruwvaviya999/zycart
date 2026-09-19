@@ -2,7 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Heart, LayoutGrid, MapPin, Package, Settings, User, type LucideIcon } from 'lucide-react';
+import {
+  Heart,
+  LayoutGrid,
+  MapPin,
+  Package,
+  Settings,
+  Star,
+  User,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -15,6 +24,7 @@ const ITEMS: NavItem[] = [
   { href: '/account', label: 'Overview', icon: LayoutGrid },
   { href: '/account/profile', label: 'Profile', icon: User },
   { href: '/account/orders', label: 'Orders', icon: Package },
+  { href: '/account/reviews', label: 'Reviews', icon: Star },
   { href: '/account/addresses', label: 'Addresses', icon: MapPin },
   { href: '/account/settings', label: 'Settings', icon: Settings },
   { href: '/wishlist', label: 'Wishlist', icon: Heart },

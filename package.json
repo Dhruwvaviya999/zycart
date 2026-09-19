@@ -12,6 +12,8 @@
     "start:frontend": "pnpm --filter zycart-frontend start",
     "seed": "pnpm --filter zycart-backend seed",
     "migrate:phase7": "pnpm --filter zycart-backend migrate:phase7",
+    "migrate:phase8": "pnpm --filter zycart-backend migrate:phase8",
+    "seed:reviews": "pnpm --filter zycart-backend seed:reviews",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,css}\""

@@ -39,8 +39,17 @@ async function seedDatabase(): Promise<void> {
     return { ...product, category, brand, createdAt, updatedAt: createdAt };
   });
 
-  // `timestamps: false` keeps the authored createdAt values, so "newest" and
-  // "oldest" sorting order the catalogue meaningfully rather than by insert order.
+  /**
+   * Seeded products carry no rating.
+   *
+   * From Phase 8 a product's rating is derived from real, purchase-verified
+   * reviews and nothing else, so the catalogue starts unrated and earns its
+   * stars. `pnpm seed:reviews` creates genuine reviews — real customers, real
+   * delivered orders — if a populated storefront is wanted for development.
+   *
+   * `timestamps: false` keeps the authored createdAt values, so "newest" and
+   * "oldest" sorting order the catalogue meaningfully rather than by insert order.
+   */
   const inserted = await Product.insertMany(documents, { timestamps: false });
 
   console.log(

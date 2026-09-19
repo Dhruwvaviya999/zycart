@@ -6,18 +6,20 @@ Smart shopping, beautifully simplified.
 
 This repository contains **Phase 1 (project foundation)**, **Phase 2 (storefront
 UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
-& wishlist)**, **Phase 6 (checkout & orders)** and **Phase 7 (Razorpay
-payments)** — a Next.js storefront backed by a real MongoDB catalogue, customer
-accounts, a persistent cart, and ordering paid either online or on delivery,
-served over an Express + TypeScript API.
+& wishlist)**, **Phase 6 (checkout & orders)**, **Phase 7 (Razorpay payments)**
+and **Phase 8 (reviews & ratings)** — a Next.js storefront backed by a real
+MongoDB catalogue, customer accounts, a persistent cart, ordering paid either
+online or on delivery, and ratings written only by customers who received what
+they are rating, served over an Express + TypeScript API.
 
-Orders can be paid online through Razorpay or settled in cash on delivery. AI
-functionality does not exist yet.
+Orders can be paid online through Razorpay or settled in cash on delivery, and
+every rating on the site comes from a verified purchase. AI functionality does
+not exist yet.
 
 Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 2](docs/phase-2.md), [phase 3](docs/phase-3.md), [phase 4](docs/phase-4.md),
 [phase 5](docs/phase-5.md), [phase 6](docs/phase-6.md),
-[phase 7](docs/phase-7.md).
+[phase 7](docs/phase-7.md), [phase 8](docs/phase-8.md).
 
 ---
 
@@ -68,7 +70,8 @@ zycart/
 │   │   ├── layout/        # Navbar, footer, container, theme
 │   │   ├── order/         # Order card, status, timeline, cancellation
 │   │   ├── payment/       # Method selector, processing, failure, status
-│   │   ├── product/       # Product card, grid, gallery, price, rating
+│   │   ├── product/       # Product card, grid, gallery, price, rating, tabs
+│   │   ├── reviews/       # Rating summary, selector, cards, form, filters
 │   │   ├── search/        # Search trigger and overlay
 │   │   ├── shop/          # Listing page, filters
 │   │   ├── store/         # Homepage sections
@@ -78,7 +81,7 @@ zycart/
 │   ├── hooks/             # Custom React hooks
 │   ├── lib/               # Framework-agnostic helpers (format.ts, utils.ts)
 │   ├── services/          # API clients: api, product, category, brand,
-│   │                      #   cart, wishlist, order, user, payment
+│   │                      #   cart, wishlist, order, user, payment, review
 │   ├── store/             # Zustand stores (cart, wishlist, UI)
 │   ├── types/             # Shared TypeScript types
 │   └── public/            # Static assets
@@ -88,11 +91,13 @@ zycart/
 │       ├── config/        # env.ts (validation), database.ts (Mongoose connection)
 │       ├── controllers/   # Request handlers
 │       ├── middleware/    # Error handling, 404
-│       ├── models/        # product, category, brand, cart, order, webhook-event
+│       ├── models/        # product, category, brand, cart, order,
+│       │                  #   webhook-event, review
 │       ├── routes/        # Route definitions only
 │       ├── services/      # Database and business logic (incl. payment, razorpay)
 │       ├── utils/         # AppError, asyncHandler, slugify, seed, money,
-│       │                  #   payment-signature, migrate-phase7
+│       │                  #   payment-signature, migrate-phase7,
+│       │                  #   migrate-phase8, seed-reviews
 │       ├── validators/    # Zod request and query schemas
 │       ├── app.ts         # Express app assembly
 │       └── server.ts      # Env load -> DB connect -> listen
@@ -188,15 +193,28 @@ pnpm seed
 This loads 6 categories, 21 brands and 36 products. It clears those three
 collections first, so it is safe to re-run and it touches nothing else.
 
-If your database already holds orders created before Phase 7, run the one-off
-migration as well:
+If your database already holds data created before Phase 7 or Phase 8, run the
+one-off migrations as well:
 
 ```bash
 pnpm migrate:phase7
+pnpm migrate:phase8
 ```
 
-It backfills the `stockCommitted` flag and creates the payment indexes. Additive
-and idempotent — it never drops or overwrites anything.
+The first backfills the `stockCommitted` flag and creates the payment indexes.
+The second recomputes every product's rating from the reviews that actually
+exist and creates the review indexes. Both are additive and idempotent — neither
+drops or overwrites anything.
+
+**Products start unrated.** From Phase 8 a rating is a claim about real,
+purchase-verified reviews, so the catalogue earns its stars rather than shipping
+with them. To populate a development storefront with genuine reviews — real
+customers, real delivered orders — run:
+
+```bash
+pnpm seed:reviews          # add them
+pnpm seed:reviews --clean  # remove exactly what it added
+```
 
 ### 7. Start the backend
 
@@ -242,17 +260,19 @@ the mobile menu). `Ctrl`/`Cmd` + `K` opens search from anywhere.
 
 Run from the repository root:
 
-| Command               | Effect                                  |
-| --------------------- | --------------------------------------- |
-| `pnpm dev`            | Start backend and frontend together     |
-| `pnpm dev:backend`    | Start the API on port 5000 with reload  |
-| `pnpm dev:frontend`   | Start Next.js on port 3000              |
-| `pnpm build`          | Build both applications                 |
-| `pnpm typecheck`      | Type-check both applications            |
-| `pnpm lint`           | Lint both applications                  |
-| `pnpm format`         | Format the repository with Prettier     |
-| `pnpm seed`           | Load the development catalogue          |
-| `pnpm migrate:phase7` | Backfill pre-Phase-7 orders and indexes |
+| Command               | Effect                                                             |
+| --------------------- | ------------------------------------------------------------------ |
+| `pnpm dev`            | Start backend and frontend together                                |
+| `pnpm dev:backend`    | Start the API on port 5000 with reload                             |
+| `pnpm dev:frontend`   | Start Next.js on port 3000                                         |
+| `pnpm build`          | Build both applications                                            |
+| `pnpm typecheck`      | Type-check both applications                                       |
+| `pnpm lint`           | Lint both applications                                             |
+| `pnpm format`         | Format the repository with Prettier                                |
+| `pnpm seed`           | Load the development catalogue                                     |
+| `pnpm migrate:phase7` | Backfill pre-Phase-7 orders and indexes                            |
+| `pnpm migrate:phase8` | Recompute rating aggregates, create review indexes                 |
+| `pnpm seed:reviews`   | Populate development with genuine reviews (`--clean` removes them) |
 
 Per application:
 
@@ -406,6 +426,27 @@ No endpoint accepts an amount. The figure charged is derived from the stored
 order on the server, and is checked again against the Razorpay API before an
 order is confirmed. See [docs/phase-7.md](docs/phase-7.md).
 
+### Reviews
+
+| Method   | Path                                       | Auth  | Purpose                              |
+| -------- | ------------------------------------------ | ----- | ------------------------------------ |
+| `GET`    | `/api/products/:productId/reviews`         | —     | Approved reviews, filtered and paged |
+| `GET`    | `/api/products/:productId/reviews/summary` | —     | Average, count and distribution      |
+| `GET`    | `/api/reviews/eligibility/:productId`      | ✓     | May I review this, and have I?       |
+| `POST`   | `/api/reviews`                             | ✓     | Write one                            |
+| `PATCH`  | `/api/reviews/:reviewId`                   | ✓     | Edit your own                        |
+| `DELETE` | `/api/reviews/:reviewId`                   | ✓     | Delete your own                      |
+| `GET`    | `/api/reviews/me`                          | ✓     | Everything you have written          |
+| `GET`    | `/api/admin/reviews`                       | ADMIN | Moderation queue                     |
+| `PATCH`  | `/api/admin/reviews/:reviewId/status`      | ADMIN | Approve or reject                    |
+
+A review can only be created once the server has found a **delivered order
+belonging to the authenticated customer containing that product** — there is no
+field through which a client can claim a purchase, set `isVerifiedPurchase` or
+choose a status. One review per customer per product, enforced by a unique
+index. Ratings are derived from approved reviews and maintained atomically. See
+[docs/phase-8.md](docs/phase-8.md).
+
 ### Catalogue
 
 | Method | Path                              | Purpose                                |
@@ -480,5 +521,7 @@ sessions and saved addresses. Phase 5 made the cart and wishlist real and
 persistent, for guests and customers alike. Phase 6 added checkout, cash-on-
 delivery orders, order history and cancellation. Phase 7 added Razorpay online
 payment — server-created gateway orders, signature and webhook verification,
-idempotent payment finalisation and atomic inventory. AI features
+idempotent payment finalisation and atomic inventory. Phase 8 added reviews and
+ratings, written only by customers with a delivered order for the product they
+are rating. AI features
 arrive in later phases.
