@@ -4,7 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Loader2, Plus, X } from 'lucide-react';
+import { Boxes, Loader2, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AuthError } from '@/components/auth/auth-error';
@@ -88,7 +88,8 @@ export function ProductForm({
     if (form.compareAtPrice !== null && form.compareAtPrice <= form.price) {
       next.compareAtPrice = 'A compare-at price should be higher than the price.';
     }
-    if (!Number.isInteger(form.stock) || form.stock < 0) {
+    // Only on creation: an existing product's stock is not editable here.
+    if (!editing && (!Number.isInteger(form.stock) || form.stock < 0)) {
       next.stock = 'Stock must be a whole number.';
     }
 
@@ -108,9 +109,19 @@ export function ProductForm({
 
     try {
       if (product) {
-        // The SKU is immutable server-side, so it is never sent on an edit.
-        const { sku, ...rest } = form;
+        /**
+         * The SKU is immutable server-side and stock is no longer settable
+         * there, so neither is sent on an edit.
+         *
+         * Stock in particular: sending a total would discard anything that
+         * happened between this form loading and saving — a sale, another
+         * operator's correction — and would carry no reason for the change.
+         * It moves through the inventory adjustment instead, which takes a
+         * signed amount and records why.
+         */
+        const { sku, stock, ...rest } = form;
         void sku;
+        void stock;
         await updateProduct(product.id, rest);
         router.refresh();
       } else {
@@ -336,18 +347,54 @@ export function ProductForm({
               />
             </Field>
 
-            <Field label="Stock" error={fields.stock} htmlFor="stock">
-              <Input
-                id="stock"
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
-                value={String(form.stock)}
-                onChange={(event) => update('stock', Math.trunc(Number(event.target.value) || 0))}
-                aria-invalid={Boolean(fields.stock) || undefined}
-              />
-            </Field>
+            {editing ? (
+              /**
+               * Stock, deliberately read-only once a product exists.
+               *
+               * Typing a new total here would silently overwrite whatever had
+               * happened since the form loaded, and would leave no record of
+               * why the number changed. The adjustment screen takes a signed
+               * amount and a reason, and writes both to the product's stock
+               * history — so this points there rather than pretending.
+               */
+              <div>
+                <p className="text-caption font-medium">Stock</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-h4 tabular-nums">{form.stock}</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    render={<Link href={`/admin/inventory/${product?.id ?? ''}`} />}
+                  >
+                    <Boxes className="size-3.5" data-icon="inline-start" aria-hidden />
+                    Adjust stock
+                  </Button>
+                </div>
+                <p className="text-caption mt-1.5 text-pretty text-muted-foreground">
+                  Stock changes through an adjustment, so every change carries a reason and appears
+                  in the product&rsquo;s stock history.
+                </p>
+              </div>
+            ) : (
+              <Field
+                label="Opening stock"
+                hint="Recorded as the product's first stock movement."
+                error={fields.stock}
+                htmlFor="stock"
+              >
+                <Input
+                  id="stock"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  value={String(form.stock)}
+                  onChange={(event) => update('stock', Math.trunc(Number(event.target.value) || 0))}
+                  aria-invalid={Boolean(fields.stock) || undefined}
+                />
+              </Field>
+            )}
           </Card>
 
           <Card title="Catalogue">

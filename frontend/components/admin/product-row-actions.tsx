@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Eye, EyeOff, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Boxes, Eye, EyeOff, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +44,14 @@ export function ProductRowActions({ product }: { product: AdminProductRow }) {
           <DropdownMenuItem render={<Link href={`/admin/products/${product.id}`} />}>
             <Pencil className="size-4 text-muted-foreground" aria-hidden />
             Edit
+          </DropdownMenuItem>
+
+          {/* Stock is not editable on the product form from Phase 12, so the
+              row has to say where it *is* editable rather than leaving an
+              operator to hunt for a field that is no longer there. */}
+          <DropdownMenuItem render={<Link href={`/admin/inventory/${product.id}`} />}>
+            <Boxes className="size-4 text-muted-foreground" aria-hidden />
+            Stock and history
           </DropdownMenuItem>
 
           {product.slug && (

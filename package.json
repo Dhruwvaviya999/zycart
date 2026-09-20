@@ -13,6 +13,8 @@
     "seed": "pnpm --filter zycart-backend seed",
     "migrate:phase7": "pnpm --filter zycart-backend migrate:phase7",
     "migrate:phase8": "pnpm --filter zycart-backend migrate:phase8",
+    "migrate:phase12": "pnpm --filter zycart-backend migrate:phase12",
+    "inventory:verify": "pnpm --filter zycart-backend inventory:verify",
     "seed:reviews": "pnpm --filter zycart-backend seed:reviews",
     "make-admin": "pnpm --filter zycart-backend make-admin",
     "lint": "pnpm -r lint",

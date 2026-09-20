@@ -10,6 +10,7 @@ import type {
   ReviewQuery,
   UpdateReviewInput,
 } from '../validators/review.validator';
+import { recordAudit, type AuditActor } from './admin/audit.service';
 
 type ReviewDoc = InstanceType<typeof Review>;
 
@@ -708,6 +709,7 @@ export async function deleteReview(userId: string, reviewId: string): Promise<vo
 export async function moderateReview(
   reviewId: string,
   input: ModerateReviewInput,
+  actor?: AuditActor,
 ): Promise<OwnReview> {
   const session = await mongoose.startSession();
 
@@ -718,6 +720,7 @@ export async function moderateReview(
       const review = await Review.findById(reviewId).session(session);
       if (!review) throw new AppError('Review not found', 404);
 
+      const previous = review.status;
       const wasCounting = counts(review.status);
       const willCount = counts(input.status);
 
@@ -728,6 +731,26 @@ export async function moderateReview(
         await applyRatingDelta(review.product as Types.ObjectId, addition(review.rating), session);
       } else if (wasCounting && !willCount) {
         await applyRatingDelta(review.product as Types.ObjectId, removal(review.rating), session);
+      }
+
+      /**
+       * Inside the same transaction as the moderation and the rating delta, so
+       * a log entry claiming a review was approved cannot outlive a rollback
+       * that left it pending.
+       */
+      if (actor) {
+        await recordAudit(
+          {
+            actor,
+            action: 'REVIEW_MODERATED',
+            entityType: 'REVIEW',
+            entityId: review._id,
+            entityLabel: `${review.rating}★ review`,
+            summary: `Review ${input.status.toLowerCase()} (${review.rating}★)`,
+            changes: [{ field: 'status', from: previous, to: input.status }],
+          },
+          session,
+        );
       }
 
       updated = review;

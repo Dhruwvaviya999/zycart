@@ -5,6 +5,7 @@ import { User } from '../../models/user.model';
 import { AppError } from '../../utils/AppError';
 import { escapeRegex } from '../../validators/common';
 import type { AdminCustomerQuery } from '../../validators/admin.validator';
+import { recordAudit, type AuditActor } from './audit.service';
 
 /**
  * Customers, as an operator needs to see them.
@@ -220,14 +221,39 @@ export async function getCustomer(userId: string): Promise<AdminCustomerDetail> 
  * The filter carries `role: 'USER'`, so this endpoint cannot be pointed at an
  * administrator — including the one calling it.
  */
-export async function setActive(userId: string, isActive: boolean): Promise<AdminCustomerDetail> {
+export async function setActive(
+  userId: string,
+  isActive: boolean,
+  actor: AuditActor,
+): Promise<AdminCustomerDetail> {
   const updated = await User.findOneAndUpdate(
     { _id: userId, role: 'USER' },
     { $set: { isActive } },
     { new: true },
-  ).select('_id');
+  ).select('_id firstName lastName email');
 
   if (!updated) throw new AppError('Customer not found', 404);
+
+  const name = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
+
+  /**
+   * Audited after the write, not inside a transaction.
+   *
+   * This is a single-document update: there is no second write for it to be
+   * inconsistent with, and the row is created only once the account has
+   * actually changed — so the log still cannot claim something that did not
+   * happen. Opening a transaction around one `findOneAndUpdate` purely to write
+   * a log entry would be ceremony rather than safety.
+   */
+  await recordAudit({
+    actor,
+    action: 'CUSTOMER_STATUS_CHANGED',
+    entityType: 'CUSTOMER',
+    entityId: updated._id,
+    entityLabel: name,
+    summary: `Customer ${name} ${isActive ? 'reactivated' : 'deactivated'}`,
+    changes: [{ field: 'isActive', from: String(!isActive), to: String(isActive) }],
+  });
 
   return getCustomer(userId);
 }

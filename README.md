@@ -8,13 +8,14 @@ This repository contains **Phase 1 (project foundation)**, **Phase 2 (storefront
 UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
 & wishlist)**, **Phase 6 (checkout & orders)**, **Phase 7 (Razorpay payments)**,
 **Phase 8 (reviews & ratings)**, **Phase 9 (admin console)**, **Phase 10 (AI
-shopping assistant)** and **Phase 11 (AI discovery, smart search &
-recommendations)** — a Next.js storefront backed by a real MongoDB catalogue,
-customer accounts, a persistent cart, ordering paid either online or on
-delivery, ratings written only by customers who received what they are rating, a
-console to run the store, a shopping assistant that answers from the live
-catalogue, and natural-language search with behaviour-based recommendations,
-served over an Express + TypeScript API.
+shopping assistant)**, **Phase 11 (AI discovery, smart search &
+recommendations)** and **Phase 12 (admin operations, inventory & fulfilment)** —
+a Next.js storefront backed by a real MongoDB catalogue, customer accounts, a
+persistent cart, ordering paid either online or on delivery, ratings written only
+by customers who received what they are rating, a console to run the store, a
+shopping assistant that answers from the live catalogue, natural-language search
+with behaviour-based recommendations, and an operations console with a full
+inventory ledger and audit trail, served over an Express + TypeScript API.
 
 Orders can be paid online through Razorpay or settled in cash on delivery, and
 every rating on the site comes from a verified purchase.
@@ -25,6 +26,14 @@ call the storefront's own services — so its prices, stock and ratings are the
 same ones `/shop` shows, and it has no route to the database, no way to place an
 order and no access to anyone's account details. It is optional: leave
 `AI_API_KEY` blank and the entire store works exactly as before.
+
+**Every unit of stock can be accounted for.** `Product.stock` is the one
+authoritative sellable quantity, and from Phase 12 every change to it — a sale, a
+cancellation, an opening quantity, an operator's correction — writes a movement
+in the same transaction, recording what changed, by how much, why, when and who
+did it. Stock is corrected by a signed amount and a reason applied atomically,
+never by typing a new total over whatever was there, so two operators working at
+once cannot overwrite each other and stock can never go negative.
 
 **ZyCart discovers as well as it answers.** Typing a sentence into the shop's
 search box — "black shoes under ₹15,000", "highly rated headphones" — resolves
@@ -38,7 +47,7 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 5](docs/phase-5.md), [phase 6](docs/phase-6.md),
 [phase 7](docs/phase-7.md), [phase 8](docs/phase-8.md),
 [phase 9](docs/phase-9.md), [phase 10](docs/phase-10.md),
-[phase 11](docs/phase-11.md).
+[phase 11](docs/phase-11.md), [phase 12](docs/phase-12.md).
 
 ---
 
@@ -88,7 +97,8 @@ zycart/
 │   │   └── admin/         # Admin console (its own shell, own chrome)
 │   ├── components/        # Shared React components
 │   │   ├── account/       # Account dashboard
-│   │   ├── admin/         # Console shell, filters, tables, forms
+│   │   ├── admin/         # Console shell, filters, tables, forms,
+│   │   │                  #   inventory adjustment, timelines, audit log
 │   │   ├── cart/          # Cart
 │   │   ├── common/        # Breadcrumbs, empty/loading/error states
 │   │   ├── layout/        # Navbar, footer, container, theme
@@ -118,17 +128,21 @@ zycart/
 │       ├── controllers/   # Request handlers
 │       ├── middleware/    # Error handling, 404, auth, role, adminOnly
 │       ├── models/        # product, category, brand, cart, order,
-│       │                  #   webhook-event, review, user-activity
+│       │                  #   webhook-event, review, user-activity,
+│       │                  #   inventory-movement, audit-log
 │       ├── routes/        # Route definitions only
 │       ├── services/      # Database and business logic (incl. payment, razorpay)
-│       │   ├── admin/     # Dashboard, catalogue, orders, customers, reviews
+│       │   ├── admin/     # Dashboard, catalogue, orders, customers, reviews,
+│       │   │              #   audit trail, operations (attention rules, bulk)
+│       │   ├── inventory/ # Stock ledger, atomic adjustment, thresholds
 │       │   ├── ai/        # Provider abstraction, prompts, tools, interpreter
 │       │   ├── activity/  # Minimal behaviour recording for recommendations
 │       │   ├── recommendation/ # Similarity and deterministic scoring
 │       │   └── search/    # Query classification, relevance, smart search
 │       ├── utils/         # AppError, asyncHandler, slugify, seed, money,
-│       │                  #   payment-signature, migrate-phase7,
-│       │                  #   migrate-phase8, seed-reviews, make-admin
+│       │                  #   actor, payment-signature, migrate-phase7,
+│       │                  #   migrate-phase8, migrate-phase12,
+│       │                  #   seed-reviews, make-admin
 │       ├── validators/    # Zod request and query schemas
 │       ├── app.ts         # Express app assembly
 │       └── server.ts      # Env load -> DB connect -> listen
@@ -298,16 +312,19 @@ Open <http://localhost:3000>. The storefront reads its catalogue from the API, s
 
 ### Routes
 
-| Route              | Page                                                        |
-| ------------------ | ----------------------------------------------------------- |
-| `/`                | Homepage — hero, categories, trending, promos, best sellers |
-| `/shop`            | Product listing with search, filters and sorting            |
-| `/products/[slug]` | Product detail — gallery, variants, specs, reviews          |
-| `/cart`            | Cart, saved for later and order summary                     |
-| `/wishlist`        | Saved products                                              |
-| `/account`         | Profile, orders, wishlist, addresses, settings              |
-| `/ai-shopping`     | ZyCart AI with the whole page — the same chat as the panel  |
-| `/admin`           | Admin console — requires an `ADMIN` account (see below)     |
+| Route               | Page                                                        |
+| ------------------- | ----------------------------------------------------------- |
+| `/`                 | Homepage — hero, categories, trending, promos, best sellers |
+| `/shop`             | Product listing with search, filters and sorting            |
+| `/products/[slug]`  | Product detail — gallery, variants, specs, reviews          |
+| `/cart`             | Cart, saved for later and order summary                     |
+| `/wishlist`         | Saved products                                              |
+| `/account`          | Profile, orders, wishlist, addresses, settings              |
+| `/ai-shopping`      | ZyCart AI with the whole page — the same chat as the panel  |
+| `/admin`            | Admin console — requires an `ADMIN` account (see below)     |
+| `/admin/inventory`  | Stock levels, adjustment and per-product stock history      |
+| `/admin/operations` | Orders that need a person, and fulfilment queue depth       |
+| `/admin/activity`   | Audit trail — who changed what, and when                    |
 
 Shopper-facing routes live in the `(storefront)` route group, which gives them
 the navbar, promo bar and footer. The console has its own shell and inherits
@@ -325,31 +342,34 @@ additional way in, not a replacement.
 
 Run from the repository root:
 
-| Command               | Effect                                                             |
-| --------------------- | ------------------------------------------------------------------ |
-| `pnpm dev`            | Start backend and frontend together                                |
-| `pnpm dev:backend`    | Start the API on port 5000 with reload                             |
-| `pnpm dev:frontend`   | Start Next.js on port 3000                                         |
-| `pnpm build`          | Build both applications                                            |
-| `pnpm typecheck`      | Type-check both applications                                       |
-| `pnpm lint`           | Lint both applications                                             |
-| `pnpm format`         | Format the repository with Prettier                                |
-| `pnpm seed`           | Load the development catalogue                                     |
-| `pnpm migrate:phase7` | Backfill pre-Phase-7 orders and indexes                            |
-| `pnpm migrate:phase8` | Recompute rating aggregates, create review indexes                 |
-| `pnpm seed:reviews`   | Populate development with genuine reviews (`--clean` removes them) |
-| `pnpm make-admin`     | Grant, revoke or list administrator access (see below)             |
+| Command                | Effect                                                             |
+| ---------------------- | ------------------------------------------------------------------ |
+| `pnpm dev`             | Start backend and frontend together                                |
+| `pnpm dev:backend`     | Start the API on port 5000 with reload                             |
+| `pnpm dev:frontend`    | Start Next.js on port 3000                                         |
+| `pnpm build`           | Build both applications                                            |
+| `pnpm typecheck`       | Type-check both applications                                       |
+| `pnpm lint`            | Lint both applications                                             |
+| `pnpm format`          | Format the repository with Prettier                                |
+| `pnpm seed`            | Load the development catalogue                                     |
+| `pnpm migrate:phase7`  | Backfill pre-Phase-7 orders and indexes                            |
+| `pnpm migrate:phase8`  | Recompute rating aggregates, create review indexes                 |
+| `pnpm migrate:phase12` | Create inventory-movement, audit-log and stock indexes             |
+| `pnpm seed:reviews`    | Populate development with genuine reviews (`--clean` removes them) |
+| `pnpm make-admin`      | Grant, revoke or list administrator access (see below)             |
 
-AI-specific, run from `backend/`:
+Backend checks, run from `backend/`:
 
 | Command                 | Effect                                                            |
 | ----------------------- | ----------------------------------------------------------------- |
-| `pnpm test`             | 75 unit tests for the AI layer — no database, no API key needed   |
+| `pnpm test`             | 199 unit tests — AI, discovery, inventory and operations; no DB   |
 | `pnpm ai:verify`        | 43 checks of every AI tool against a real MongoDB, then cleans up |
 | `pnpm discovery:verify` | 63 checks of search, similarity and recommendations               |
+| `pnpm inventory:verify` | 48 checks of stock adjustment, concurrency and the ledger         |
 
-Both verify scripts create their own records under a reserved prefix
-(`ZYCART-AI-TEST-`, `ZYCART-P11-`), never touch a record they did not create,
+All three verify scripts create their own records under a reserved prefix
+(`ZYCART-AI-TEST-`, `ZYCART-P11-`, `ZYCART-P12-`), never touch a record they
+did not create,
 and remove exactly those at the end — so both are safe to point at a real
 database.
 
@@ -624,33 +644,44 @@ Every path below `/api/admin` passes through `requireAuth` and then
 `requireRole('ADMIN')` before any handler runs — the guard is mounted once, on
 the router, so a route added later cannot be unprotected by omission.
 
-| Method   | Path                                  | Purpose                                      |
-| -------- | ------------------------------------- | -------------------------------------------- |
-| `GET`    | `/api/admin/dashboard`                | Metrics, revenue series, attention counts    |
-| `GET`    | `/api/admin/products`                 | Catalogue listing, **including inactive**    |
-| `POST`   | `/api/admin/products`                 | Create                                       |
-| `GET`    | `/api/admin/products/:id`             | One product                                  |
-| `PATCH`  | `/api/admin/products/:id`             | Update                                       |
-| `DELETE` | `/api/admin/products/:id`             | Delete                                       |
-| `GET`    | `/api/admin/categories`               | With product counts                          |
-| `POST`   | `/api/admin/categories`               | Create                                       |
-| `PATCH`  | `/api/admin/categories/:id`           | Update                                       |
-| `DELETE` | `/api/admin/categories/:id`           | Delete                                       |
-| `GET`    | `/api/admin/brands`                   | With product counts                          |
-| `POST`   | `/api/admin/brands`                   | Create                                       |
-| `PATCH`  | `/api/admin/brands/:id`               | Update                                       |
-| `DELETE` | `/api/admin/brands/:id`               | Delete                                       |
-| `GET`    | `/api/admin/orders`                   | Every order, filterable                      |
-| `GET`    | `/api/admin/orders/:orderRef`         | One order + customer + `allowedStatuses`     |
-| `PATCH`  | `/api/admin/orders/:orderRef/status`  | **Fulfilment state only**                    |
-| `GET`    | `/api/admin/customers`                | Customers with lifetime spend                |
-| `GET`    | `/api/admin/customers/:id`            | One customer (addresses counted, not listed) |
-| `PATCH`  | `/api/admin/customers/:id/status`     | Deactivate / reactivate                      |
-| `GET`    | `/api/admin/reviews`                  | Every review, filterable by status           |
-| `GET`    | `/api/admin/reviews/:reviewId`        | One review + its order evidence              |
-| `PATCH`  | `/api/admin/reviews/:reviewId/status` | Approve / reject                             |
+| Method   | Path                                  | Purpose                                        |
+| -------- | ------------------------------------- | ---------------------------------------------- |
+| `GET`    | `/api/admin/dashboard`                | Metrics, revenue series, attention counts      |
+| `GET`    | `/api/admin/products`                 | Catalogue listing, **including inactive**      |
+| `POST`   | `/api/admin/products`                 | Create                                         |
+| `GET`    | `/api/admin/products/:id`             | One product                                    |
+| `PATCH`  | `/api/admin/products/:id`             | Update                                         |
+| `DELETE` | `/api/admin/products/:id`             | Delete                                         |
+| `GET`    | `/api/admin/categories`               | With product counts                            |
+| `POST`   | `/api/admin/categories`               | Create                                         |
+| `PATCH`  | `/api/admin/categories/:id`           | Update                                         |
+| `DELETE` | `/api/admin/categories/:id`           | Delete                                         |
+| `GET`    | `/api/admin/brands`                   | With product counts                            |
+| `POST`   | `/api/admin/brands`                   | Create                                         |
+| `PATCH`  | `/api/admin/brands/:id`               | Update                                         |
+| `DELETE` | `/api/admin/brands/:id`               | Delete                                         |
+| `GET`    | `/api/admin/orders`                   | Every order, filterable                        |
+| `GET`    | `/api/admin/orders/:orderRef`         | One order + customer + `allowedStatuses`       |
+| `PATCH`  | `/api/admin/orders/:orderRef/status`  | **Fulfilment state only**                      |
+| `PATCH`  | `/api/admin/orders/bulk-status`       | Up to 50 orders, per-order outcomes            |
+| `GET`    | `/api/admin/inventory`                | Stock, scarcest first, filterable              |
+| `GET`    | `/api/admin/inventory/summary`        | Health counts, sellable units, thresholds      |
+| `GET`    | `/api/admin/inventory/movements`      | The store-wide stock ledger                    |
+| `GET`    | `/api/admin/inventory/:id`            | Stock, variants, totals, recent movements      |
+| `GET`    | `/api/admin/inventory/:id/movements`  | One product's ledger, paged                    |
+| `POST`   | `/api/admin/inventory/:id/adjust`     | **Signed change + reason**, applied atomically |
+| `PATCH`  | `/api/admin/inventory/:id/threshold`  | Per-product low-stock threshold                |
+| `GET`    | `/api/admin/operations`               | Attention counts and fulfilment queue depth    |
+| `GET`    | `/api/admin/audit-logs`               | Every administrative change, filterable        |
+| `GET`    | `/api/admin/audit-logs/actors`        | Options for the actor filter                   |
+| `GET`    | `/api/admin/customers`                | Customers with lifetime spend                  |
+| `GET`    | `/api/admin/customers/:id`            | One customer (addresses counted, not listed)   |
+| `PATCH`  | `/api/admin/customers/:id/status`     | Deactivate / reactivate                        |
+| `GET`    | `/api/admin/reviews`                  | Every review, filterable by status             |
+| `GET`    | `/api/admin/reviews/:reviewId`        | One review + its order evidence                |
+| `PATCH`  | `/api/admin/reviews/:reviewId/status` | Approve / reject                               |
 
-Two things are deliberately absent:
+Four things are deliberately absent:
 
 - **No `mark-paid`.** Payment state is grounded in what Razorpay reports. An
   administrative shortcut that asserted it would make every **Paid** badge in
@@ -658,6 +689,41 @@ Two things are deliberately absent:
   for the administrator exactly as it is for the customer.
 - **No role change.** Promotion to administrator is not a dropdown in a
   customer list.
+- **No `stock` on `PATCH /api/admin/products/:id`.** Setting a total silently
+  discards whatever happened between the form loading and saving, and carries
+  no reason for the change. Stock moves through the adjustment endpoint, which
+  takes a signed amount and a reason and applies both in one atomic update. An
+  older client still sending the field gets a successful update in which it is
+  simply not honoured.
+- **No bulk cancellation.** Cancelling restores stock and may owe a refund, so
+  it stays a single-order, confirmed decision. `bulk-status` accepts only
+  forward moves, and the schema is what enforces that.
+
+Adjusting stock:
+
+```http
+POST /api/admin/inventory/671f2a8c.../adjust
+{ "quantityChange": -7, "reason": "DAMAGED", "note": "Crushed in transit" }
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "productName": "Nike Air Max",
+    "quantityBefore": 24,
+    "quantityChange": -7,
+    "quantityAfter": 17,
+    "stockState": "in_stock",
+    "stale": false
+  }
+}
+```
+
+The response carries the quantity the server actually found, not the one the
+browser was showing — so a screen that had gone stale is told so rather than
+reporting a number nobody predicted. A reduction larger than the stock on hand
+is refused with `409` and a sentence naming the real quantity.
 
 **Not signed in - `401`** · **Signed in as a customer - `403`**
 
@@ -740,8 +806,16 @@ that resolves to ordinary shareable filters, deterministic similar products, and
 recommendations built from a customer's own recent activity — with the model
 used for reading sentences and nothing else, and every path still working when
 it is unavailable. It also proved the Phase 10 provider boundary by adding a
-second vendor, Gemini, in one file.
+second vendor, Gemini, in one file. Phase 12 turned the admin console into an
+operations console: an inventory ledger that records every stock movement with a
+reason and an actor, an atomic adjustment endpoint that takes a signed amount
+rather than a total, per-product low-stock thresholds, an audit trail of every
+administrative change, an exception queue built from rules that are decidable
+from stored data, order timelines assembled only from recorded timestamps, and
+safe bulk fulfilment that reports per-order outcomes. It also closed the last
+path through which stock could be set silently — the product form's stock field.
 
 Later phases can build on that foundation: semantic and vector search, review
-summaries, image search and saved conversations. None of them require reopening
-the boundaries these phases established.
+summaries, image search, saved conversations, and a granular permission model
+for staff who should see stock without being able to move it. None of them
+require reopening the boundaries these phases established.

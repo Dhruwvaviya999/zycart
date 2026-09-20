@@ -14,6 +14,8 @@
     "seed": "tsx src/utils/seed.ts",
     "migrate:phase7": "tsx src/utils/migrate-phase7.ts",
     "migrate:phase8": "tsx src/utils/migrate-phase8.ts",
+    "migrate:phase12": "tsx src/utils/migrate-phase12.ts",
+    "inventory:verify": "tsx src/utils/verify-inventory.ts",
     "seed:reviews": "tsx src/utils/seed-reviews.ts",
     "make-admin": "tsx src/utils/make-admin.ts",
     "test": "node --import tsx --test \"tests/*.test.ts\"",

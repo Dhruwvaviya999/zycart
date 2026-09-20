@@ -1,5 +1,5 @@
 import { AI_LIMITS } from '../../../config/ai';
-import { stockStateOf, type StockState } from '../../../models/product.model';
+import { stockStateOf, thresholdOf, type StockState } from '../../../models/product.model';
 
 /**
  * The projection every AI tool returns for a product.
@@ -66,6 +66,8 @@ export interface CatalogueProduct {
   category?: CatalogueReference | null;
   brand?: CatalogueReference | null;
   stock?: number;
+  /** The product's own low-stock threshold, when it has one. */
+  lowStockThreshold?: number | null;
   colors?: { name?: string }[];
   sizes?: { label?: string; inStock?: boolean }[];
   highlights?: string[];
@@ -98,7 +100,7 @@ export function toProductView(product: CatalogueProduct): AiProductView {
     stock,
     // The catalogue's own definition of low stock, so the assistant cannot say
     // "only a few left" about a product the storefront calls well stocked.
-    availability: stockStateOf(stock),
+    availability: stockStateOf(stock, thresholdOf(product)),
     colors: (product.colors ?? []).map((color) => color.name ?? '').filter(Boolean),
     sizes: (product.sizes ?? []).map((size) => ({
       label: size.label ?? '',

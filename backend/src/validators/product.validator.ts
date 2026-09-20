@@ -69,9 +69,21 @@ export const createProductSchema = z.object({
 
 /**
  * `sku` and `slug` are immutable: the SKU identifies the item in inventory and
- * the slug is its public URL. Everything else can change.
+ * the slug is its public URL.
+ *
+ * `stock` is omitted from Phase 12. Not because stock cannot change, but because
+ * *setting a total* cannot be made safe: it discards anything that happened
+ * between the form loading and the form saving, and it carries no reason, so a
+ * week later nobody can say whether a number was a restock, a correction or a
+ * slip. Stock changes through `POST /api/admin/inventory/:id/adjust`, which
+ * takes a signed amount and a reason and records both.
+ *
+ * Omitted rather than rejected: unknown keys are stripped, so a client still
+ * sending `stock` gets a successful update in which that field is simply not
+ * honoured, instead of a 400 it cannot interpret.
  */
 export const updateProductSchema = createProductSchema
+  .omit({ stock: true })
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'at least one field must be provided');
 

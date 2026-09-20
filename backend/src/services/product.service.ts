@@ -1,4 +1,4 @@
-import { Types, type QueryFilter } from 'mongoose';
+import mongoose, { Types, type QueryFilter } from 'mongoose';
 import { Brand } from '../models/brand.model';
 import { Category } from '../models/category.model';
 import { Product, type ProductDocument } from '../models/product.model';
@@ -12,6 +12,8 @@ import type {
 } from '../validators/product.validator';
 import { resolveBrandId } from './brand.service';
 import { resolveCategoryId } from './category.service';
+import { changed, recordAudit, type AuditActor } from './admin/audit.service';
+import { recordMovement } from './inventory/inventory.service';
 import { rankByRelevance, tokenize, type RankableProduct } from './search/relevance';
 
 /**
@@ -19,7 +21,7 @@ import { rankByRelevance, tokenize, type RankableProduct } from './search/releva
  * endpoints leave them on the server.
  */
 const LIST_FIELDS =
-  'name slug shortDescription images price compareAtPrice category brand sku stock ' +
+  'name slug shortDescription images price compareAtPrice category brand sku stock lowStockThreshold ' +
   'colors sizes tags rating reviewCount isFeatured isBestSeller isNewArrival createdAt';
 
 const REFERENCE_FIELDS = 'name slug';
@@ -446,7 +448,24 @@ function assertPricing(price?: number, compareAtPrice?: number | null): void {
   }
 }
 
-export async function createProduct(input: CreateProductInput) {
+/**
+ * Creates a product, and opens its inventory ledger.
+ *
+ * The quantity a product is created with is a real stock movement — the only
+ * one with no prior quantity to start from — so it is recorded as INITIAL_STOCK
+ * rather than appearing from nowhere. Without it a product's timeline would
+ * begin mid-story: a sale of two from a stock of ten, no record of where the
+ * ten came from, and no way to check the ledger's arithmetic against the
+ * product it describes.
+ *
+ * The product and its opening movement are written in one transaction, so a
+ * product can never exist with a ledger that disagrees about where it started.
+ *
+ * `actor` is optional because the seed creates products with no administrator
+ * behind them. The movement is still written — the stock is real either way —
+ * and the audit row is not, because there is nobody to attribute it to.
+ */
+export async function createProduct(input: CreateProductInput, actor?: AuditActor) {
   await assertReferences(input.category, input.brand);
   assertPricing(input.price, input.compareAtPrice);
 
@@ -454,11 +473,92 @@ export async function createProduct(input: CreateProductInput) {
     return (await Product.exists({ slug: candidate })) !== null;
   });
 
-  const product = await Product.create({ ...input, slug });
-  return getProduct(String(product._id));
+  const session = await mongoose.startSession();
+
+  try {
+    let createdId = '';
+
+    await session.withTransaction(async () => {
+      const [product] = await Product.create([{ ...input, slug }], { session });
+      if (!product) throw new AppError('Could not create the product', 500);
+
+      createdId = String(product._id);
+
+      // Zero opening stock is not a movement: nothing moved, and a "+0" row
+      // would be the one entry in the ledger whose arithmetic says nothing.
+      if (product.stock > 0) {
+        await recordMovement(
+          {
+            product: product._id,
+            productName: product.name,
+            sku: product.sku,
+            type: 'INITIAL_STOCK',
+            quantityBefore: 0,
+            quantityChange: product.stock,
+            referenceType: 'PRODUCT',
+            referenceId: product._id,
+            referenceLabel: product.sku,
+            actor: actor ?? null,
+          },
+          session,
+        );
+      }
+
+      if (actor) {
+        await recordAudit(
+          {
+            actor,
+            action: 'PRODUCT_CREATED',
+            entityType: 'PRODUCT',
+            entityId: product._id,
+            entityLabel: product.name,
+            summary: `Product created: ${product.name} (${product.sku}), opening stock ${product.stock}`,
+          },
+          session,
+        );
+      }
+    });
+
+    return getProduct(createdId);
+  } finally {
+    await session.endSession();
+  }
 }
 
-export async function updateProduct(id: string, input: UpdateProductInput) {
+/**
+ * The product fields worth reporting in the audit trail.
+ *
+ * A named list rather than a diff of the request body, so a field added later —
+ * one that might carry something private, or simply something nobody needs to
+ * read in a log — cannot arrive here by accident. Images, descriptions,
+ * highlights and specifications are excluded not because they are sensitive but
+ * because a before/after of four thousand characters is not an entry anybody
+ * reads.
+ */
+const AUDITED_PRODUCT_FIELDS = [
+  'name',
+  'price',
+  'compareAtPrice',
+  'isActive',
+  'isFeatured',
+  'isBestSeller',
+  'isNewArrival',
+] as const;
+
+/**
+ * Updates a product — everything except its stock.
+ *
+ * `stock` is absent from `updateProductSchema` on purpose, and this is the
+ * reason. Setting a total is the one shape of write that cannot be made safe:
+ * it silently discards whatever happened between the form loading and the form
+ * saving, and it carries no reason, so the change is unexplainable a week
+ * later. Stock moves through `adjustStock`, which takes a signed amount and a
+ * reason and applies both atomically.
+ *
+ * An older client that still sends `stock` is not rejected — the schema strips
+ * unknown keys — so the field is simply no longer honoured here.
+ */
+export async function updateProduct(id: string, input: UpdateProductInput, actor?: AuditActor) {
   const existing = await Product.findById(id);
   if (!existing) throw new AppError('Product not found', 404);
 
@@ -469,13 +569,53 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
     input.compareAtPrice === undefined ? existing.compareAtPrice : input.compareAtPrice,
   );
 
+  const before = existing.toObject();
+
   existing.set(input);
   await existing.save();
+
+  if (actor) {
+    const changes = AUDITED_PRODUCT_FIELDS.flatMap((field) =>
+      changed(field, before[field], existing[field]),
+    );
+
+    await recordAudit({
+      actor,
+      action: 'PRODUCT_UPDATED',
+      entityType: 'PRODUCT',
+      entityId: existing._id,
+      entityLabel: existing.name,
+      summary:
+        changes.length > 0
+          ? `Product updated: ${existing.name} · ${changes.map((change) => change.field).join(', ')}`
+          : `Product updated: ${existing.name}`,
+      changes,
+    });
+  }
 
   return getProduct(String(existing._id));
 }
 
-export async function deleteProduct(id: string) {
+/**
+ * Deletes a product.
+ *
+ * Its inventory movements are deliberately left behind. They record stock that
+ * really moved and orders that really shipped, and each one carries its own
+ * copy of the name and SKU precisely so that it still reads correctly once the
+ * product is gone.
+ */
+export async function deleteProduct(id: string, actor?: AuditActor) {
   const product = await Product.findByIdAndDelete(id);
   if (!product) throw new AppError('Product not found', 404);
+
+  if (actor) {
+    await recordAudit({
+      actor,
+      action: 'PRODUCT_DELETED',
+      entityType: 'PRODUCT',
+      entityId: product._id,
+      entityLabel: product.name,
+      summary: `Product deleted: ${product.name} (${product.sku}), stock was ${product.stock}`,
+    });
+  }
 }

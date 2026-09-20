@@ -10,8 +10,10 @@ import { verifyToken } from '../utils/jwt';
  *
  * The user is loaded on every protected request — one indexed lookup by `_id` —
  * rather than trusted from the token, so deactivating an account takes effect
- * immediately instead of whenever the token happens to expire. Only the three
- * fields an authorisation decision needs are selected.
+ * immediately instead of whenever the token happens to expire. Only what an
+ * authorisation decision needs is selected, plus the name, which the audit log
+ * writes so that an administrative action is attributable to a person rather
+ * than to an object id.
  *
  * Returns rather than throws, because the two callers below disagree about
  * what an absent session means: for a guarded route it is a 401, and for the
@@ -23,7 +25,9 @@ async function identify(req: Request): Promise<boolean> {
   if (typeof token !== 'string' || token.length === 0) return false;
 
   const { sub, issuedAt } = verifyToken(token, req.env.JWT_SECRET);
-  const user = await User.findById(sub).select('email role isActive passwordChangedAt');
+  const user = await User.findById(sub).select(
+    'firstName lastName email role isActive passwordChangedAt',
+  );
 
   if (!user || !user.isActive) return false;
 
@@ -33,7 +37,12 @@ async function identify(req: Request): Promise<boolean> {
     return false;
   }
 
-  req.user = { id: String(user._id), email: user.email, role: user.role };
+  req.user = {
+    id: String(user._id),
+    email: user.email,
+    name: [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email,
+    role: user.role,
+  };
   return true;
 }
 

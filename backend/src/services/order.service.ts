@@ -15,6 +15,8 @@ import { isObjectId } from '../validators/common';
 import type { CancelOrderInput, OrderQuery } from '../validators/order.validator';
 import { priceCart, resolveAddress } from './checkout.service';
 import { record } from './activity/activity.service';
+import { recordAudit, type AuditActor } from './admin/audit.service';
+import { recordMovement } from './inventory/inventory.service';
 
 /** Raised when the catalogue has moved on since the cart was filled. */
 export class AvailabilityError extends AppError {
@@ -102,14 +104,26 @@ async function buildOrderItems(lines: PlannedLine[], session: mongoose.ClientSes
  * Shared by both paths on purpose: cash on delivery takes stock when the order
  * is placed, online payment takes it when the money is confirmed, and there is
  * exactly one piece of code that knows how to do it.
+ *
+ * From Phase 12 it also writes the SALE movement that explains the decrement,
+ * in the same transaction — so a unit that left the catalogue and a ledger
+ * entry saying where it went either both exist or neither does. `new: true`
+ * was already what this update asked for, so the quantity before is derived
+ * from the quantity after rather than read again: one more query here would be
+ * one more query per line on every checkout, for a number arithmetic already
+ * knows.
  */
 export async function commitStock(
   items: readonly {
     product?: Types.ObjectId | null;
     quantity: number;
     productName: string;
+    sku?: string;
+    selectedColor?: string | null;
+    selectedSize?: string | null;
   }[],
   session: mongoose.ClientSession,
+  order: { id: Types.ObjectId; orderNumber: string },
 ): Promise<void> {
   for (const item of items) {
     // A deleted product leaves a snapshot with no reference; there is no row to
@@ -119,7 +133,7 @@ export async function commitStock(
     const updated = await Product.findOneAndUpdate(
       { _id: item.product, isActive: true, stock: { $gte: item.quantity } },
       { $inc: { stock: -item.quantity } },
-      { session, new: true },
+      { session, returnDocument: 'after' },
     );
 
     if (!updated) {
@@ -127,6 +141,24 @@ export async function commitStock(
         `${item.productName} sold out while you were checking out. Please review your cart.`,
       );
     }
+
+    await recordMovement(
+      {
+        product: updated._id,
+        productName: updated.name,
+        sku: updated.sku,
+        // Context for reading the timeline, never a separate stock bucket:
+        // ZyCart holds one quantity per product, not one per colourway.
+        variant: { color: item.selectedColor ?? null, size: item.selectedSize ?? null },
+        type: 'SALE',
+        quantityBefore: updated.stock + item.quantity,
+        quantityChange: -item.quantity,
+        referenceType: 'ORDER',
+        referenceId: order.id,
+        referenceLabel: order.orderNumber,
+      },
+      session,
+    );
   }
 }
 
@@ -196,8 +228,6 @@ export async function createOrder(
       // items that are available right now, even though the stock is taken later.
       const items = await buildOrderItems(lines, session);
 
-      if (takesStockNow) await commitStock(items, session);
-
       const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
 
       // Retried rather than pre-checked: the unique index is the authority on
@@ -251,6 +281,21 @@ export async function createOrder(
       if (!created) throw new AppError('Could not place the order. Please try again.', 500);
 
       orderNumber = created.orderNumber;
+
+      /**
+       * Stock is taken after the order exists, not before.
+       *
+       * Both happen in one transaction, so the ordering cannot affect what
+       * survives a failure — it exists so the SALE movement can name the order
+       * it belongs to. A ledger entry reading "−2 units" with nothing beside it
+       * is the thing this phase was written to stop producing.
+       */
+      if (takesStockNow) {
+        await commitStock(items, session, {
+          id: created._id,
+          orderNumber: created.orderNumber,
+        });
+      }
 
       // Only the lines that were actually bought: anything added in another tab
       // mid-checkout survives. Deferred to payment for the online path, so an
@@ -544,6 +589,7 @@ async function applyCancellation(
   order: OrderDoc,
   reason: string,
   session: mongoose.ClientSession,
+  actor: AuditActor | null = null,
 ): Promise<void> {
   if (order.status === 'CANCELLED') {
     throw new AppError('This order has already been cancelled', 409);
@@ -576,10 +622,35 @@ async function applyCancellation(
     for (const item of order.items) {
       if (!item.product) continue;
 
-      await Product.updateOne(
+      const updated = await Product.findOneAndUpdate(
         { _id: item.product },
         { $inc: { stock: item.quantity } },
-        { session },
+        { session, returnDocument: 'after' },
+      );
+
+      // The product has been deleted since the order was placed. There is no
+      // row to credit and nothing to record against it; the order keeps its own
+      // snapshot of what was bought.
+      if (!updated) continue;
+
+      await recordMovement(
+        {
+          product: updated._id,
+          productName: updated.name,
+          sku: updated.sku,
+          variant: { color: item.selectedColor ?? null, size: item.selectedSize ?? null },
+          type: 'CANCELLATION',
+          quantityBefore: updated.stock - item.quantity,
+          quantityChange: item.quantity,
+          referenceType: 'ORDER',
+          referenceId: order._id,
+          referenceLabel: order.orderNumber,
+          // Null for a customer cancelling their own order: attributing it to
+          // an administrator would be false, and naming the shopper would put
+          // their identity in an operational ledger that has no use for it.
+          actor,
+        },
+        session,
       );
     }
 
@@ -609,6 +680,7 @@ export async function setOrderStatus(
   orderRef: string,
   next: OrderStatus,
   note?: string,
+  actor?: AuditActor,
 ): Promise<OrderDetail> {
   const session = await mongoose.startSession();
 
@@ -629,11 +701,39 @@ export async function setOrderStatus(
         );
       }
 
+      const previous = order.status;
+
       if (next === 'CANCELLED') {
-        await applyCancellation(order, note?.trim() || 'Cancelled by ZyCart', session);
+        await applyCancellation(
+          order,
+          note?.trim() || 'Cancelled by ZyCart',
+          session,
+          actor ?? null,
+        );
       } else {
         order.status = next;
         await order.save({ session });
+      }
+
+      /**
+       * Written inside the transaction, so the log cannot claim a transition
+       * that was rolled back — and so a failure to record the change fails the
+       * change rather than leaving it unattributed.
+       */
+      if (actor) {
+        await recordAudit(
+          {
+            actor,
+            action: 'ORDER_STATUS_CHANGED',
+            entityType: 'ORDER',
+            entityId: order._id,
+            entityLabel: order.orderNumber,
+            summary: `Order ${order.orderNumber} moved from ${previous.toLowerCase()} to ${next.toLowerCase()}`,
+            changes: [{ field: 'status', from: previous, to: next }],
+            note,
+          },
+          session,
+        );
       }
 
       updated = order;

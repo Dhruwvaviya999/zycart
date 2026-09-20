@@ -5,6 +5,8 @@ import {
   Product,
   STOCK_FILTERS,
   stockStateOf,
+  thresholdOf,
+  type StockState,
   type ProductDocument,
 } from '../../models/product.model';
 import { escapeRegex } from '../../validators/common';
@@ -22,7 +24,7 @@ import type { AdminCatalogueQuery, AdminProductQuery } from '../../validators/ad
  */
 
 const LIST_FIELDS =
-  'name slug images price compareAtPrice category brand sku stock isActive ' +
+  'name slug images price compareAtPrice category brand sku stock lowStockThreshold isActive ' +
   'isFeatured isBestSeller isNewArrival rating reviewCount createdAt updatedAt';
 
 const REFERENCE_FIELDS = 'name slug';
@@ -47,7 +49,9 @@ export interface AdminProductRow {
   price: number;
   compareAtPrice: number | null;
   stock: number;
-  stockState: ReturnType<typeof stockStateOf>;
+  stockState: StockState;
+  /** The threshold this product is judged against, default or its own. */
+  lowStockThreshold: number;
   category: { id: string; name: string } | null;
   brand: { id: string; name: string } | null;
   isActive: boolean;
@@ -122,7 +126,8 @@ export async function listProducts(query: AdminProductQuery) {
     price: product.price,
     compareAtPrice: product.compareAtPrice ?? null,
     stock: product.stock,
-    stockState: stockStateOf(product.stock),
+    stockState: stockStateOf(product.stock, thresholdOf(product)),
+    lowStockThreshold: thresholdOf(product),
     category: reference(product.category),
     brand: reference(product.brand),
     isActive: product.isActive,

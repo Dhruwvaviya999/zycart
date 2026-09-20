@@ -56,7 +56,36 @@ export interface AdminDashboard {
     pendingOrders: number;
     unpaidOnlineOrders: number;
     pendingReviews: number;
+    /** Orders tripping an operations rule; the same set `/admin/operations` lists. */
+    ordersNeedingAttention: number;
   };
+
+  inventory: {
+    outOfStock: number;
+    lowStock: number;
+    healthy: number;
+    sellableUnits: number;
+    recentAdjustments: number;
+  };
+
+  /** The newest administrative actions, from the audit trail. */
+  activity: AuditLogRow[];
+
+  /**
+   * Stock that is not moving.
+   *
+   * `coverDays` is how long the current stock would last at the rate it sold
+   * over the window. Null means nothing sold at all, which the interface says
+   * in words rather than rendering as a number.
+   */
+  slowMovers: {
+    id: string;
+    name: string;
+    sku: string;
+    stock: number;
+    unitsSold: number;
+    coverDays: number | null;
+  }[];
 
   revenueSeries: RevenuePoint[];
   ordersByStatus: Record<OrderStatus, number>;
@@ -105,6 +134,8 @@ export interface AdminProductRow {
   compareAtPrice: number | null;
   stock: number;
   stockState: StockState;
+  /** The threshold this product is judged against, its own or the store default. */
+  lowStockThreshold: number;
   category: { id: string; name: string } | null;
   brand: { id: string; name: string } | null;
   isActive: boolean;
@@ -165,7 +196,14 @@ export interface AdminProduct extends Product {
   isActive: boolean;
 }
 
-/** What the product form submits. The server owns every rule about it. */
+/**
+ * What the product form submits. The server owns every rule about it.
+ *
+ * `stock` is **create-only** from Phase 12 — see `ProductUpdateInput`. The
+ * update endpoint no longer honours it, because setting a total discards
+ * concurrent changes and carries no reason; stock moves through the inventory
+ * adjustment instead.
+ */
 export interface ProductInput {
   name: string;
   description: string;
@@ -188,6 +226,9 @@ export interface ProductInput {
   isActive: boolean;
 }
 
+/** Everything the editor may change on an existing product. Stock is not here. */
+export type ProductUpdateInput = Omit<ProductInput, 'stock'>;
+
 export interface TaxonomyInput {
   name: string;
   description?: string;
@@ -200,6 +241,23 @@ export interface TaxonomyInput {
 /* Orders                                                            */
 /* ---------------------------------------------------------------- */
 
+/** Why an order is in the attention queue. Computed on the server, never here. */
+export type AttentionKey =
+  | 'PAYMENT_FAILED'
+  | 'PAYMENT_STALLED'
+  | 'REFUND_PENDING'
+  | 'PAID_NOT_CONFIRMED'
+  | 'STOCK_NOT_HELD'
+  | 'FULFILMENT_OVERDUE';
+
+export interface AttentionFlag {
+  key: AttentionKey;
+  label: string;
+  /** What to do about it, in one line, written by the server. */
+  action: string;
+  severity: 'critical' | 'warning';
+}
+
 export interface AdminOrderRow {
   id: string;
   orderNumber: string;
@@ -210,6 +268,7 @@ export interface AdminOrderRow {
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
   createdAt: string;
+  attention: AttentionFlag[];
 }
 
 /**
@@ -217,9 +276,22 @@ export interface AdminOrderRow {
  * moves available from here. `allowedStatuses` comes from the server so the
  * interface never offers a transition that would be refused.
  */
+/** One thing that happened to an order, at a time that was genuinely recorded. */
+export interface OrderEvent {
+  at: string;
+  label: string;
+  detail: string;
+  actor: string | null;
+}
+
 export interface AdminOrderDetail extends Order {
   customer: { id: string | null; name: string; email: string; isActive: boolean } | null;
   allowedStatuses: OrderStatus[];
+  attention: AttentionFlag[];
+  /** Whether this order is currently holding stock. */
+  stockCommitted: boolean;
+  timeline: OrderEvent[];
+  stockMovements: { at: string; productName: string; quantityChange: number; type: string }[];
 }
 
 export interface AdminOrderQuery {
@@ -230,7 +302,22 @@ export interface AdminOrderQuery {
   paymentStatus?: PaymentStatus;
   paymentMethod?: PaymentMethod;
   period?: '7d' | '30d' | '90d' | 'all';
+  /** The attention queue, composable with every other filter here. */
+  attention?: boolean;
   sort?: 'newest' | 'oldest' | 'total_desc' | 'total_asc';
+}
+
+export interface BulkOutcome {
+  orderNumber: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface BulkResult {
+  requested: number;
+  succeeded: number;
+  failed: number;
+  outcomes: BulkOutcome[];
 }
 
 /* ---------------------------------------------------------------- */
@@ -314,4 +401,226 @@ export interface AdminReviewQuery {
   rating?: number;
   verified?: boolean;
   sort?: 'newest' | 'oldest' | 'rating_desc' | 'rating_asc';
+}
+
+/* ---------------------------------------------------------------- */
+/* Inventory                                                         */
+/* ---------------------------------------------------------------- */
+
+export type MovementType = 'SALE' | 'CANCELLATION' | 'INITIAL_STOCK' | 'MANUAL_ADJUSTMENT';
+
+export const ADJUSTMENT_REASONS = [
+  'RESTOCK',
+  'COUNT_CORRECTION',
+  'DAMAGED',
+  'LOST',
+  'FOUND',
+  'RETURN',
+  'OTHER',
+] as const;
+
+export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];
+
+/**
+ * Which reasons make sense in which direction.
+ *
+ * A copy of the server's `REASON_DIRECTION`, kept so the form can offer only
+ * the reasons that fit the sign the operator typed rather than letting them
+ * pick "Restock" for a decrease and be refused afterwards. The server enforces
+ * it regardless — this exists to save a round trip, never to replace the check.
+ */
+export const REASON_DIRECTION: Record<AdjustmentReason, 'increase' | 'decrease' | 'either'> = {
+  RESTOCK: 'increase',
+  FOUND: 'increase',
+  RETURN: 'increase',
+  DAMAGED: 'decrease',
+  LOST: 'decrease',
+  COUNT_CORRECTION: 'either',
+  OTHER: 'either',
+};
+
+export const REASON_LABEL: Record<AdjustmentReason, string> = {
+  RESTOCK: 'Restock received',
+  COUNT_CORRECTION: 'Count correction',
+  DAMAGED: 'Damaged',
+  LOST: 'Lost',
+  FOUND: 'Found',
+  RETURN: 'Customer return',
+  OTHER: 'Other',
+};
+
+export const MOVEMENT_LABEL: Record<MovementType, string> = {
+  SALE: 'Sale',
+  CANCELLATION: 'Cancellation',
+  INITIAL_STOCK: 'Opening stock',
+  MANUAL_ADJUSTMENT: 'Adjustment',
+};
+
+export interface InventoryRow {
+  id: string;
+  name: string;
+  slug: string;
+  sku: string;
+  image: string;
+  stock: number;
+  stockState: StockState;
+  lowStockThreshold: number;
+  usesDefaultThreshold: boolean;
+  isActive: boolean;
+  category: string;
+  brand: string;
+  sizes: { total: number; available: number };
+  lastMovement: {
+    type: MovementType;
+    quantityChange: number;
+    createdAt: string;
+    summary: string;
+  } | null;
+}
+
+export interface MovementRow {
+  id: string;
+  product: { id: string; name: string; sku: string };
+  variant: { color: string | null; size: string | null } | null;
+  type: MovementType;
+  quantityBefore: number;
+  quantityChange: number;
+  quantityAfter: number;
+  reason: AdjustmentReason | null;
+  note: string;
+  summary: string;
+  reference: { type: 'ORDER' | 'PRODUCT'; id: string | null; label: string } | null;
+  actor: { id: string | null; name: string } | null;
+  createdAt: string;
+}
+
+export interface InventoryDetail extends InventoryRow {
+  price: number;
+  /** Size availability, read-only: ZyCart holds no per-size quantity. */
+  variants: { label: string; inStock: boolean }[];
+  colors: string[];
+  movements: MovementRow[];
+  /** The whole ledger's size, so the panel can offer the rest rather than hide it. */
+  movementCount: number;
+  totals: { soldUnits: number; restockedUnits: number; adjustments: number };
+  /** Where the console asks for a second confirmation. Sent, never hardcoded here. */
+  largeAdjustmentThreshold: number;
+  updatedAt: string;
+}
+
+export interface InventorySummary {
+  products: number;
+  activeProducts: number;
+  sellableUnits: number;
+  outOfStock: number;
+  lowStock: number;
+  healthy: number;
+  recentMovements: number;
+  recentAdjustments: number;
+  defaultThreshold: number;
+  largeAdjustmentThreshold: number;
+}
+
+export interface InventoryQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: StockState;
+  category?: string;
+  brand?: string;
+  active?: boolean;
+  recentlyChanged?: boolean;
+  sort?: 'stock_asc' | 'stock_desc' | 'name_asc' | 'updated_desc';
+}
+
+/** What the adjustment dialog submits. A signed change, never a total. */
+export interface AdjustStockInput {
+  quantityChange: number;
+  reason: AdjustmentReason;
+  note?: string;
+  /** What the dialog was showing, so the server can say if it had moved. */
+  shownStock?: number;
+  /** A hard precondition, sent only by the counted-total path. */
+  expectedStock?: number;
+}
+
+export interface AdjustmentResult {
+  productId: string;
+  productName: string;
+  sku: string;
+  quantityBefore: number;
+  quantityChange: number;
+  quantityAfter: number;
+  stockState: StockState;
+  lowStockThreshold: number;
+  stale: boolean;
+}
+
+/* ---------------------------------------------------------------- */
+/* Operations                                                        */
+/* ---------------------------------------------------------------- */
+
+export interface OperationsSummary {
+  ordersNeedingAttention: number;
+  breakdown: (AttentionFlag & { count: number })[];
+  queue: { pending: number; confirmed: number; processing: number; shipped: number };
+  checkedAt: string;
+}
+
+/* ---------------------------------------------------------------- */
+/* Audit                                                             */
+/* ---------------------------------------------------------------- */
+
+export const AUDIT_ACTIONS = [
+  'INVENTORY_ADJUSTED',
+  'ORDER_STATUS_CHANGED',
+  'PRODUCT_CREATED',
+  'PRODUCT_UPDATED',
+  'PRODUCT_DELETED',
+  'REVIEW_MODERATED',
+  'CUSTOMER_STATUS_CHANGED',
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
+  INVENTORY_ADJUSTED: 'Stock adjusted',
+  ORDER_STATUS_CHANGED: 'Order moved',
+  PRODUCT_CREATED: 'Product created',
+  PRODUCT_UPDATED: 'Product updated',
+  PRODUCT_DELETED: 'Product deleted',
+  REVIEW_MODERATED: 'Review moderated',
+  CUSTOMER_STATUS_CHANGED: 'Customer status changed',
+};
+
+export const AUDIT_ENTITIES = ['PRODUCT', 'ORDER', 'REVIEW', 'CUSTOMER'] as const;
+export type AuditEntity = (typeof AUDIT_ENTITIES)[number];
+
+export interface AuditChange {
+  field: string;
+  from: string;
+  to: string;
+}
+
+export interface AuditLogRow {
+  id: string;
+  actor: { id: string | null; name: string; email: string };
+  action: AuditAction;
+  entityType: AuditEntity;
+  entityId: string | null;
+  entityLabel: string;
+  summary: string;
+  changes: AuditChange[];
+  note: string;
+  createdAt: string;
+}
+
+export interface AuditQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  action?: AuditAction;
+  entityType?: AuditEntity;
+  actor?: string;
+  period?: 'today' | '7d' | '30d' | 'all';
 }

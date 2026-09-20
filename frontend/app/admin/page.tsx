@@ -2,13 +2,17 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
+  Activity,
   AlertTriangle,
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
+  Boxes,
+  CheckCircle2,
   IndianRupee,
   Package,
   ShoppingCart,
+  Snail,
   Star,
   Users,
   type LucideIcon,
@@ -20,7 +24,7 @@ import { orderStatusTone, paymentStatusTone } from '@/components/admin/status-to
 import { toErrorMessage } from '@/services/api';
 import { getDashboard } from '@/services/admin.service';
 import { getSessionCookie } from '@/lib/server-auth';
-import { formatDate, formatPrice } from '@/lib/format';
+import { formatDate, formatDayLabel, formatPrice, formatTime } from '@/lib/format';
 import type { AdminDashboard } from '@/types/admin';
 import { cn } from '@/lib/utils';
 
@@ -38,6 +42,15 @@ export const metadata: Metadata = { title: 'Overview' };
  *
  * Rendered on the server: one request, computed in MongoDB, no client-side
  * fetching waterfall on the first screen anybody sees.
+ *
+ * ## The order of the page
+ *
+ * Urgent, then changed, then the numbers. An operator opening this at nine in
+ * the morning is asking "is anything wrong?" before "how did we do?", so the
+ * attention strip sits above the charts and the health of the catalogue sits
+ * above its performance. Nothing here is a chart for the sake of having one:
+ * every panel answers a question somebody would otherwise have to go looking
+ * for.
  */
 export default async function AdminDashboardPage({ searchParams }: PageProps<'/admin'>) {
   const params = await searchParams;
@@ -96,6 +109,8 @@ export default async function AdminDashboardPage({ searchParams }: PageProps<'/a
 
       <NeedsAttention attention={data.attention} />
 
+      <InventoryHealth inventory={data.inventory} />
+
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <Panel title="Revenue" description={`Last ${data.period.days} days`}>
           <RevenueChart points={data.revenueSeries} days={data.period.days} />
@@ -118,11 +133,31 @@ export default async function AdminDashboardPage({ searchParams }: PageProps<'/a
 
           <Panel
             title="Low stock"
-            action={{ href: '/admin/products?stock=low_stock', label: 'View' }}
+            action={{ href: '/admin/inventory?status=low_stock', label: 'View' }}
           >
             <LowStock products={data.lowStockProducts} />
           </Panel>
         </div>
+      </div>
+
+      {/* `items-start` so each panel is as tall as its own content. Without it
+          the grid stretches both to the taller one, which turns a short
+          activity feed — or its empty state — into a large panel of nothing. */}
+      <div className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Panel
+          title="Recent activity"
+          description="Changes made from this console"
+          action={{ href: '/admin/activity', label: 'Full log' }}
+        >
+          <ActivityFeed entries={data.activity} />
+        </Panel>
+
+        <Panel
+          title="Slow-moving stock"
+          description={`Cover at the rate sold over the last ${data.period.days} days`}
+        >
+          <SlowMovers products={data.slowMovers} days={data.period.days} />
+        </Panel>
       </div>
     </>
   );
@@ -242,9 +277,21 @@ function Trend({ current, previous }: { current: number; previous: number }) {
   );
 }
 
-/** Only the counts that have something to do about them, and only when non-zero. */
+/**
+ * The operational summary, at the top because it is the first question.
+ *
+ * Says so plainly when there is nothing wrong, rather than disappearing: a
+ * missing panel is ambiguous — it could mean "all clear" or "failed to load" —
+ * and the difference matters to somebody deciding whether to stop checking.
+ */
 function NeedsAttention({ attention }: { attention: AdminDashboard['attention'] }) {
   const items = [
+    {
+      count: attention.ordersNeedingAttention,
+      label: 'order needs attention',
+      plural: 'orders need attention',
+      href: '/admin/operations',
+    },
     {
       count: attention.pendingOrders,
       label: 'order awaiting confirmation',
@@ -265,7 +312,20 @@ function NeedsAttention({ attention }: { attention: AdminDashboard['attention'] 
     },
   ].filter((item) => item.count > 0);
 
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return (
+      <section
+        aria-label="Needs attention"
+        className="mt-4 flex items-center gap-2.5 rounded-xl border border-success/25 bg-success/5 p-3"
+      >
+        <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden />
+        <p className="text-caption text-pretty">
+          Everything looks healthy. No orders need attention, nothing is waiting to be confirmed,
+          and no reviews are queued.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -441,4 +501,170 @@ function LowStock({ products }: { products: AdminDashboard['lowStockProducts'] }
 /** PENDING → Pending. Enum values are for the database, not for people. */
 function label(value: string): string {
   return value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, ' ');
+}
+
+/**
+ * The catalogue's stock position, as three counts and a link each.
+ *
+ * Counted against each product's own low-stock threshold, by the same filters
+ * the inventory screen pages through — so a number here and the rows behind it
+ * can never disagree.
+ */
+function InventoryHealth({ inventory }: { inventory: AdminDashboard['inventory'] }) {
+  const cards = [
+    {
+      label: 'Out of stock',
+      value: inventory.outOfStock,
+      href: '/admin/inventory?status=out_of_stock',
+      tone: inventory.outOfStock > 0 ? 'danger' : 'neutral',
+    },
+    {
+      label: 'Low stock',
+      value: inventory.lowStock,
+      href: '/admin/inventory?status=low_stock',
+      tone: inventory.lowStock > 0 ? 'warning' : 'neutral',
+    },
+    {
+      label: 'Healthy',
+      value: inventory.healthy,
+      href: '/admin/inventory?status=in_stock',
+      tone: 'neutral',
+    },
+  ] as const;
+
+  return (
+    <section
+      aria-label="Inventory health"
+      className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+    >
+      {cards.map((card) => (
+        <Link
+          key={card.label}
+          href={card.href}
+          className={cn(
+            'focus-ring rounded-xl border p-4 transition-colors',
+            card.tone === 'danger'
+              ? 'border-destructive/30 bg-destructive/5 hover:bg-destructive/10'
+              : card.tone === 'warning'
+                ? 'border-amber-400/30 bg-amber-400/5 hover:bg-amber-400/10'
+                : 'border-border bg-surface/40 hover:bg-muted/40',
+          )}
+        >
+          <span className="flex items-center justify-between gap-2">
+            <span className="text-caption font-medium text-muted-foreground">{card.label}</span>
+            <Boxes className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          </span>
+          <span className="text-h3 mt-2 block tabular-nums">
+            {card.value.toLocaleString('en-IN')}
+          </span>
+          <span className="text-caption mt-1 block text-muted-foreground">products</span>
+        </Link>
+      ))}
+
+      <Link
+        href="/admin/inventory"
+        className="focus-ring rounded-xl border border-border bg-surface/40 p-4 transition-colors hover:bg-muted/40"
+      >
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-caption font-medium text-muted-foreground">Sellable units</span>
+          <Package className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        </span>
+        <span className="text-h3 mt-2 block tabular-nums">
+          {inventory.sellableUnits.toLocaleString('en-IN')}
+        </span>
+        <span className="text-caption mt-1 block text-pretty text-muted-foreground">
+          {inventory.recentAdjustments === 0
+            ? 'No manual adjustments this week'
+            : `${inventory.recentAdjustments} adjusted this week`}
+        </span>
+      </Link>
+    </section>
+  );
+}
+
+/**
+ * The last few administrative actions.
+ *
+ * Real audit rows, never demo events. When nobody has changed anything the
+ * panel says exactly that, which on a quiet morning is the correct answer.
+ */
+function ActivityFeed({ entries }: { entries: AdminDashboard['activity'] }) {
+  if (entries.length === 0) {
+    return (
+      <AdminEmpty
+        icon={Activity}
+        title="No recent administrative activity"
+        body="Stock adjustments, order changes and moderation decisions appear here as they happen."
+      />
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-border">
+      {entries.map((entry) => (
+        <li key={entry.id} className="py-2.5 first:pt-0 last:pb-0">
+          <p className="text-small text-pretty">{entry.summary}</p>
+          <p className="text-caption mt-0.5 text-muted-foreground">
+            {formatDayLabel(entry.createdAt)} · {formatTime(entry.createdAt)} · {entry.actor.name}
+          </p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Stock that is not turning over.
+ *
+ * The calculation is stated on the panel rather than hidden behind a label,
+ * because "slow moving" is a judgement and an operator is entitled to disagree
+ * with it. A product that sold nothing has no rate and therefore no cover —
+ * that reads "no sales", not a number.
+ */
+function SlowMovers({ products, days }: { products: AdminDashboard['slowMovers']; days: number }) {
+  if (products.length === 0) {
+    return (
+      <AdminEmpty
+        icon={Snail}
+        title="Nothing is sitting still"
+        body={`Every well-stocked product has sold enough in the last ${days} days to clear within a quarter.`}
+      />
+    );
+  }
+
+  return (
+    <>
+      <ul className="space-y-2.5">
+        {products.map((product) => (
+          <li key={product.id}>
+            <Link
+              href={`/admin/inventory/${product.id}`}
+              className="focus-ring flex items-center gap-3 rounded-md py-1 transition-colors hover:bg-muted/40"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="text-small block truncate font-medium">{product.name}</span>
+                <span className="text-caption block text-muted-foreground">
+                  {product.stock} in stock ·{' '}
+                  {product.unitsSold === 0
+                    ? 'no sales in this period'
+                    : `${product.unitsSold} sold`}
+                </span>
+              </span>
+
+              <StatusBadge tone={product.coverDays === null ? 'warning' : 'neutral'}>
+                {product.coverDays === null
+                  ? 'No sales'
+                  : `${product.coverDays.toLocaleString('en-IN')} days cover`}
+              </StatusBadge>
+            </Link>
+          </li>
+        ))}
+      </ul>
+
+      <p className="text-caption mt-3 text-pretty text-muted-foreground">
+        Cover is current stock divided by the daily rate over the last {days} days, measured among
+        the hundred products holding the most stock.
+      </p>
+    </>
+  );
 }

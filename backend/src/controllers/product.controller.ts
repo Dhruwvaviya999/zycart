@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as productService from '../services/product.service';
 import { record } from '../services/activity/activity.service';
 import { idOrSlugParamSchema, idParamSchema } from '../validators/common';
+import { requireActor } from '../utils/actor';
 import {
   createProductSchema,
   productQuerySchema,
@@ -82,19 +83,25 @@ export async function recordProductView(req: Request, res: Response): Promise<vo
 
 export async function createProduct(req: Request, res: Response): Promise<void> {
   const input = createProductSchema.parse(req.body);
-  res.status(201).json({ success: true, data: await productService.createProduct(input) });
+  res.status(201).json({
+    success: true,
+    data: await productService.createProduct(input, requireActor(req)),
+  });
 }
 
 export async function updateProduct(req: Request, res: Response): Promise<void> {
   const { id } = idParamSchema.parse(req.params);
   const input = updateProductSchema.parse(req.body);
 
-  res.json({ success: true, data: await productService.updateProduct(id, input) });
+  res.json({
+    success: true,
+    data: await productService.updateProduct(id, input, requireActor(req)),
+  });
 }
 
 export async function deleteProduct(req: Request, res: Response): Promise<void> {
   const { id } = idParamSchema.parse(req.params);
-  await productService.deleteProduct(id);
+  await productService.deleteProduct(id, requireActor(req));
 
   res.json({ success: true, message: 'Product deleted' });
 }

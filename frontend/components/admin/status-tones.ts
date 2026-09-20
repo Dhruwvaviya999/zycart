@@ -1,5 +1,5 @@
 import type { BadgeTone } from '@/components/admin/admin-ui';
-import type { StockState } from '@/types/admin';
+import type { AttentionFlag, MovementType, StockState } from '@/types/admin';
 
 /**
  * How each state is coloured, decided once.
@@ -72,6 +72,34 @@ export const STOCK_LABEL: Record<StockState, string> = {
   in_stock: 'In stock',
   low_stock: 'Low stock',
   out_of_stock: 'Out of stock',
+};
+
+/**
+ * A movement's tone follows its direction, not its type.
+ *
+ * Stock arriving reads the same whether it came from a restock or a
+ * cancellation, and stock leaving reads the same whether it sold or was written
+ * off — which is what an operator scanning a timeline is actually looking for.
+ * The sign and the words carry the meaning; this only reinforces them.
+ */
+export function movementTone(quantityChange: number): BadgeTone {
+  return quantityChange > 0 ? 'success' : 'neutral';
+}
+
+export function attentionTone(severity: AttentionFlag['severity']): BadgeTone {
+  return severity === 'critical' ? 'danger' : 'warning';
+}
+
+/** `+20`, `-7`. The sign is part of the value, so it is never dropped. */
+export function signed(quantityChange: number): string {
+  return `${quantityChange > 0 ? '+' : '−'}${Math.abs(quantityChange)}`;
+}
+
+export const MOVEMENT_ICON_LABEL: Record<MovementType, string> = {
+  SALE: 'Sale',
+  CANCELLATION: 'Cancellation',
+  INITIAL_STOCK: 'Opening stock',
+  MANUAL_ADJUSTMENT: 'Adjustment',
 };
 
 /** `PENDING` → `Pending`, `REFUND_PENDING` → `Refund pending`. */

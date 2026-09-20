@@ -1,6 +1,8 @@
 import { request, requestList, send, sendMessage, type RequestOptions } from '@/services/api';
 import type { OrderStatus } from '@/types/order';
 import type {
+  AdjustStockInput,
+  AdjustmentResult,
   AdminCatalogueQuery,
   AdminProduct,
   AdminCustomerDetail,
@@ -17,7 +19,17 @@ import type {
   AdminReviewQuery,
   AdminReviewRow,
   AdminTaxonomyRow,
+  AuditLogRow,
+  AuditQuery,
+  BulkResult,
+  InventoryDetail,
+  InventoryQuery,
+  InventoryRow,
+  InventorySummary,
+  MovementRow,
+  OperationsSummary,
   ProductInput,
+  ProductUpdateInput,
   TaxonomyInput,
 } from '@/types/admin';
 import type { ReviewStatus } from '@/types/review';
@@ -85,7 +97,17 @@ export function createProduct(input: ProductInput): Promise<AdminProduct> {
   return send<AdminProduct>('post', '/api/admin/products', input);
 }
 
-export function updateProduct(id: string, input: Partial<ProductInput>): Promise<AdminProduct> {
+/**
+ * Updates a product — everything except its stock.
+ *
+ * The type says so: `ProductUpdateInput` has no `stock`, because the endpoint
+ * no longer honours one. Stock moves through `adjustStock`, which takes a
+ * signed change and a reason.
+ */
+export function updateProduct(
+  id: string,
+  input: Partial<ProductUpdateInput>,
+): Promise<AdminProduct> {
   return send<AdminProduct>('patch', `/api/admin/products/${encodeURIComponent(id)}`, input);
 }
 
@@ -182,6 +204,135 @@ export function updateOrderStatus(
     'patch',
     `/api/admin/orders/${encodeURIComponent(orderRef)}/status`,
     { status, ...(note?.trim() ? { note: note.trim() } : {}) },
+  );
+}
+
+/**
+ * Moves several orders at once.
+ *
+ * Answers with a per-order outcome rather than a single success, because a
+ * partial result is the normal case. There is no bulk cancellation — the
+ * server's schema does not accept one.
+ */
+export function bulkUpdateOrderStatus(
+  orderNumbers: string[],
+  status: 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED',
+  note?: string,
+): Promise<BulkResult> {
+  return send<BulkResult>('patch', '/api/admin/orders/bulk-status', {
+    orderNumbers,
+    status,
+    ...(note?.trim() ? { note: note.trim() } : {}),
+  });
+}
+
+/* ---------------------------------------------------------------- */
+/* Inventory                                                         */
+/* ---------------------------------------------------------------- */
+
+export async function getInventory(
+  query: InventoryQuery = {},
+  options?: RequestOptions,
+): Promise<AdminList<InventoryRow>> {
+  const { items, pagination } = await requestList<InventoryRow>(
+    '/api/admin/inventory',
+    params(query),
+    options,
+  );
+
+  return { items, pagination };
+}
+
+export function getInventorySummary(options?: RequestOptions): Promise<InventorySummary> {
+  return request<InventorySummary>('/api/admin/inventory/summary', undefined, options);
+}
+
+export function getInventoryItem(id: string, options?: RequestOptions): Promise<InventoryDetail> {
+  return request<InventoryDetail>(
+    `/api/admin/inventory/${encodeURIComponent(id)}`,
+    undefined,
+    options,
+  );
+}
+
+export async function getProductMovements(
+  id: string,
+  query: { page?: number; limit?: number } = {},
+  options?: RequestOptions,
+): Promise<AdminList<MovementRow>> {
+  const { items, pagination } = await requestList<MovementRow>(
+    `/api/admin/inventory/${encodeURIComponent(id)}/movements`,
+    params(query),
+    options,
+  );
+
+  return { items, pagination };
+}
+
+export async function getMovements(
+  query: { page?: number; limit?: number; type?: string } = {},
+  options?: RequestOptions,
+): Promise<AdminList<MovementRow>> {
+  const { items, pagination } = await requestList<MovementRow>(
+    '/api/admin/inventory/movements',
+    params(query),
+    options,
+  );
+
+  return { items, pagination };
+}
+
+/**
+ * Corrects a product's stock.
+ *
+ * Sends a signed change and a reason — never a total. The response carries the
+ * quantity the server actually found, which is what the dialog reports back
+ * rather than the figure it was showing.
+ */
+export function adjustStock(id: string, input: AdjustStockInput): Promise<AdjustmentResult> {
+  return send<AdjustmentResult>(
+    'post',
+    `/api/admin/inventory/${encodeURIComponent(id)}/adjust`,
+    input,
+  );
+}
+
+/** Null restores the store default rather than pinning today's value. */
+export function setLowStockThreshold(
+  id: string,
+  lowStockThreshold: number | null,
+): Promise<{ id: string; lowStockThreshold: number; usesDefaultThreshold: boolean }> {
+  return send('patch', `/api/admin/inventory/${encodeURIComponent(id)}/threshold`, {
+    lowStockThreshold,
+  });
+}
+
+/* ---------------------------------------------------------------- */
+/* Operations and audit                                              */
+/* ---------------------------------------------------------------- */
+
+export function getOperations(options?: RequestOptions): Promise<OperationsSummary> {
+  return request<OperationsSummary>('/api/admin/operations', undefined, options);
+}
+
+export async function getAuditLogs(
+  query: AuditQuery = {},
+  options?: RequestOptions,
+): Promise<AdminList<AuditLogRow>> {
+  const { items, pagination } = await requestList<AuditLogRow>(
+    '/api/admin/audit-logs',
+    params(query),
+    options,
+  );
+
+  return { items, pagination };
+}
+
+export function getAuditActors(options?: RequestOptions): Promise<{ id: string; name: string }[]> {
+  return request<{ id: string; name: string }[]>(
+    '/api/admin/audit-logs/actors',
+    undefined,
+    options,
   );
 }
 

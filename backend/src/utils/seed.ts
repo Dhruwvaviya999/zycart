@@ -4,6 +4,7 @@ import { connectDatabase, disconnectDatabase } from '../config/database';
 import { loadEnv } from '../config/env';
 import { Brand } from '../models/brand.model';
 import { Category } from '../models/category.model';
+import { InventoryMovement } from '../models/inventory-movement.model';
 import { Product } from '../models/product.model';
 import { seedBrands, seedCategories, seedProducts } from './seed-data';
 
@@ -12,13 +13,24 @@ import { seedBrands, seedCategories, seedProducts } from './seed-data';
  *
  * Destructive by design: it empties products, categories and brands first so
  * repeated runs are identical. It touches nothing else in the database.
+ *
+ * From Phase 12 it also resets the inventory ledger, because the ledger
+ * describes products this script is about to delete — leaving it would produce
+ * a movement history pointing at nothing. The audit trail is deliberately left
+ * alone: it records what members of staff did, which a catalogue reset does not
+ * undo.
  */
 async function seedDatabase(): Promise<void> {
   const env = loadEnv();
   await connectDatabase(env.MONGODB_URI);
 
-  await Promise.all([Product.deleteMany({}), Category.deleteMany({}), Brand.deleteMany({})]);
-  console.log('Cleared products, categories and brands');
+  await Promise.all([
+    Product.deleteMany({}),
+    Category.deleteMany({}),
+    Brand.deleteMany({}),
+    InventoryMovement.deleteMany({}),
+  ]);
+  console.log('Cleared products, categories, brands and inventory movements');
 
   const categories = await Category.insertMany(seedCategories);
   const brands = await Brand.insertMany(seedBrands);
@@ -52,8 +64,39 @@ async function seedDatabase(): Promise<void> {
    */
   const inserted = await Product.insertMany(documents, { timestamps: false });
 
+  /**
+   * Opening stock, recorded as the movement it actually is.
+   *
+   * These are not invented history: the seed *is* the moment these products
+   * came into existence with these quantities, so an INITIAL_STOCK row is the
+   * literal truth about them — unlike backfilling one for a product that has
+   * been selling for months, which `migrate:phase12` deliberately does not do.
+   *
+   * Dated to each product's own `createdAt` so the ledger and the catalogue
+   * agree, and inserted in one call rather than one per product.
+   */
+  const openingStock = inserted
+    .filter((product) => product.stock > 0)
+    .map((product) => ({
+      product: product._id,
+      productName: product.name,
+      sku: product.sku,
+      type: 'INITIAL_STOCK' as const,
+      quantityBefore: 0,
+      quantityChange: product.stock,
+      quantityAfter: product.stock,
+      referenceType: 'PRODUCT' as const,
+      referenceId: product._id,
+      referenceLabel: product.sku,
+      createdAt: product.createdAt,
+      updatedAt: product.createdAt,
+    }));
+
+  await InventoryMovement.insertMany(openingStock, { timestamps: false });
+
   console.log(
-    `Seeded ${categories.length} categories, ${brands.length} brands, ${inserted.length} products`,
+    `Seeded ${categories.length} categories, ${brands.length} brands, ${inserted.length} products, ` +
+      `${openingStock.length} opening-stock movements`,
   );
 
   const counts = {

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as controller from '../controllers/admin.controller';
+import * as operations from '../controllers/inventory.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireRole } from '../middleware/role.middleware';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -46,6 +47,21 @@ adminRouter.delete('/admin/brands/:id', asyncHandler(controller.deleteBrand));
 /* Commerce -------------------------------------------------------- */
 
 adminRouter.get('/admin/orders', asyncHandler(controller.listOrders));
+
+/**
+ * Fulfilment, in bulk.
+ *
+ * Declared **above** the `:orderRef` routes, because `/admin/orders/bulk-status`
+ * would otherwise be matched as an order whose number is "bulk-status". A
+ * literal path has to be registered before the parameter that could swallow it.
+ *
+ * Runs the same `setOrderStatus` the single-order endpoint does, once per
+ * order, and answers with a per-order outcome. There is deliberately no bulk
+ * cancellation: cancelling restores stock and may owe a refund, which is a
+ * decision per order rather than a checkbox column.
+ */
+adminRouter.patch('/admin/orders/bulk-status', asyncHandler(operations.bulkUpdateOrderStatus));
+
 adminRouter.get('/admin/orders/:orderRef', asyncHandler(controller.getOrder));
 
 /**
@@ -56,6 +72,35 @@ adminRouter.get('/admin/orders/:orderRef', asyncHandler(controller.getOrder));
  * asserted it would make every "Paid" badge in ZyCart mean less.
  */
 adminRouter.patch('/admin/orders/:orderRef/status', asyncHandler(controller.updateOrderStatus));
+
+/* Inventory ------------------------------------------------------- */
+
+/**
+ * Stock, with its ledger.
+ *
+ * The adjustment endpoint is the *only* way stock changes on an administrator's
+ * instruction — `PATCH /admin/products/:id` no longer accepts a `stock` field —
+ * so every manual change arrives with a reason and an actor attached, and shows
+ * up in both the movement history and the audit trail.
+ */
+adminRouter.get('/admin/inventory', asyncHandler(operations.listInventory));
+
+// The two literal paths are declared before `:id`, which would otherwise match
+// "summary" and "movements" as product ids.
+adminRouter.get('/admin/inventory/summary', asyncHandler(operations.getSummary));
+adminRouter.get('/admin/inventory/movements', asyncHandler(operations.listMovements));
+
+adminRouter.get('/admin/inventory/:id', asyncHandler(operations.getInventoryItem));
+adminRouter.get('/admin/inventory/:id/movements', asyncHandler(operations.listProductMovements));
+adminRouter.post('/admin/inventory/:id/adjust', asyncHandler(operations.adjustStock));
+adminRouter.patch('/admin/inventory/:id/threshold', asyncHandler(operations.setThreshold));
+
+/* Operations ------------------------------------------------------ */
+
+adminRouter.get('/admin/operations', asyncHandler(operations.getOperations));
+
+adminRouter.get('/admin/audit-logs', asyncHandler(operations.listAuditLogs));
+adminRouter.get('/admin/audit-logs/actors', asyncHandler(operations.listAuditActors));
 
 /* Customers ------------------------------------------------------- */
 

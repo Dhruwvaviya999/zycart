@@ -6,6 +6,7 @@ import {
   FilterBar,
   useAdminFilters,
 } from '@/components/admin/admin-filters';
+import { Checkbox } from '@/components/ui/checkbox';
 import { humanise } from '@/components/admin/status-tones';
 import { ORDER_PROGRESSION } from '@/types/order';
 
@@ -47,6 +48,10 @@ const SORT_OPTIONS = [
  * Fulfilment and payment are separate controls because Phase 7 made them
  * separate states — "shipped but not paid" is a real and important thing to be
  * able to ask for, and a single combined status dropdown could not express it.
+ *
+ * "Needs attention" is a checkbox rather than a status, for the same reason: it
+ * is orthogonal to both, and it composes with them. "Unpaid orders from the
+ * last week that need attention" is one URL, not three screens.
  */
 export function OrderFilters() {
   const { get, set, clear, searchParams } = useAdminFilters();
@@ -105,6 +110,13 @@ export function OrderFilters() {
         allLabel="Newest"
         className="w-full sm:w-36"
       />
+      <label className="text-caption mb-1.5 flex cursor-pointer items-center gap-2 font-medium">
+        <Checkbox
+          checked={get('attention') === 'true'}
+          onCheckedChange={(checked) => set({ attention: checked ? 'true' : '' })}
+        />
+        Needs attention
+      </label>
     </FilterBar>
   );
 }

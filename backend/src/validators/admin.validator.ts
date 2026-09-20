@@ -1,6 +1,8 @@
 import { z } from 'zod';
+import { AUDIT_ACTIONS, AUDIT_ENTITIES } from '../models/audit-log.model';
 import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from '../models/order.model';
 import { REVIEW_STATUSES } from '../models/review.model';
+import { BULK_LIMIT } from '../services/admin/operations.service';
 import { objectIdSchema } from './common';
 
 /**
@@ -69,6 +71,17 @@ export const adminOrderQuerySchema = z
     paymentMethod: z.enum(PAYMENT_METHODS).optional(),
     /** A fixed set of windows rather than arbitrary dates; see the dashboard. */
     period: z.enum(['7d', '30d', '90d', 'all']).default('all'),
+    /**
+     * The attention queue, as a filter rather than as a separate endpoint.
+     *
+     * It composes with every other filter here — "unpaid orders from the last
+     * 7 days that need attention" is one URL — which a dedicated endpoint would
+     * have had to reimplement.
+     */
+    attention: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
     sort: z.enum(ORDER_SORTS).default('newest'),
   })
   .strict();
@@ -148,6 +161,51 @@ export const orderStatusSchema = z
  */
 export const customerStatusSchema = z.object({ isActive: z.boolean() }).strict();
 
+/**
+ * Moving several orders at once.
+ *
+ * Orders are named by their **number** rather than by id, because that is what
+ * the list rows carry and what an operator would recognise in a failure
+ * message. Bounded by the same constant the service enforces, so an oversized
+ * request is a validation error rather than a long-running one.
+ *
+ * `CANCELLED` is absent on purpose. Cancelling restores stock, may owe a
+ * refund, and deserves a reason per order — putting it behind a checkbox column
+ * is exactly the kind of convenient, irreversible bulk action this phase
+ * declined to build. Cancelling stays a single-order, confirmed decision.
+ */
+export const bulkOrderStatusSchema = z
+  .object({
+    orderNumbers: z
+      .array(z.string().trim().min(3).max(40))
+      .min(1, 'select at least one order')
+      .max(BULK_LIMIT, `up to ${BULK_LIMIT} orders can be updated at once`),
+    status: z.enum(['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED']),
+    note: z.string().trim().max(300).optional(),
+  })
+  .strict();
+
+export const AUDIT_PERIODS = ['today', '7d', '30d', 'all'] as const;
+
+/**
+ * The audit trail's filters.
+ *
+ * `actor` is an id rather than a name: the page offers a picker built from who
+ * has actually performed an action, so there is nothing to type and no
+ * ambiguity between two members of staff with the same first name. Free text
+ * still searches names, through `search`.
+ */
+export const adminAuditQuerySchema = z
+  .object({
+    ...pagination,
+    search,
+    action: z.enum(AUDIT_ACTIONS).optional(),
+    entityType: z.enum(AUDIT_ENTITIES).optional(),
+    actor: objectIdSchema.optional(),
+    period: z.enum(AUDIT_PERIODS).default('30d'),
+  })
+  .strict();
+
 export type AdminProductQuery = z.infer<typeof adminProductQuerySchema>;
 export type AdminOrderQuery = z.infer<typeof adminOrderQuerySchema>;
 export type AdminCustomerQuery = z.infer<typeof adminCustomerQuerySchema>;
@@ -156,3 +214,5 @@ export type AdminCatalogueQuery = z.infer<typeof adminCatalogueQuerySchema>;
 export type DashboardQuery = z.infer<typeof dashboardQuerySchema>;
 export type OrderStatusInput = z.infer<typeof orderStatusSchema>;
 export type CustomerStatusInput = z.infer<typeof customerStatusSchema>;
+export type BulkOrderStatusInput = z.infer<typeof bulkOrderStatusSchema>;
+export type AdminAuditQuery = z.infer<typeof adminAuditQuerySchema>;

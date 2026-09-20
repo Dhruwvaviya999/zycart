@@ -359,7 +359,10 @@ export async function finalizeSuccessfulPayment(
       }
 
       try {
-        await commitStock(claimed.items, session);
+        await commitStock(claimed.items, session, {
+          id: claimed._id,
+          orderNumber: claimed.orderNumber,
+        });
       } catch (error) {
         if (error instanceof AvailabilityError) {
           // Recorded on the way past, not swallowed: the transaction must abort

@@ -1,5 +1,3 @@
-'use client';
-
 import Link from 'next/link';
 import { CircleAlert, Inbox, Loader2, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,6 +10,21 @@ import { cn } from '@/lib/utils';
  * One implementation each, because four listing screens that each grew their
  * own table, empty state and pagination would drift apart within a week — and
  * an operator who has learned one screen would have to learn the next.
+ *
+ * ## Why there is no `'use client'` here
+ *
+ * Nothing in this file holds state, runs an effect or touches the browser — it
+ * is markup with props. Marking it client-only did two unhelpful things: it
+ * pulled every admin listing's chrome into the browser bundle for no benefit,
+ * and it made `icon={Package}` illegal, because a component reference cannot
+ * cross the server/client boundary as a prop. React logged that on every empty
+ * state in the console.
+ *
+ * Without the directive these are ordinary shared components: server pages
+ * render them on the server, and the client components that import them — the
+ * error boundary, the moderation and adjustment dialogs — still get them as
+ * client code. The one prop here that is a function, `AdminError`'s `onRetry`,
+ * is only ever passed by a client component.
  */
 
 /* ---------------------------------------------------------------- */

@@ -12,13 +12,24 @@ import {
   Tr,
 } from '@/components/admin/admin-ui';
 import { AdminPagination } from '@/components/admin/admin-pagination';
+import {
+  OrderBulkBar,
+  OrderSelectAllCheckbox,
+  OrderSelectCheckbox,
+  OrderSelectionProvider,
+} from '@/components/admin/order-bulk-actions';
 import { OrderFilters } from '@/components/admin/order-filters';
-import { humanise, orderStatusTone, paymentStatusTone } from '@/components/admin/status-tones';
+import {
+  attentionTone,
+  humanise,
+  orderStatusTone,
+  paymentStatusTone,
+} from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
 import { getOrders } from '@/services/admin.service';
 import { getSessionCookie } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
-import type { AdminOrderQuery } from '@/types/admin';
+import type { AdminOrderQuery, AdminOrderRow } from '@/types/admin';
 import type { OrderStatus, PaymentMethod, PaymentStatus } from '@/types/order';
 
 export const dynamic = 'force-dynamic';
@@ -59,6 +70,7 @@ function toQuery(params: Params): AdminOrderQuery {
     sort: ['newest', 'oldest', 'total_desc', 'total_asc'].includes(sort ?? '')
       ? (sort as AdminOrderQuery['sort'])
       : undefined,
+    attention: one(params.attention) === 'true' ? true : undefined,
   };
 }
 
@@ -86,6 +98,13 @@ export default async function AdminOrdersPage({ searchParams }: PageProps<'/admi
       <AdminPageHeader
         title="Orders"
         description="Fulfilment and payment are tracked separately — an order can be shipped and unpaid, or paid and pending."
+        action={
+          query.attention ? (
+            <StatusBadge tone="warning" className="self-center">
+              Showing orders that need attention
+            </StatusBadge>
+          ) : undefined
+        }
       />
 
       <OrderFilters />
@@ -101,11 +120,15 @@ export default async function AdminOrdersPage({ searchParams }: PageProps<'/admi
           }
         />
       ) : (
-        <>
+        <OrderSelectionProvider selectable={items.map((order) => order.orderNumber)}>
           <AdminTable
             className="hidden lg:block"
             head={
               <>
+                <Th className="w-10">
+                  <OrderSelectAllCheckbox />
+                  <span className="sr-only">Select every order on this page</span>
+                </Th>
                 <Th>Order</Th>
                 <Th>Customer</Th>
                 <Th align="right">Items</Th>
@@ -119,12 +142,16 @@ export default async function AdminOrdersPage({ searchParams }: PageProps<'/admi
             {items.map((order) => (
               <Tr key={order.id}>
                 <Td>
+                  <OrderSelectCheckbox orderNumber={order.orderNumber} />
+                </Td>
+                <Td>
                   <Link
                     href={`/admin/orders/${order.orderNumber}`}
                     className="focus-ring rounded-sm font-medium"
                   >
                     {order.orderNumber}
                   </Link>
+                  <AttentionFlags order={order} />
                 </Td>
                 <Td>
                   <span className="block max-w-[14rem] truncate">{order.customer.name}</span>
@@ -194,14 +221,40 @@ export default async function AdminOrdersPage({ searchParams }: PageProps<'/admi
                       {order.itemCount} {order.itemCount === 1 ? 'item' : 'items'}
                     </span>
                   </div>
+
+                  <AttentionFlags order={order} />
                 </Link>
               </li>
             ))}
           </ul>
 
           <AdminPagination pagination={pagination} shown={items.length} noun="orders" />
-        </>
+
+          {/* Selection lives below `lg`, where rows are cards without a
+              checkbox column — the bar simply never appears there. */}
+          <OrderBulkBar />
+        </OrderSelectionProvider>
       )}
     </>
+  );
+}
+
+/**
+ * Why an order is in the attention queue.
+ *
+ * Computed on the server from stored state, so a row cannot claim a problem the
+ * queue does not agree with. Most orders carry none and render nothing.
+ */
+function AttentionFlags({ order }: { order: AdminOrderRow }) {
+  if (order.attention.length === 0) return null;
+
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {order.attention.map((flag) => (
+        <StatusBadge key={flag.key} tone={attentionTone(flag.severity)}>
+          {flag.label}
+        </StatusBadge>
+      ))}
+    </span>
   );
 }

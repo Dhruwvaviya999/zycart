@@ -1,8 +1,12 @@
+import { Types } from 'mongoose';
 import { Order, type OrderStatus, ORDER_STATUSES } from '../../models/order.model';
-import { Product, LOW_STOCK_THRESHOLD } from '../../models/product.model';
+import { Product, STOCK_FILTERS } from '../../models/product.model';
+import { InventoryMovement } from '../../models/inventory-movement.model';
 import { Review } from '../../models/review.model';
 import { User } from '../../models/user.model';
 import type { DashboardQuery } from '../../validators/admin.validator';
+import { recentActivity, startOfDaysAgo, type AuditLogRow } from './audit.service';
+import { attentionFilter } from './operations.service';
 
 /**
  * The dashboard, computed in MongoDB.
@@ -44,13 +48,14 @@ export function revenueMatch(extra: Record<string, unknown> = {}): Record<string
   };
 }
 
-/** Where a window starts, at midnight, so "7 days" means seven whole days. */
-function since(days: number): Date {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - (days - 1));
-  return start;
-}
+/**
+ * Where a window starts, at midnight, so "7 days" means seven whole days.
+ *
+ * Shared with the audit and inventory services from Phase 12 rather than
+ * reimplemented, so every window on every admin screen begins at the same
+ * instant. See `startOfDaysAgo` for what "midnight" means and why.
+ */
+const since = startOfDaysAgo;
 
 export interface DashboardMetric {
   value: number;
@@ -83,7 +88,38 @@ export interface DashboardSummary {
     pendingOrders: number;
     unpaidOnlineOrders: number;
     pendingReviews: number;
+    /** Orders tripping one of the operations rules; see `operations.service`. */
+    ordersNeedingAttention: number;
   };
+
+  /** The three stock states across active products, as counts to act on. */
+  inventory: {
+    outOfStock: number;
+    lowStock: number;
+    healthy: number;
+    sellableUnits: number;
+    recentAdjustments: number;
+  };
+
+  /** The newest administrative actions, from the audit trail. */
+  activity: AuditLogRow[];
+
+  /**
+   * Products holding stock that is not moving.
+   *
+   * `coverDays` is how long the current stock would last at the rate it sold
+   * over the selected window: `stock ÷ (unitsSold ÷ days)`. Null means nothing
+   * sold at all in the window, which is not the same as "sells slowly" and is
+   * labelled differently by the interface.
+   */
+  slowMovers: {
+    id: string;
+    name: string;
+    sku: string;
+    stock: number;
+    unitsSold: number;
+    coverDays: number | null;
+  }[];
 
   revenueSeries: RevenuePoint[];
   ordersByStatus: Record<OrderStatus, number>;
@@ -146,6 +182,8 @@ export async function getDashboard(query: DashboardQuery): Promise<DashboardSumm
     top,
     recent,
     lowStock,
+    activity,
+    slowMovers,
   ] = await Promise.all([
     sumRevenue(revenueMatch(windowMatch)),
     sumRevenue(revenueMatch(previousMatch)),
@@ -164,6 +202,8 @@ export async function getDashboard(query: DashboardQuery): Promise<DashboardSumm
     topProducts(from),
     recentOrders(),
     lowStockProducts(),
+    recentActivity(6),
+    slowMovingProducts(from, days),
   ]);
 
   return {
@@ -173,6 +213,15 @@ export async function getDashboard(query: DashboardQuery): Promise<DashboardSumm
     customers: { value: customersNow, previous: customersPrevious },
     catalogue,
     attention,
+    inventory: {
+      outOfStock: catalogue.outOfStock,
+      lowStock: catalogue.lowStock,
+      healthy: Math.max(0, catalogue.activeProducts - catalogue.outOfStock - catalogue.lowStock),
+      sellableUnits: catalogue.sellableUnits,
+      recentAdjustments: attention.recentAdjustments,
+    },
+    activity,
+    slowMovers,
     revenueSeries: series,
     ordersByStatus: byStatus,
     topProducts: top,
@@ -190,15 +239,30 @@ async function sumRevenue(match: Record<string, unknown>): Promise<number> {
   return result?.total ?? 0;
 }
 
+/**
+ * Catalogue state, counted against each product's own low-stock threshold.
+ *
+ * `STOCK_FILTERS` rather than a literal comparison, so this panel and the
+ * inventory screen cannot disagree about which products are low — which they
+ * would the moment anybody gave a product a threshold of its own.
+ */
 async function catalogueCounts() {
-  const [products, activeProducts, outOfStock, lowStock] = await Promise.all([
+  const active = { isActive: true };
+
+  const [products, activeProducts, outOfStock, lowStock, units] = await Promise.all([
     Product.countDocuments(),
-    Product.countDocuments({ isActive: true }),
-    Product.countDocuments({ isActive: true, stock: { $lte: 0 } }),
-    Product.countDocuments({ isActive: true, stock: { $gt: 0, $lte: LOW_STOCK_THRESHOLD } }),
+    Product.countDocuments(active),
+    Product.countDocuments({ ...active, ...STOCK_FILTERS.out_of_stock }),
+    Product.countDocuments({ ...active, ...STOCK_FILTERS.low_stock }),
+    Product.aggregate<{ total: number }>([
+      { $match: active },
+      { $group: { _id: null, total: { $sum: '$stock' } } },
+    ]),
   ]);
 
-  return { products, activeProducts, outOfStock, lowStock };
+  // Units behind a deactivated product are not sellable, and counting them
+  // would overstate what the shop can actually ship.
+  return { products, activeProducts, outOfStock, lowStock, sellableUnits: units[0]?.total ?? 0 };
 }
 
 /**
@@ -209,7 +273,13 @@ async function catalogueCounts() {
  * decision. A count with nothing to do about it does not belong here.
  */
 async function attentionCounts() {
-  const [pendingOrders, unpaidOnlineOrders, pendingReviews] = await Promise.all([
+  const [
+    pendingOrders,
+    unpaidOnlineOrders,
+    pendingReviews,
+    ordersNeedingAttention,
+    recentAdjustments,
+  ] = await Promise.all([
     Order.countDocuments({ status: 'PENDING' }),
     Order.countDocuments({
       'payment.method': 'RAZORPAY',
@@ -217,9 +287,96 @@ async function attentionCounts() {
       status: { $nin: ['CANCELLED', 'DELIVERED'] },
     }),
     Review.countDocuments({ status: 'PENDING' }),
+    // The same rules the operations screen pages through, so the number here
+    // and the number of rows there cannot disagree.
+    Order.countDocuments(attentionFilter()),
+    InventoryMovement.countDocuments({
+      type: 'MANUAL_ADJUSTMENT',
+      createdAt: { $gte: since(7) },
+    }),
   ]);
 
-  return { pendingOrders, unpaidOnlineOrders, pendingReviews };
+  return {
+    pendingOrders,
+    unpaidOnlineOrders,
+    pendingReviews,
+    ordersNeedingAttention,
+    recentAdjustments,
+  };
+}
+
+/**
+ * How long stock has to last before it counts as slow moving.
+ *
+ * Ninety days of cover at the current rate: a quarter's worth of inventory
+ * sitting still. Below that, a healthy seasonal buffer and a genuine problem
+ * look the same, and a panel that cannot tell them apart is not worth reading.
+ */
+const SLOW_MOVING_COVER_DAYS = 90;
+
+/**
+ * How many products are examined.
+ *
+ * The hundred holding the most stock, because slow movement is only worth
+ * reporting where it ties up something — a product with two units that has not
+ * sold in a month costs nothing to leave alone. Bounding it this way is also
+ * what keeps the calculation to two queries instead of one per product.
+ *
+ * This is stated on the panel, so the figure is not mistaken for a
+ * whole-catalogue ranking.
+ */
+export const SLOW_MOVING_CANDIDATES = 100;
+
+/**
+ * Products whose stock is not moving, by days of cover.
+ *
+ * ```text
+ * coverDays = stock ÷ (unitsSold ÷ windowDays)
+ * ```
+ *
+ * Units sold come from the same revenue-contributing orders every other figure
+ * on this dashboard uses, so a cancelled bulk order cannot make a product look
+ * fast-moving. A product with no sales in the window has no rate, so it has no
+ * cover: that is reported as `null` rather than as infinity, and the interface
+ * says "no sales" rather than inventing a number.
+ */
+async function slowMovingProducts(from: Date, days: number) {
+  const [sold, candidates] = await Promise.all([
+    Order.aggregate<{ _id: Types.ObjectId | null; units: number }>([
+      { $match: revenueMatch({ createdAt: { $gte: from } }) },
+      { $unwind: '$items' },
+      { $group: { _id: '$items.product', units: { $sum: '$items.quantity' } } },
+    ]),
+    Product.find({ isActive: true, stock: { $gt: 0 } })
+      .select('name sku stock')
+      .sort({ stock: -1, _id: 1 })
+      .limit(SLOW_MOVING_CANDIDATES),
+  ]);
+
+  const unitsByProduct = new Map(
+    sold.filter((row) => row._id).map((row) => [String(row._id), row.units]),
+  );
+
+  return (
+    candidates
+      .map((product) => {
+        const unitsSold = unitsByProduct.get(String(product._id)) ?? 0;
+        const coverDays = unitsSold === 0 ? null : Math.round(product.stock / (unitsSold / days));
+
+        return {
+          id: String(product._id),
+          name: product.name,
+          sku: product.sku,
+          stock: product.stock,
+          unitsSold,
+          coverDays,
+        };
+      })
+      .filter((row) => row.coverDays === null || row.coverDays >= SLOW_MOVING_COVER_DAYS)
+      // Nothing sold first — that is the stronger signal — then the deepest cover.
+      .sort((a, b) => (b.coverDays ?? Infinity) - (a.coverDays ?? Infinity) || b.stock - a.stock)
+      .slice(0, 5)
+  );
 }
 
 /**
@@ -358,7 +515,7 @@ async function recentOrders() {
 async function lowStockProducts() {
   const products = await Product.find({
     isActive: true,
-    stock: { $lte: LOW_STOCK_THRESHOLD },
+    $or: [STOCK_FILTERS.out_of_stock, STOCK_FILTERS.low_stock],
   })
     .select('name slug sku stock images')
     .sort({ stock: 1, name: 1 })

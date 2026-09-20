@@ -1,7 +1,10 @@
 import {
+  Activity,
+  Boxes,
   LayoutDashboard,
   Package,
   ShoppingCart,
+  Siren,
   Star,
   Tag,
   Users,
@@ -30,6 +33,18 @@ export interface AdminNavGroup {
  * the work actually divides: someone managing the catalogue is rarely the same
  * person chasing an order. "Overview" sits outside a group — it is the door,
  * not a department.
+ *
+ * Phase 12 adds two things and moves nothing. Inventory joins the catalogue,
+ * beside the products it counts. Operations is a new group, because running the
+ * day — what needs attention, what changed and who changed it — is a different
+ * job from maintaining the catalogue, and burying an exception queue under
+ * "Commerce" would be how it stops getting looked at.
+ *
+ * There are deliberately no counts on these links. A badge has to be fresh to
+ * be trusted, every page here is server-rendered per request, and fetching
+ * counts on every navigation to decorate a sidebar would cost more than it
+ * tells anybody. The dashboard and the operations page carry the numbers, and
+ * they are the pages an operator opens to read them.
  */
 export const ADMIN_NAV: AdminNavGroup[] = [
   {
@@ -40,6 +55,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     label: 'Catalogue',
     items: [
       { href: '/admin/products', label: 'Products', icon: Package, nested: true },
+      { href: '/admin/inventory', label: 'Inventory', icon: Boxes, nested: true },
       { href: '/admin/categories', label: 'Categories', icon: Layers },
       { href: '/admin/brands', label: 'Brands', icon: Tag },
     ],
@@ -53,6 +69,13 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     items: [
       { href: '/admin/customers', label: 'Customers', icon: Users, nested: true },
       { href: '/admin/reviews', label: 'Reviews', icon: Star, nested: true },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [
+      { href: '/admin/operations', label: 'Needs attention', icon: Siren },
+      { href: '/admin/activity', label: 'Activity log', icon: Activity },
     ],
   },
 ];

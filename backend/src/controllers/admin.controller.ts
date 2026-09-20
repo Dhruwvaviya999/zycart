@@ -8,6 +8,7 @@ import * as brandService from '../services/brand.service';
 import * as categoryService from '../services/category.service';
 import * as productService from '../services/product.service';
 import * as reviewService from '../services/review.service';
+import { requireActor } from '../utils/actor';
 import { idParamSchema, objectIdSchema } from '../validators/common';
 import {
   adminCatalogueQuerySchema,
@@ -38,6 +39,11 @@ import { orderRefSchema } from '../validators/order.validator';
  * That is the rule this file exists to enforce: an administrator gets more
  * *access*, never a different set of business rules. Nothing here writes to a
  * model directly.
+ *
+ * From Phase 12 every mutating handler also names its actor. It comes from
+ * `requireActor`, which reads the verified session — never the body — so the
+ * audit trail records who the server authenticated rather than who the request
+ * claimed to be.
  */
 
 const id = (req: Request): string => idParamSchema.parse({ id: req.params.id }).id;
@@ -74,17 +80,31 @@ export async function getProduct(req: Request, res: Response): Promise<void> {
 export async function createProduct(req: Request, res: Response): Promise<void> {
   const input = createProductSchema.parse(req.body);
 
-  res.status(201).json({ success: true, data: await productService.createProduct(input) });
+  res.status(201).json({
+    success: true,
+    data: await productService.createProduct(input, requireActor(req)),
+  });
 }
 
+/**
+ * Updates a product — everything except its stock.
+ *
+ * `stock` is not in `updateProductSchema` from Phase 12: setting a total
+ * discards concurrent changes and carries no reason, so stock moves through
+ * `POST /api/admin/inventory/:id/adjust` instead. A client still sending the
+ * field is not rejected; it is simply not honoured.
+ */
 export async function updateProduct(req: Request, res: Response): Promise<void> {
   const input = updateProductSchema.parse(req.body);
 
-  res.json({ success: true, data: await productService.updateProduct(id(req), input) });
+  res.json({
+    success: true,
+    data: await productService.updateProduct(id(req), input, requireActor(req)),
+  });
 }
 
 export async function deleteProduct(req: Request, res: Response): Promise<void> {
-  await productService.deleteProduct(id(req));
+  await productService.deleteProduct(id(req), requireActor(req));
 
   res.json({ success: true, message: 'Product deleted' });
 }
@@ -171,7 +191,7 @@ export async function updateOrderStatus(req: Request, res: Response): Promise<vo
 
   res.json({
     success: true,
-    data: await adminOrderService.updateStatus(orderRef(req), status, note),
+    data: await adminOrderService.updateStatus(orderRef(req), status, requireActor(req), note),
   });
 }
 
@@ -200,7 +220,10 @@ export async function getCustomer(req: Request, res: Response): Promise<void> {
 export async function setCustomerActive(req: Request, res: Response): Promise<void> {
   const { isActive } = customerStatusSchema.parse(req.body);
 
-  res.json({ success: true, data: await customerService.setActive(id(req), isActive) });
+  res.json({
+    success: true,
+    data: await customerService.setActive(id(req), isActive, requireActor(req)),
+  });
 }
 
 /* ---------------------------------------------------------------- */
@@ -231,7 +254,7 @@ export async function moderateReview(req: Request, res: Response): Promise<void>
   const reviewId = objectIdSchema.parse(req.params.reviewId);
   const input = moderateReviewSchema.parse(req.body);
 
-  await reviewService.moderateReview(reviewId, input);
+  await reviewService.moderateReview(reviewId, input, requireActor(req));
 
   res.json({ success: true, data: await adminReviewService.getReview(reviewId) });
 }
