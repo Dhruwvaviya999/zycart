@@ -6,11 +6,16 @@ import { User } from '../../models/user.model';
 import { escapeRegex } from '../../validators/common';
 import type { AdminOrderQuery } from '../../validators/admin.validator';
 import {
+  fulfillmentCapabilities,
+  type FulfillmentCapabilities,
+} from '../fulfillment/shipment.service';
+import {
   allowedNextStatuses,
   findOrderByRef,
   setOrderStatus,
   toDetail,
-  type OrderDetail,
+  withFulfillment,
+  type OrderDetailWithFulfillment,
 } from '../order.service';
 import type { AuditActor } from './audit.service';
 import { attentionFilter, attentionFlags, type AttentionFlag } from './operations.service';
@@ -174,7 +179,7 @@ export interface OrderEvent {
   actor: string | null;
 }
 
-export interface AdminOrderDetail extends OrderDetail {
+export interface AdminOrderDetail extends OrderDetailWithFulfillment {
   customer: { id: string | null; name: string; email: string; isActive: boolean } | null;
   /** Where this order may go next, so the interface offers nothing that would fail. */
   allowedStatuses: string[];
@@ -184,6 +189,14 @@ export interface AdminOrderDetail extends OrderDetail {
   timeline: OrderEvent[];
   /** Every stock movement this order caused, for the inventory question. */
   stockMovements: { at: string; productName: string; quantityChange: number; type: string }[];
+  /**
+   * What the console may do about fulfilment right now.
+   *
+   * Computed on the server from the order's state and the parcel's together, so
+   * the action bar offers exactly what would succeed. The same arrangement
+   * `allowedStatuses` set up in Phase 9: the interface asks, it does not decide.
+   */
+  fulfillment: FulfillmentCapabilities;
 }
 
 /**
@@ -284,17 +297,26 @@ async function buildTimeline(order: Awaited<ReturnType<typeof findOrderByRef>>) 
 export async function getOrder(orderRef: string): Promise<AdminOrderDetail> {
   const order = await findOrderByRef(orderRef);
 
-  const [user, timeline, movements] = await Promise.all([
+  const [user, timeline, movements, detail] = await Promise.all([
     User.findById(order.user).select('firstName lastName email isActive'),
     buildTimeline(order),
     InventoryMovement.find({ referenceType: 'ORDER', referenceId: order._id })
       .sort({ createdAt: 1 })
       .select('productName quantityChange type createdAt')
       .lean(),
+    /**
+     * The same composition the customer's own order page gets.
+     *
+     * Deliberately shared rather than reimplemented: if the two computed
+     * returnability differently, a customer could be offered a return the
+     * operator's screen says is impossible, or refused one the operator can see
+     * is fine. One function, one answer.
+     */
+    withFulfillment(order, toDetail(order)),
   ]);
 
   return {
-    ...toDetail(order),
+    ...detail,
     customer: user
       ? {
           id: String(user._id),
@@ -313,6 +335,7 @@ export async function getOrder(orderRef: string): Promise<AdminOrderDetail> {
       quantityChange: movement.quantityChange,
       type: movement.type,
     })),
+    fulfillment: fulfillmentCapabilities(order.status, detail.shipment),
   };
 }
 

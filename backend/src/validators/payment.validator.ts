@@ -61,6 +61,27 @@ const paymentEntitySchema = z
 const orderEntitySchema = z.object({ id: z.string(), status: z.string().nullish() }).loose();
 
 /**
+ * A Razorpay refund entity, narrowed to what ZyCart reads.
+ *
+ * Added in Phase 13 so a refund that settles hours later closes its own loop.
+ * Before returns existed, a `REFUND_PENDING` order stayed pending until an
+ * operator noticed; now the gateway tells us, through the same signed,
+ * deduplicated pipeline every other event uses.
+ *
+ * `payment_id` is carried because a refund event that cannot be resolved to a
+ * ZyCart record should be acknowledged and ignored rather than retried forever
+ * — and the payment is the second way to find one.
+ */
+const refundEntitySchema = z
+  .object({
+    id: z.string(),
+    payment_id: z.string().nullish(),
+    status: z.string().nullish(),
+    amount: z.number().nullish(),
+  })
+  .loose();
+
+/**
  * The webhook envelope.
  *
  * Deliberately permissive about everything it does not use — Razorpay adds
@@ -78,6 +99,7 @@ export const webhookEnvelopeSchema = z
       .object({
         payment: z.object({ entity: paymentEntitySchema }).loose().optional(),
         order: z.object({ entity: orderEntitySchema }).loose().optional(),
+        refund: z.object({ entity: refundEntitySchema }).loose().optional(),
       })
       .loose(),
   })

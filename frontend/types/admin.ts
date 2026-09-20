@@ -1,3 +1,9 @@
+import type {
+  ReturnReason,
+  ReturnStatus,
+  ReturnSummary,
+  ShipmentStatus,
+} from '@/types/fulfillment';
 import type { Order, OrderStatus, PaymentMethod, PaymentStatus } from '@/types/order';
 import type { Product } from '@/types/product';
 import type { Pagination } from '@/types/product';
@@ -292,6 +298,128 @@ export interface AdminOrderDetail extends Order {
   stockCommitted: boolean;
   timeline: OrderEvent[];
   stockMovements: { at: string; productName: string; quantityChange: number; type: string }[];
+  /**
+   * What the console may do about fulfilment right now.
+   *
+   * Derived on the server from the order's state and the parcel's together. The
+   * action bar renders exactly this and works nothing out for itself, so a
+   * button is never offered that the endpoint behind it would refuse.
+   */
+  fulfillment: FulfillmentCapabilities;
+}
+
+export interface FulfillmentCapabilities {
+  canCreateShipment: boolean;
+  /** Why not, for the operator. Empty when it can. */
+  createBlockedReason: string;
+  shipmentStatuses: ShipmentStatus[];
+}
+
+/* ---------------------------------------------------------------- */
+/* Returns                                                           */
+/* ---------------------------------------------------------------- */
+
+export interface AdminReturnRow extends ReturnSummary {
+  customer: { id: string | null; name: string; email: string };
+  /** The distinct reasons across the lines, so a row reads without opening it. */
+  reasons: string[];
+}
+
+/**
+ * One return, in full, for an operator.
+ *
+ * Carries two things the customer's view never does: the internal note, and the
+ * server's verdict on whether a refund can be issued. The latter means the
+ * console renders a reason rather than a button that would be refused.
+ */
+export interface AdminReturnDetail {
+  id: string;
+  returnNumber: string;
+  orderId: string;
+  orderNumber: string;
+  status: ReturnStatus;
+  items: {
+    id: string;
+    orderItemId: string;
+    product: string | null;
+    productName: string;
+    productImage: string;
+    sku: string;
+    selectedColor: string | null;
+    selectedSize: string | null;
+    unitPrice: number;
+    purchasedQuantity: number;
+    requestedQuantity: number;
+    approvedQuantity: number | null;
+    reason: ReturnReason;
+  }[];
+  itemCount: number;
+  customerNote: string;
+  resolutionNote: string;
+  /** Internal only. Never rendered on a customer-facing surface. */
+  adminNote: string;
+  requestedAt: string;
+  decidedAt: string | null;
+  receivedAt: string | null;
+  cancelledAt: string | null;
+  reviewedByName: string;
+  resellable: boolean | null;
+  restocked: boolean;
+  refund: { amount: number; initiatedAt: string | null; completedAt: string | null; pending: boolean };
+  refundDetail: {
+    razorpayRefundId: string | null;
+    failureReason: string | null;
+    failedAt: string | null;
+    initiatedByName: string;
+  };
+  allowedStatuses: ReturnStatus[];
+  canCancel: boolean;
+  createdAt: string;
+  updatedAt: string;
+
+  customer: { id: string | null; name: string; email: string } | null;
+  order: {
+    id: string;
+    orderNumber: string;
+    status: OrderStatus;
+    total: number;
+    paymentMethod: PaymentMethod;
+    paymentStatus: PaymentStatus;
+    refundedAmount: number;
+    placedAt: string;
+    deliveredAt: string | null;
+  } | null;
+  /** Computed by the server from the order snapshot. Never sent by the browser. */
+  refundPlan: {
+    amount: number;
+    refundable: boolean;
+    blocker: string | null;
+    explanation: string;
+    remainingOnOrder: number;
+  };
+  /** The restock default, so the receive dialog does not suggest shelving a broken item. */
+  suggestResellable: boolean;
+}
+
+export interface AdminReturnQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: ReturnStatus;
+  sort?: 'newest' | 'oldest';
+}
+
+export interface ReturnsSummary {
+  byStatus: Record<ReturnStatus, number>;
+  open: number;
+  /**
+   * Both halves of the fraction, so the percentage is checkable.
+   *
+   * `percent` is null when nothing was delivered in the window — `0%` would
+   * read as "nothing gets returned" rather than "nothing has been delivered".
+   */
+  rate: { percent: number | null; returnRequests: number; deliveredOrders: number; days: number };
+  windowDays: number;
 }
 
 export interface AdminOrderQuery {
@@ -560,9 +688,26 @@ export interface AdjustmentResult {
 /* Operations                                                        */
 /* ---------------------------------------------------------------- */
 
+export interface PostPurchaseException {
+  key: string;
+  label: string;
+  action: string;
+  severity: 'critical' | 'warning';
+  /** Where the console sends an operator who clicks it. Built by the server. */
+  href: string;
+  count: number;
+}
+
 export interface OperationsSummary {
   ordersNeedingAttention: number;
   breakdown: (AttentionFlag & { count: number })[];
+  /**
+   * Returns and parcels that have stalled.
+   *
+   * Kept separate from `breakdown` because those count orders and these count
+   * returns and shipments — summing them would total unlike things.
+   */
+  postPurchase: PostPurchaseException[];
   queue: { pending: number; confirmed: number; processing: number; shipped: number };
   checkedAt: string;
 }
@@ -571,6 +716,16 @@ export interface OperationsSummary {
 /* Audit                                                             */
 /* ---------------------------------------------------------------- */
 
+/**
+ * Must match `AUDIT_ACTIONS` in `backend/src/models/audit-log.model.ts`.
+ *
+ * The console renders `AUDIT_ACTION_LABEL[entry.action]`, so an action the
+ * server writes but this list has not heard of shows up as a blank row and is
+ * missing from the filter — which is exactly what happened when Phase 13 added
+ * eight actions to the backend and not to here. The activity log is the one
+ * screen whose whole job is showing what happened; a silently unlabelled entry
+ * is the worst thing it can do.
+ */
 export const AUDIT_ACTIONS = [
   'INVENTORY_ADJUSTED',
   'ORDER_STATUS_CHANGED',
@@ -579,6 +734,14 @@ export const AUDIT_ACTIONS = [
   'PRODUCT_DELETED',
   'REVIEW_MODERATED',
   'CUSTOMER_STATUS_CHANGED',
+  'SHIPMENT_CREATED',
+  'SHIPMENT_UPDATED',
+  'SHIPMENT_STATUS_CHANGED',
+  'RETURN_APPROVED',
+  'RETURN_REJECTED',
+  'RETURN_RECEIVED',
+  'RETURN_REFUND_INITIATED',
+  'RETURN_REFUND_COMPLETED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -591,9 +754,25 @@ export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   PRODUCT_DELETED: 'Product deleted',
   REVIEW_MODERATED: 'Review moderated',
   CUSTOMER_STATUS_CHANGED: 'Customer status changed',
+  SHIPMENT_CREATED: 'Shipment created',
+  SHIPMENT_UPDATED: 'Shipment updated',
+  SHIPMENT_STATUS_CHANGED: 'Shipment moved',
+  RETURN_APPROVED: 'Return approved',
+  RETURN_REJECTED: 'Return rejected',
+  RETURN_RECEIVED: 'Return received',
+  RETURN_REFUND_INITIATED: 'Refund started',
+  RETURN_REFUND_COMPLETED: 'Refund completed',
 };
 
-export const AUDIT_ENTITIES = ['PRODUCT', 'ORDER', 'REVIEW', 'CUSTOMER'] as const;
+/** Must match `AUDIT_ENTITIES` in the backend's audit-log model. */
+export const AUDIT_ENTITIES = [
+  'PRODUCT',
+  'ORDER',
+  'REVIEW',
+  'CUSTOMER',
+  'SHIPMENT',
+  'RETURN',
+] as const;
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number];
 
 export interface AuditChange {

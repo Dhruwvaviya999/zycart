@@ -2,7 +2,15 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { MessageSquare, Package, ShoppingCart, UserCog, type LucideIcon } from 'lucide-react';
+import {
+  MessageSquare,
+  Package,
+  RotateCcw,
+  ShoppingCart,
+  Truck,
+  UserCog,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { StatusBadge } from '@/components/admin/admin-ui';
@@ -89,6 +97,8 @@ const ENTITY_ICON: Record<AuditEntity, LucideIcon> = {
   ORDER: ShoppingCart,
   REVIEW: MessageSquare,
   CUSTOMER: UserCog,
+  SHIPMENT: Truck,
+  RETURN: RotateCcw,
 };
 
 /** Where an entity can still be opened. A deleted product has nowhere to go. */
@@ -104,6 +114,15 @@ function entityHref(entry: AuditLogRow): string | null {
       return `/admin/customers/${entry.entityId}`;
     case 'REVIEW':
       return '/admin/reviews';
+    /**
+     * A shipment has no page of its own — it is a panel on the order it belongs
+     * to, and `entityLabel` is that order's number. Sending an operator to the
+     * order is sending them to the shipment.
+     */
+    case 'SHIPMENT':
+      return entry.entityLabel ? `/admin/orders/${entry.entityLabel}` : null;
+    case 'RETURN':
+      return `/admin/returns/${entry.entityLabel || entry.entityId}`;
   }
 }
 

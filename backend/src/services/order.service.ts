@@ -16,7 +16,11 @@ import type { CancelOrderInput, OrderQuery } from '../validators/order.validator
 import { priceCart, resolveAddress } from './checkout.service';
 import { record } from './activity/activity.service';
 import { recordAudit, type AuditActor } from './admin/audit.service';
+import { syncShipmentToOrderStatus } from './fulfillment/shipment-sync';
+import { findOrderShipment, type ShipmentView } from './fulfillment/shipment-view';
 import { recordMovement } from './inventory/inventory.service';
+import { returnability, type Returnability } from './returns/return-policy';
+import { listOrderReturns, type ReturnSummary } from './returns/return-view';
 
 /** Raised when the catalogue has moved on since the cart was filled. */
 export class AvailabilityError extends AppError {
@@ -458,6 +462,15 @@ export interface OrderPaymentView {
   failureReason: string | null;
   refundId: string | null;
   refundedAt: string | null;
+  /**
+   * How much of this order has been refunded in total, across every refund.
+   *
+   * Exposed because from Phase 13 a customer can get part of an order back, and
+   * a payment panel that only ever said "Paid" would be hiding money that has
+   * already moved. It is the same figure the server caps further refunds
+   * against, so the number on the page and the rule behind it cannot disagree.
+   */
+  refundedAmount: number;
 }
 
 function toPaymentView(order: OrderDoc): OrderPaymentView {
@@ -473,6 +486,7 @@ function toPaymentView(order: OrderDoc): OrderPaymentView {
     failureReason: payment.failureReason ?? null,
     refundId: payment.refundId ?? null,
     refundedAt: payment.refundedAt ? payment.refundedAt.toISOString() : null,
+    refundedAmount: payment.refundedAmount ?? 0,
   };
 }
 
@@ -483,6 +497,8 @@ export interface OrderDetail extends Omit<OrderListItem, 'preview'> {
   payment: OrderPaymentView;
   cancellationReason: string | null;
   cancelledAt: string | null;
+  /** When delivery was recorded. Null on every order delivered before Phase 13. */
+  deliveredAt: string | null;
   updatedAt: string;
   canCancel: boolean;
 }
@@ -505,12 +521,57 @@ export function toDetail(order: OrderDoc): OrderDetail {
     payment: toPaymentView(order),
     cancellationReason: order.cancellationReason ?? null,
     cancelledAt: order.cancelledAt ? order.cancelledAt.toISOString() : null,
+    deliveredAt: order.deliveredAt ? order.deliveredAt.toISOString() : null,
     canCancel: canCancel(order),
   };
 }
 
-export async function getOrder(userId: string, orderRef: string): Promise<OrderDetail> {
-  return toDetail(await findOwnedOrder(userId, orderRef));
+/**
+ * The order page's payload: the order, plus what happened after it.
+ *
+ * `toDetail` stays synchronous and pure — the payment service calls it on a
+ * document it already holds, and making it async would have put two database
+ * round trips on the payment verification path for data that page does not
+ * render. The post-purchase blocks are composed on top instead, by the two
+ * endpoints that actually show them.
+ */
+export interface OrderDetailWithFulfillment extends OrderDetail {
+  shipment: ShipmentView | null;
+  returns: ReturnSummary[];
+  returnability: Returnability;
+}
+
+export async function getOrder(
+  userId: string,
+  orderRef: string,
+): Promise<OrderDetailWithFulfillment> {
+  const order = await findOwnedOrder(userId, orderRef);
+  return withFulfillment(order, toDetail(order));
+}
+
+/**
+ * Attaches the shipment, the returns and the return eligibility to a detail.
+ *
+ * Two indexed queries, run together. Shared by the customer's order page and
+ * the admin's, so the two cannot disagree about whether an order is returnable
+ * — the customer is never offered something the operator's screen would deny,
+ * and vice versa.
+ */
+export async function withFulfillment(
+  order: OrderDoc,
+  detail: OrderDetail,
+): Promise<OrderDetailWithFulfillment> {
+  const [shipment, returns] = await Promise.all([
+    findOrderShipment(order._id),
+    listOrderReturns(order._id),
+  ]);
+
+  return {
+    ...detail,
+    shipment,
+    returns,
+    returnability: returnability(order),
+  };
 }
 
 /**
@@ -665,13 +726,100 @@ async function applyCancellation(
 }
 
 /**
+ * Moves one order along its lifecycle, inside a caller's transaction.
+ *
+ * ## Why this is separate from `setOrderStatus`
+ *
+ * Phase 13 gave the order lifecycle two more callers. Advancing a shipment to
+ * SHIPPED has to move the order to SHIPPED, and it has to do so in the *same*
+ * transaction as the shipment write, or a crash between them would leave a
+ * parcel that says it is in transit against an order that says it is being
+ * packed. `setOrderStatus` opens its own session, which cannot be joined.
+ *
+ * So the policy — the transition graph, the cancellation, the audit row —
+ * lives here and takes a session, and `setOrderStatus` became the thin wrapper
+ * that opens one. There is still exactly one implementation of "may this order
+ * move there?", which was the point of `ORDER_STATUS_FLOW` in the first place.
+ *
+ * Deliberately narrow, unchanged from Phase 9: it changes fulfilment state and
+ * nothing else. The snapshot, the pricing, the address and — above all — the
+ * payment are not reachable from here, so marking an order DELIVERED can never
+ * be used as a back door to assert that it was paid for.
+ */
+export async function transitionOrderStatus(
+  order: OrderDoc,
+  next: OrderStatus,
+  session: mongoose.ClientSession,
+  options: { note?: string; actor?: AuditActor | null } = {},
+): Promise<void> {
+  const { note, actor } = options;
+
+  if (order.status === next) {
+    throw new AppError(`This order is already ${next.toLowerCase()}.`, 409);
+  }
+
+  if (!ORDER_STATUS_FLOW[order.status].includes(next)) {
+    throw new AppError(
+      `An order that is ${order.status.toLowerCase()} cannot be moved to ${next.toLowerCase()}.`,
+      409,
+    );
+  }
+
+  const previous = order.status;
+
+  if (next === 'CANCELLED') {
+    await applyCancellation(order, note?.trim() || 'Cancelled by ZyCart', session, actor ?? null);
+  } else {
+    order.status = next;
+
+    /**
+     * The moment delivery was recorded, written once and only here.
+     *
+     * The return window is counted from it, so it matters that it is the
+     * timestamp of an actual transition rather than anything reconstructed. The
+     * guard makes it idempotent: DELIVERED is terminal in `ORDER_STATUS_FLOW`,
+     * so this cannot be reached twice, and the guard says so anyway.
+     */
+    if (next === 'DELIVERED' && !order.deliveredAt) order.deliveredAt = new Date();
+
+    await order.save({ session });
+  }
+
+  /**
+   * The parcel follows the order.
+   *
+   * See `shipment-sync` for why this is not in the shipment service and why it
+   * cannot recurse. Inside the transaction, so the two records commit together
+   * or not at all.
+   */
+  await syncShipmentToOrderStatus(order._id, next, session, actor ?? null);
+
+  /**
+   * Written inside the transaction, so the log cannot claim a transition that
+   * was rolled back — and so a failure to record the change fails the change
+   * rather than leaving it unattributed.
+   */
+  if (actor) {
+    await recordAudit(
+      {
+        actor,
+        action: 'ORDER_STATUS_CHANGED',
+        entityType: 'ORDER',
+        entityId: order._id,
+        entityLabel: order.orderNumber,
+        summary: `Order ${order.orderNumber} moved from ${previous.toLowerCase()} to ${next.toLowerCase()}`,
+        changes: [{ field: 'status', from: previous, to: next }],
+        note,
+      },
+      session,
+    );
+  }
+}
+
+/**
  * Moves an order along its lifecycle, on an administrator's instruction.
  *
- * Deliberately narrow. It changes fulfilment state and nothing else: the
- * snapshot, the pricing, the address and — above all — the payment are not
- * reachable from here, so marking an order DELIVERED can never be used as a
- * back door to assert that it was paid for.
- *
+ * The transaction and the lookup; the policy is `transitionOrderStatus`.
  * Cancelling routes through the same `applyCancellation` the customer's own
  * cancellation uses, so the stock comes back exactly once and by exactly the
  * same rules.
@@ -689,53 +837,7 @@ export async function setOrderStatus(
 
     await session.withTransaction(async () => {
       const order = await findOrderByRef(orderRef, session);
-
-      if (order.status === next) {
-        throw new AppError(`This order is already ${next.toLowerCase()}.`, 409);
-      }
-
-      if (!ORDER_STATUS_FLOW[order.status].includes(next)) {
-        throw new AppError(
-          `An order that is ${order.status.toLowerCase()} cannot be moved to ${next.toLowerCase()}.`,
-          409,
-        );
-      }
-
-      const previous = order.status;
-
-      if (next === 'CANCELLED') {
-        await applyCancellation(
-          order,
-          note?.trim() || 'Cancelled by ZyCart',
-          session,
-          actor ?? null,
-        );
-      } else {
-        order.status = next;
-        await order.save({ session });
-      }
-
-      /**
-       * Written inside the transaction, so the log cannot claim a transition
-       * that was rolled back — and so a failure to record the change fails the
-       * change rather than leaving it unattributed.
-       */
-      if (actor) {
-        await recordAudit(
-          {
-            actor,
-            action: 'ORDER_STATUS_CHANGED',
-            entityType: 'ORDER',
-            entityId: order._id,
-            entityLabel: order.orderNumber,
-            summary: `Order ${order.orderNumber} moved from ${previous.toLowerCase()} to ${next.toLowerCase()}`,
-            changes: [{ field: 'status', from: previous, to: next }],
-            note,
-          },
-          session,
-        );
-      }
-
+      await transitionOrderStatus(order, next, session, { note, actor });
       updated = order;
     });
 

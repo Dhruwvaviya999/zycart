@@ -9,6 +9,7 @@ import {
   Tag,
   Users,
   Layers,
+  RotateCcw,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -62,7 +63,19 @@ export const ADMIN_NAV: AdminNavGroup[] = [
   },
   {
     label: 'Commerce',
-    items: [{ href: '/admin/orders', label: 'Orders', icon: ShoppingCart, nested: true }],
+    items: [
+      { href: '/admin/orders', label: 'Orders', icon: ShoppingCart, nested: true },
+      /**
+       * Beside orders rather than under Operations.
+       *
+       * A return is a commercial transaction with a customer at the other end
+       * of it, and the person working the return queue is the same person
+       * working the order queue. Filing it under Operations would have put a
+       * customer-facing workflow next to the exception panels nobody opens
+       * unless something is wrong.
+       */
+      { href: '/admin/returns', label: 'Returns', icon: RotateCcw, nested: true },
+    ],
   },
   {
     label: 'People',

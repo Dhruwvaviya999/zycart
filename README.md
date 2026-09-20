@@ -9,13 +9,15 @@ UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
 & wishlist)**, **Phase 6 (checkout & orders)**, **Phase 7 (Razorpay payments)**,
 **Phase 8 (reviews & ratings)**, **Phase 9 (admin console)**, **Phase 10 (AI
 shopping assistant)**, **Phase 11 (AI discovery, smart search &
-recommendations)** and **Phase 12 (admin operations, inventory & fulfilment)** —
-a Next.js storefront backed by a real MongoDB catalogue, customer accounts, a
-persistent cart, ordering paid either online or on delivery, ratings written only
-by customers who received what they are rating, a console to run the store, a
-shopping assistant that answers from the live catalogue, natural-language search
-with behaviour-based recommendations, and an operations console with a full
-inventory ledger and audit trail, served over an Express + TypeScript API.
+recommendations)**, **Phase 12 (admin operations, inventory & fulfilment)** and
+**Phase 13 (shipping, returns & refunds)** — a Next.js storefront backed by a
+real MongoDB catalogue, customer accounts, a persistent cart, ordering paid
+either online or on delivery, ratings written only by customers who received what
+they are rating, a console to run the store, a shopping assistant that answers
+from the live catalogue, natural-language search with behaviour-based
+recommendations, an operations console with a full inventory ledger and audit
+trail, and a post-purchase system covering shipment tracking, item-level returns
+and partial refunds, served over an Express + TypeScript API.
 
 Orders can be paid online through Razorpay or settled in cash on delivery, and
 every rating on the site comes from a verified purchase.
@@ -35,6 +37,18 @@ did it. Stock is corrected by a signed amount and a reason applied atomically,
 never by typing a new total over whatever was there, so two operators working at
 once cannot overwrite each other and stock can never go negative.
 
+**Customers can see where their order is, and send things back.** From Phase 13
+an order carries a shipment — carrier, tracking number, tracking link, dispatch
+and delivery dates — and a timeline assembled only from moments that were
+actually recorded. Nothing is filled in with a plausible guess: an order that
+shipped before ZyCart tracked parcels says tracking is not available, rather than
+inventing a carrier. Customers can request a return on individual items within
+the 30-day window the storefront already advertises, operators approve, reject
+or partly approve it, and any refund is computed on the server from the original
+order's prices and issued through the same Razorpay integration Phase 7 built.
+Returned goods do **not** rejoin sellable stock automatically — an operator has
+to say they are resellable, and only then does the Phase 12 ledger record it.
+
 **ZyCart discovers as well as it answers.** Typing a sentence into the shop's
 search box — "black shoes under ₹15,000", "highly rated headphones" — resolves
 to ordinary catalogue filters and an ordinary shareable URL, so paging, sorting,
@@ -47,7 +61,8 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 5](docs/phase-5.md), [phase 6](docs/phase-6.md),
 [phase 7](docs/phase-7.md), [phase 8](docs/phase-8.md),
 [phase 9](docs/phase-9.md), [phase 10](docs/phase-10.md),
-[phase 11](docs/phase-11.md), [phase 12](docs/phase-12.md).
+[phase 11](docs/phase-11.md), [phase 12](docs/phase-12.md),
+[phase 13](docs/phase-13.md).
 
 ---
 
@@ -323,6 +338,8 @@ Open <http://localhost:3000>. The storefront reads its catalogue from the API, s
 | `/ai-shopping`      | ZyCart AI with the whole page — the same chat as the panel  |
 | `/admin`            | Admin console — requires an `ADMIN` account (see below)     |
 | `/admin/inventory`  | Stock levels, adjustment and per-product stock history      |
+| `/account/returns`  | Return requests — status, refund state and what happens next |
+| `/admin/returns`    | The return queue — approve, reject, receive, refund          |
 | `/admin/operations` | Orders that need a person, and fulfilment queue depth       |
 | `/admin/activity`   | Audit trail — who changed what, and when                    |
 
@@ -355,6 +372,8 @@ Run from the repository root:
 | `pnpm migrate:phase7`  | Backfill pre-Phase-7 orders and indexes                            |
 | `pnpm migrate:phase8`  | Recompute rating aggregates, create review indexes                 |
 | `pnpm migrate:phase12` | Create inventory-movement, audit-log and stock indexes             |
+| `pnpm migrate:phase13` | Create shipment and return indexes; initialise the new counters    |
+| `pnpm returns:verify`  | Exercise returns, shipments and races against a real replica set   |
 | `pnpm seed:reviews`    | Populate development with genuine reviews (`--clean` removes them) |
 | `pnpm make-admin`      | Grant, revoke or list administrator access (see below)             |
 
@@ -522,6 +541,29 @@ Orders are snapshots: renaming, repricing or deleting a product never changes
 what a past order says. Stock moves inside a MongoDB transaction, so a
 cash-on-delivery order can never exist without its stock being taken. See
 [docs/phase-6.md](docs/phase-6.md).
+
+From Phase 13, `GET /api/orders/:orderRef` also carries the order's `shipment`
+(or `null`), the `returns` raised against it, and a `returnability` block saying
+whether a return may be started, for which lines and until when. The browser
+renders that verdict; it never computes one.
+
+### Shipments and returns
+
+| Method | Path                                  | Auth | Purpose                                |
+| ------ | ------------------------------------- | ---- | -------------------------------------- |
+| `POST` | `/api/orders/:orderRef/returns`       | ✓    | Raise a return on your own order       |
+| `GET`  | `/api/returns`                        | ✓    | Your return requests, paged            |
+| `GET`  | `/api/returns/:returnRef`             | ✓    | One of your returns                    |
+| `POST` | `/api/returns/:returnRef/cancel`      | ✓    | Withdraw it before sending anything    |
+
+Return eligibility is decided on the server and evaluated again inside the
+transaction that writes the request. Quantity is reserved by one atomic update
+whose guard rides in its own array filter, so two browser tabs racing for the
+last returnable unit produce one success and one `409`.
+
+No request body in this phase carries a price or a refund amount — the refund is
+computed from the order's historical snapshot and the quantities an operator
+approved. See [docs/phase-13.md](docs/phase-13.md).
 
 ### AI
 
@@ -734,6 +776,28 @@ is refused with `409` and a sentence naming the real quantity.
 }
 ```
 
+#### Fulfilment and returns
+
+| Method  | Path                                              | Purpose                              |
+| ------- | ------------------------------------------------- | ------------------------------------ |
+| `POST`  | `/api/admin/orders/:orderRef/shipment`            | Create the parcel                    |
+| `PATCH` | `/api/admin/orders/:orderRef/shipment`            | Correct carrier and tracking details |
+| `POST`  | `/api/admin/orders/:orderRef/shipment/status`     | Move the parcel, and the order       |
+| `GET`   | `/api/admin/returns`                              | The return queue                     |
+| `GET`   | `/api/admin/returns/summary`                      | Queue counts and the return rate     |
+| `GET`   | `/api/admin/returns/:returnRef`                   | One return, in full                  |
+| `POST`  | `/api/admin/returns/:returnRef/approve`           | Approve, with per-line quantities    |
+| `POST`  | `/api/admin/returns/:returnRef/reject`            | Reject — a customer reason is required |
+| `POST`  | `/api/admin/returns/:returnRef/receive`           | Record receipt and the resellable call |
+| `POST`  | `/api/admin/returns/:returnRef/refund`            | Issue the refund — no body           |
+| `POST`  | `/api/admin/returns/:returnRef/refund/check`      | Ask Razorpay whether it settled      |
+
+A shipment's initial status is derived from the order, never chosen, so it
+cannot contradict it — and every shipment transition moves the order in the same
+transaction. There is deliberately no endpoint that marks a pending refund
+settled: whether money moved is a fact at the gateway, exactly as whether a
+payment was captured is.
+
 #### Granting administrator access
 
 No account is an administrator by default, and no page creates one. Run from
@@ -814,8 +878,17 @@ administrative change, an exception queue built from rules that are decidable
 from stored data, order timelines assembled only from recorded timestamps, and
 safe bulk fulfilment that reports per-order outcomes. It also closed the last
 path through which stock could be set silently — the product form's stock field.
+Phase 13 built the post-purchase domain: a shipment lifecycle that cannot
+contradict the order's, item-level returns with server-enforced eligibility and
+atomic quantity accounting, partial refunds through the existing Razorpay
+integration with the same idempotent claim Phase 7 used, and post-purchase
+exception rules in the operations queue. Returned goods rejoin sellable stock
+only when an operator says they can, and when they do it goes through Phase 12's
+ledger as a RETURN movement.
 
-Later phases can build on that foundation: semantic and vector search, review
-summaries, image search, saved conversations, and a granular permission model
-for staff who should see stock without being able to move it. None of them
-require reopening the boundaries these phases established.
+Later phases can build on that foundation: a shipping-provider integration behind
+the shipment domain this phase modelled, email and SMS notification for the
+transitions that already exist, exchanges and store credit, semantic and vector
+search, review summaries, image search, saved conversations, and a granular
+permission model for staff who should see stock without being able to move it.
+None of them require reopening the boundaries these phases established.

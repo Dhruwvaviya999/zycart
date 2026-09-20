@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   MapPin,
   Package,
+  RotateCcw,
   Settings,
   Star,
   User,
@@ -24,6 +25,9 @@ const ITEMS: NavItem[] = [
   { href: '/account', label: 'Overview', icon: LayoutGrid },
   { href: '/account/profile', label: 'Profile', icon: User },
   { href: '/account/orders', label: 'Orders', icon: Package },
+  // Beside orders rather than under them: a customer chasing a refund is not
+  // looking for the order it came from, they are looking for the return.
+  { href: '/account/returns', label: 'Returns', icon: RotateCcw },
   { href: '/account/reviews', label: 'Reviews', icon: Star },
   { href: '/account/addresses', label: 'Addresses', icon: MapPin },
   { href: '/account/settings', label: 'Settings', icon: Settings },
@@ -38,7 +42,20 @@ export function AccountNavigation({ className }: { className?: string }) {
   const pathname = usePathname();
 
   return (
-    <nav aria-label="Account" className={className}>
+    /**
+     * `min-w-0` is load-bearing, not tidiness.
+     *
+     * This is a grid item in the account layout, and a grid item's default
+     * `min-width: auto` refuses to shrink below its content's intrinsic width.
+     * The rail below is a flex row wider than a phone, so without this the
+     * track stretched to fit it and pushed the whole page sideways — the
+     * `overflow-x-auto` on the list never got the chance to scroll, because the
+     * list was never the thing being constrained.
+     *
+     * The sibling that holds the page content already carries the same class
+     * for the same reason. This one was missing it.
+     */
+    <nav aria-label="Account" className={cn('min-w-0', className)}>
       <ul className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:flex-col lg:gap-1 lg:px-0">
         {ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href;

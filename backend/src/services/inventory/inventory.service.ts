@@ -6,6 +6,7 @@ import {
   REASON_DIRECTION,
   type AdjustmentReason,
   type InventoryMovementDocument,
+  type MovementReferenceType,
   type MovementType,
 } from '../../models/inventory-movement.model';
 import {
@@ -40,12 +41,16 @@ import { recordAudit, startOfDaysAgo, type AuditActor } from '../admin/audit.ser
  * applyCancellation  (order.service)      CANCELLATION
  * createProduct      (product.service)    INITIAL_STOCK
  * adjustStock        (here)               MANUAL_ADJUSTMENT
+ * restockFromReturn  (here)               RETURN            [Phase 13]
  * ```
  *
  * The first three already existed and were left where they were — moving them
  * here would have put the storefront's checkout behind an admin module. What
- * this file adds is the fourth, plus the reading side that makes the ledger
- * worth keeping.
+ * this file adds is the fourth and, from Phase 13, the fifth — plus the reading
+ * side that makes the ledger worth keeping.
+ *
+ * The fifth is the one worth reading twice: returned goods do **not** go back
+ * into sellable stock automatically. See `restockFromReturn`.
  */
 
 /**
@@ -133,7 +138,7 @@ export interface MovementInput {
   quantityChange: number;
   reason?: AdjustmentReason | null;
   note?: string;
-  referenceType?: 'ORDER' | 'PRODUCT' | null;
+  referenceType?: MovementReferenceType | null;
   referenceId?: Types.ObjectId | null;
   referenceLabel?: string;
   actor?: AuditActor | null;
@@ -397,6 +402,94 @@ export function humanReason(reason: AdjustmentReason): string {
   return reason.charAt(0) + reason.slice(1).toLowerCase().replace(/_/g, ' ');
 }
 
+/* ---------------------------------------------------------------- */
+/* Returns (Phase 13)                                                */
+/* ---------------------------------------------------------------- */
+
+export interface RestockLine {
+  product: Types.ObjectId | null;
+  productName: string;
+  sku: string;
+  quantity: number;
+  selectedColor: string | null;
+  selectedSize: string | null;
+}
+
+/**
+ * Puts returned units back on the shelf.
+ *
+ * ## Why this is here and not in the return service
+ *
+ * Phase 12 established that `Product.stock` has exactly four writers, each of
+ * which records a movement in the same transaction as its change. This is the
+ * fifth, and it lives beside the other one that is in this file for the same
+ * reason: a return controller that reached for `Product.findOneAndUpdate`
+ * itself would be a second stock authority, which is precisely the thing Phase
+ * 12 spent a phase eliminating. The return service calls this, passes its
+ * session, and never sees a product document.
+ *
+ * ## Why this is not automatic
+ *
+ * Nothing calls this merely because goods came back. An operator marks a return
+ * received and states, as a separate and explicit judgement, whether the units
+ * are resellable — and only `true` reaches here. A returned item may be worn,
+ * broken, missing a part or simply not what was sent back, and ZyCart has no
+ * inventory-condition model that could tell those apart. Incrementing sellable
+ * stock on receipt would mean the shop offering things it cannot ship, which is
+ * a worse failure than a manual step.
+ *
+ * ## What happens to a deleted product
+ *
+ * Skipped, exactly as `applyCancellation` skips it. There is no row to credit;
+ * the return keeps its own snapshot of what came back, and the count of units
+ * actually restocked is returned so the audit line can say what really
+ * happened rather than what was asked for.
+ */
+export async function restockFromReturn(
+  params: {
+    lines: readonly RestockLine[];
+    reference: { id: Types.ObjectId; label: string };
+    actor: AuditActor;
+  },
+  session: mongoose.ClientSession,
+): Promise<number> {
+  let restocked = 0;
+
+  for (const line of params.lines) {
+    if (!line.product || line.quantity <= 0) continue;
+
+    const updated = await Product.findOneAndUpdate(
+      { _id: line.product },
+      { $inc: { stock: line.quantity } },
+      { session, returnDocument: 'after' },
+    ).select('name sku stock');
+
+    // The product has been deleted since the order was placed.
+    if (!updated) continue;
+
+    await recordMovement(
+      {
+        product: updated._id,
+        productName: updated.name,
+        sku: updated.sku,
+        variant: { color: line.selectedColor, size: line.selectedSize },
+        type: 'RETURN',
+        quantityBefore: updated.stock - line.quantity,
+        quantityChange: line.quantity,
+        referenceType: 'RETURN',
+        referenceId: params.reference.id,
+        referenceLabel: params.reference.label,
+        actor: params.actor,
+      },
+      session,
+    );
+
+    restocked += line.quantity;
+  }
+
+  return restocked;
+}
+
 /**
  * Sets, or clears, the point at which this product starts warning.
  *
@@ -579,6 +672,12 @@ export function movementSummary(
       return referenceLabel ? `Sold on ${referenceLabel}` : 'Sold';
     case 'CANCELLATION':
       return referenceLabel ? `Returned from ${referenceLabel}` : 'Order cancelled';
+    /**
+     * Phrased as a restock rather than as "returned", so it cannot be confused
+     * with a cancellation on a timeline where both appear as a positive number.
+     */
+    case 'RETURN':
+      return referenceLabel ? `Restocked from return ${referenceLabel}` : 'Restocked from a return';
     case 'INITIAL_STOCK':
       return 'Opening stock';
     case 'MANUAL_ADJUSTMENT':
@@ -663,7 +762,7 @@ export interface MovementRow {
   reason: AdjustmentReason | null;
   note: string;
   summary: string;
-  reference: { type: 'ORDER' | 'PRODUCT'; id: string | null; label: string } | null;
+  reference: { type: MovementReferenceType; id: string | null; label: string } | null;
   actor: { id: string | null; name: string } | null;
   createdAt: string;
 }

@@ -2,17 +2,21 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { Boxes, CreditCard, History, MapPin, TriangleAlert, User } from 'lucide-react';
+import { ArrowRight, Boxes, CreditCard, History, MapPin, RotateCcw, TriangleAlert, User } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { AdminError, AdminPageHeader, StatusBadge } from '@/components/admin/admin-ui';
+import { FulfillmentActionBar } from '@/components/admin/fulfillment-action-bar';
 import { OrderStatusControl } from '@/components/admin/order-status-control';
+import { ShipmentPanel } from '@/components/admin/shipment-panel';
 import {
   attentionTone,
   humanise,
   orderStatusTone,
   paymentStatusTone,
+  returnStatusTone,
   signed,
 } from '@/components/admin/status-tones';
+import { RETURN_ADMIN_LABEL } from '@/types/fulfillment';
 import { ApiError, toErrorMessage } from '@/services/api';
 import { getOrder } from '@/services/admin.service';
 import { getSessionCookie } from '@/lib/server-auth';
@@ -79,6 +83,14 @@ export default async function AdminOrderPage({ params }: PageProps<'/admin/order
       />
 
       <NeedsAttention order={order} />
+
+      {/*
+        The next action, before anything else on the page.
+        Derived on the server from order state, payment state and parcel state
+        together — deterministic business logic, not a suggestion. See
+        `FulfillmentActionBar` for the rules in priority order.
+      */}
+      <FulfillmentActionBar order={order} />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-4">
@@ -166,6 +178,8 @@ export default async function AdminOrderPage({ params }: PageProps<'/admin/order
             <OrderTimeline events={order.timeline} />
           </Panel>
 
+          <ReturnsPanel order={order} />
+
           {order.cancellationReason && (
             <Panel title="Cancellation">
               <p className="text-small text-pretty">{order.cancellationReason}</p>
@@ -185,6 +199,19 @@ export default async function AdminOrderPage({ params }: PageProps<'/admin/order
             allowed={order.allowedStatuses}
           />
 
+          {/*
+            Fulfilment sits directly under the order's own control, because the
+            two move together: advancing the parcel advances the order, and
+            marking the order shipped carries the parcel with it. Keeping them
+            adjacent is what stops an operator using one and wondering why the
+            other changed.
+          */}
+          <ShipmentPanel
+            orderNumber={order.orderNumber}
+            shipment={order.shipment}
+            capabilities={order.fulfillment}
+          />
+
           <Panel title="Payment" icon={CreditCard}>
             <dl className="space-y-2">
               <Row label="Method">
@@ -196,6 +223,17 @@ export default async function AdminOrderPage({ params }: PageProps<'/admin/order
                 </StatusBadge>
               </Row>
               {order.payment.paidAt && <Row label="Paid">{formatDate(order.payment.paidAt)}</Row>}
+
+              {/*
+                The running total every refund path increments, and the figure
+                the server caps further refunds against. Shown only when it is
+                non-zero, because a "₹0 refunded" row on every paid order would
+                be noise — and shown at all because a partly refunded order is
+                still, accurately, PAID, so the badge alone would hide it.
+              */}
+              {order.payment.refundedAmount > 0 && (
+                <Row label="Refunded">{formatPrice(order.payment.refundedAmount)}</Row>
+              )}
             </dl>
 
             {/* Reference ids only. ZyCart never receives card or UPI details, so
@@ -335,6 +373,53 @@ function Row({
         {children}
       </dd>
     </div>
+  );
+}
+
+/**
+ * Returns raised against this order.
+ *
+ * Rendered only when there are any — an empty "Returns" panel on the
+ * overwhelming majority of orders would be four hundred pixels of nothing on
+ * every screen an operator opens.
+ *
+ * Each row links into the return queue rather than offering the decisions here.
+ * Approving, rejecting, receiving and refunding each need their own context and
+ * their own confirmation, and duplicating them onto the order page would create
+ * a second path into the same transitions.
+ */
+function ReturnsPanel({ order }: { order: AdminOrderDetail }) {
+  if (order.returns.length === 0) return null;
+
+  return (
+    <Panel title="Returns" icon={RotateCcw}>
+      <ul className="space-y-2">
+        {order.returns.map((request) => (
+          <li key={request.id}>
+            <Link
+              href={`/admin/returns/${request.returnNumber}`}
+              className="focus-ring flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background p-3 transition-colors hover:border-foreground/25"
+            >
+              <div className="min-w-0">
+                <p className="text-small font-medium break-all">{request.returnNumber}</p>
+                <p className="text-caption text-muted-foreground">
+                  {request.itemCount} {request.itemCount === 1 ? 'item' : 'items'} ·{' '}
+                  {formatDate(request.requestedAt)}
+                  {request.refundAmount > 0 && ` · ${formatPrice(request.refundAmount)}`}
+                </p>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                <StatusBadge tone={returnStatusTone(request.status)}>
+                  {RETURN_ADMIN_LABEL[request.status]}
+                </StatusBadge>
+                <ArrowRight className="size-3.5 text-muted-foreground" aria-hidden />
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 

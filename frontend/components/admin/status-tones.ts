@@ -106,3 +106,59 @@ export const MOVEMENT_ICON_LABEL: Record<MovementType, string> = {
 export function humanise(value: string): string {
   return value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, ' ');
 }
+
+/**
+ * A parcel's tone follows what an operator should do about it.
+ *
+ * Note that EXCEPTION is a warning rather than a danger: a failed delivery
+ * attempt is an ordinary event that needs a phone call, not an emergency, and
+ * colouring it the same as a failed payment would teach operators to discount
+ * both. CANCELLED is neutral, because a parcel cancelled with its order is not
+ * a problem — the order page already says what happened.
+ */
+export function shipmentTone(status: string): BadgeTone {
+  switch (status) {
+    case 'DELIVERED':
+      return 'success';
+    case 'EXCEPTION':
+      return 'warning';
+    case 'CANCELLED':
+      return 'neutral';
+    case 'READY_TO_SHIP':
+    case 'SHIPPED':
+    case 'IN_TRANSIT':
+    case 'OUT_FOR_DELIVERY':
+      return 'brand';
+    default:
+      return 'neutral';
+  }
+}
+
+/**
+ * A return's tone follows whether it is waiting on somebody.
+ *
+ * REQUESTED and RECEIVED are warnings because both are queues with an operator
+ * at the end of them — a request nobody has reviewed and goods nobody has
+ * refunded. REFUND_PENDING is neutral: the money is with the bank and there is
+ * nothing to do but wait, so flagging it would add noise to the one screen that
+ * exists to remove it. The operations panel raises it separately once it is
+ * genuinely overdue.
+ */
+export function returnStatusTone(status: string): BadgeTone {
+  switch (status) {
+    case 'REFUNDED':
+      return 'success';
+    case 'REJECTED':
+      return 'danger';
+    case 'REQUESTED':
+    case 'RECEIVED':
+      return 'warning';
+    case 'APPROVED':
+      return 'brand';
+    case 'REFUND_PENDING':
+    case 'CANCELLED':
+      return 'neutral';
+    default:
+      return 'neutral';
+  }
+}

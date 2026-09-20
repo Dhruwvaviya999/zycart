@@ -14,7 +14,23 @@ import { api } from '@/services/api';
  */
 export function recordProductView(slug: string): void {
   void api
-    .post(`/api/products/${encodeURIComponent(slug)}/view`, null, { timeout: 5_000 })
+    .post(
+      `/api/products/${encodeURIComponent(slug)}/view`,
+      /**
+       * `undefined`, not `null`.
+       *
+       * Axios serialises an explicit `null` body to the four characters
+       * `null`, sends them with `Content-Type: application/json`, and
+       * `express.json()` rejects that as malformed before any handler runs. The
+       * endpoint takes no body at all, so the request must carry none.
+       *
+       * This was silently swallowing every view: the `.catch()` below hides the
+       * 400, so the write looked optional and simply never happened. Found
+       * while regression-testing Phase 13 — see `docs/phase-13.md`.
+       */
+      undefined,
+      { timeout: 5_000 },
+    )
     .catch(() => {
       // A signed-out visitor gets a 401 here, which is the expected answer
       // rather than a problem. Either way the shopper sees nothing.

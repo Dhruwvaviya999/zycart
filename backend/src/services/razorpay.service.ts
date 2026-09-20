@@ -258,19 +258,42 @@ export interface IssuedRefund {
 }
 
 /**
- * Refunds a captured payment in full.
+ * Refunds part or all of a captured payment.
  *
- * Deliberately offers no amount parameter. The only refund this phase performs
- * is "the money was taken but the order cannot be fulfilled", and that is
- * always the whole payment. A caller that could choose an amount would be a
- * caller that could get it wrong, so the decision is not theirs to make —
- * which is also what keeps a client from ever influencing a refund figure.
+ * ## The amount is never the caller's idea
+ *
+ * There is an amount parameter, and it is still not a decision anybody upstream
+ * of the domain gets to make. Phase 7's only refund was "the money was taken
+ * and the order cannot be fulfilled", always the whole payment. Phase 13 added
+ * returns, where the correct figure is the approved quantities priced at the
+ * order's own historical snapshot — computed by `plannedRefund`, capped at what
+ * remains refundable on the order, and never present in any request body.
+ *
+ * What this function guarantees is the boundary: rupees in, paise at the
+ * gateway, and a conversion that throws rather than rounds. What it does not
+ * guarantee is that the figure is right — that is the domain's job, and it is
+ * why the caller is a service and not a controller.
+ *
+ * ## Idempotency
+ *
+ * Not provided here, deliberately. Razorpay's refund API has no idempotency key
+ * this SDK forwards, so a retry at this level could genuinely refund twice.
+ * Duplicate protection therefore lives one layer up, as an atomic database
+ * claim that must succeed before this is ever called — the same technique
+ * `refundUnfulfillablePayment` has used since Phase 7. See `issueReturnRefund`.
  *
  * @see https://razorpay.com/docs/api/refunds/create-instant/
  */
-export async function refundPaymentInFull(
+export async function refundPayment(
   env: Env,
-  params: { razorpayPaymentId: string; amountInRupees: number; reason: string; receipt: string },
+  params: {
+    razorpayPaymentId: string;
+    amountInRupees: number;
+    reason: string;
+    receipt: string;
+    /** Echoed into the gateway's notes, so a dashboard row traces back here. */
+    notes?: Record<string, string>;
+  },
 ): Promise<IssuedRefund> {
   const config = requireConfig(env);
   const amountInPaise = rupeesToPaise(params.amountInRupees, 'refund amount');
@@ -279,7 +302,7 @@ export async function refundPaymentInFull(
     const refund = await clientFor(config).payments.refund(params.razorpayPaymentId, {
       amount: amountInPaise,
       speed: 'normal',
-      notes: { reason: params.reason, receipt: params.receipt },
+      notes: { reason: params.reason, receipt: params.receipt, ...(params.notes ?? {}) },
     });
 
     console.info(
@@ -289,6 +312,62 @@ export async function refundPaymentInFull(
     return { id: refund.id, status: refund.status, amountInPaise: Number(refund.amount) };
   } catch (error) {
     throw gatewayFailure('payments.refund', error, 'We could not start the refund automatically.');
+  }
+}
+
+/**
+ * Refunds a captured payment in full.
+ *
+ * Kept as its own name rather than folded into the call above, because the
+ * unfulfillable-payment path has no business choosing an amount and this
+ * signature is what says so. It is the whole order total or nothing.
+ */
+export async function refundPaymentInFull(
+  env: Env,
+  params: { razorpayPaymentId: string; amountInRupees: number; reason: string; receipt: string },
+): Promise<IssuedRefund> {
+  return refundPayment(env, params);
+}
+
+/**
+ * Reads a refund back from the gateway.
+ *
+ * ## Why an admin cannot simply "mark it refunded"
+ *
+ * A refund Razorpay reports as `pending` has been accepted and not settled, and
+ * that can take days through a bank. The console needs a way to find out
+ * whether it landed — and the honest way is to ask the gateway, not to offer a
+ * button that writes REFUNDED on somebody's say-so. A refund is money leaving
+ * the merchant account; whether it did is a fact at Razorpay, exactly as
+ * whether a payment was captured is.
+ *
+ * So this exists, the console's action is "check with Razorpay", and the state
+ * only moves when the answer says it may.
+ *
+ * @see https://razorpay.com/docs/api/refunds/fetch-refund/
+ */
+export async function fetchRefund(
+  env: Env,
+  razorpayRefundId: string,
+): Promise<{ id: string; status: string; amountInPaise: number; paymentId: string | null }> {
+  const config = requireConfig(env);
+
+  try {
+    const refund = await clientFor(config).refunds.fetch(razorpayRefundId);
+    const raw = refund as unknown as { payment_id?: string | null };
+
+    return {
+      id: refund.id,
+      status: String(refund.status),
+      amountInPaise: Number(refund.amount),
+      paymentId: raw.payment_id ?? null,
+    };
+  } catch (error) {
+    throw gatewayFailure(
+      'refunds.fetch',
+      error,
+      'We could not check the refund with the payment provider just now.',
+    );
   }
 }
 

@@ -2,6 +2,7 @@ import mongoose, { Types } from 'mongoose';
 import type { Env } from '../config/env';
 import { isRazorpayConfigured } from '../config/env';
 import { Order, PAYABLE_PAYMENT_STATUSES, type PaymentStatus } from '../models/order.model';
+import { ReturnRequest } from '../models/return.model';
 import { User } from '../models/user.model';
 import { WebhookEvent } from '../models/webhook-event.model';
 import { AppError } from '../utils/AppError';
@@ -15,6 +16,7 @@ import {
   toDetail,
   type OrderDetail,
 } from './order.service';
+import { applyRefundOutcome } from './returns/refund.service';
 import { webhookEnvelopeSchema, type WebhookEnvelope } from '../validators/payment.validator';
 
 type OrderDoc = InstanceType<typeof Order>;
@@ -222,6 +224,16 @@ async function refundUnfulfillablePayment(
           'payment.refundId': refund.id,
           'payment.status': settled ? 'REFUNDED' : 'REFUND_PENDING',
           'payment.refundedAt': settled ? new Date() : null,
+          /**
+           * The running total Phase 13 added, kept accurate by this path too.
+           *
+           * Set rather than incremented, because this refund is always the
+           * whole order and this is the only refund such an order can have —
+           * the return flow cannot reach a cancelled, unfulfillable order. An
+           * increment here would double-count if this ever ran twice, and the
+           * conditional claim above is what guarantees it does not.
+           */
+          'payment.refundedAmount': claimed.pricing.total,
         },
       },
       { new: true },
@@ -793,6 +805,19 @@ interface DispatchResult {
  */
 async function dispatchWebhook(env: Env, envelope: WebhookEnvelope): Promise<DispatchResult> {
   const payment = envelope.payload.payment?.entity ?? null;
+
+  /**
+   * Refund events resolve to a return, not to an order's gateway order id.
+   *
+   * Handled before the order lookup below because a `refund.*` payload carries
+   * no `order_id` at all — routing it through that lookup would have it
+   * discarded as "no order reference" and a refund that settled would never
+   * close its own loop.
+   */
+  if (envelope.event === 'refund.processed' || envelope.event === 'refund.failed') {
+    return dispatchRefundWebhook(envelope);
+  }
+
   const gatewayOrderId = payment?.order_id ?? envelope.payload.order?.entity.id ?? null;
 
   if (!gatewayOrderId) {
@@ -861,4 +886,85 @@ async function dispatchWebhook(env: Env, envelope: WebhookEnvelope): Promise<Dis
     default:
       return { handled: false, outcome: 'UNHANDLED_EVENT', ...base };
   }
+}
+
+/**
+ * Closes the loop on a refund the gateway has finished with.
+ *
+ * ## Why this is worth having
+ *
+ * A refund Razorpay accepts is frequently `pending` for a day or more while a
+ * bank moves the money. Before Phase 13 that left an order sitting in
+ * REFUND_PENDING until somebody happened to look — the operations panel
+ * surfaced it precisely because nothing resolved it. Now the gateway says when
+ * it lands, through the same signed and deduplicated pipeline every other event
+ * uses.
+ *
+ * ## Two kinds of refund reach here
+ *
+ * A return's refund resolves to a `ReturnRequest` by its refund id, and is
+ * settled by `applyRefundOutcome` — the *same* function the console's "check
+ * with Razorpay" action calls, so a refund reaches the same state whichever
+ * told us first.
+ *
+ * Phase 7's unfulfillable-order refund is not attached to any return, so it is
+ * matched against the order's own `payment.refundId` and settles the payment
+ * directly. Both are conditional updates, so a duplicate delivery that slipped
+ * past the event-id claim still changes nothing.
+ *
+ * Anything that matches neither is acknowledged and ignored. A refund issued
+ * from the Razorpay dashboard by hand is a real possibility, and 500-ing on it
+ * would have Razorpay retry it for days.
+ */
+async function dispatchRefundWebhook(envelope: WebhookEnvelope): Promise<DispatchResult> {
+  const refund = envelope.payload.refund?.entity ?? null;
+
+  if (!refund?.id) return { handled: false, outcome: 'NO_REFUND_ID' };
+
+  const status = envelope.event === 'refund.processed' ? 'processed' : 'failed';
+
+  const request = await ReturnRequest.findOne({ 'refund.razorpayRefundId': refund.id }).select(
+    '_id returnNumber',
+  );
+
+  if (request) {
+    const outcome = await applyRefundOutcome({
+      returnId: request._id,
+      refundId: refund.id,
+      status,
+      // No actor: nobody performed this. The audit trail records administrative
+      // action, and a bank settling a transfer is not one.
+      actor: null,
+    });
+
+    console.info(`[payment] refund ${refund.id} for return ${request.returnNumber}: ${outcome}`);
+
+    return { handled: true, outcome: `RETURN_REFUND_${outcome}`, razorpayPaymentId: refund.payment_id ?? null };
+  }
+
+  const order = await Order.findOne({ 'payment.refundId': refund.id });
+
+  if (!order) {
+    console.info(`[payment] refund webhook for unknown refund ${refund.id}, ignoring`);
+    return { handled: false, outcome: 'UNKNOWN_REFUND' };
+  }
+
+  if (status === 'processed') {
+    await Order.updateOne(
+      { _id: order._id, 'payment.status': 'REFUND_PENDING' },
+      { $set: { 'payment.status': 'REFUNDED', 'payment.refundedAt': new Date() } },
+    );
+
+    return { handled: true, outcome: 'ORDER_REFUND_SETTLED', orderId: order._id };
+  }
+
+  // A failed automatic refund is left exactly as it is: REFUND_PENDING, which
+  // is the truthful description of an order that is owed money it has not been
+  // sent. The operations panel already surfaces that, and marking it anything
+  // else would hide a debt.
+  console.error(
+    `[payment] AUTOMATIC REFUND ${refund.id} FAILED for order ${order.orderNumber} - needs manual action`,
+  );
+
+  return { handled: true, outcome: 'ORDER_REFUND_FAILED', orderId: order._id };
 }

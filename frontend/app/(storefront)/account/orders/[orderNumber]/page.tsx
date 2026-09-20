@@ -2,9 +2,12 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { ArrowLeft, MapPin, Wallet } from 'lucide-react';
+import { ArrowLeft, ArrowRight, MapPin, RotateCcw, Wallet } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { CancelOrderDialog } from '@/components/order/cancel-order-dialog';
+import { ReturnRequestDialog } from '@/components/order/return-request-dialog';
+import { ReturnStatusBadge } from '@/components/order/return-status-badge';
+import { ShipmentCard } from '@/components/order/shipment-card';
 import { PayNowButton } from '@/components/payment/pay-now-button';
 import { OrderItemReview } from '@/components/reviews/order-item-review';
 import {
@@ -18,6 +21,7 @@ import { ApiError } from '@/services/api';
 import { getOrderById } from '@/services/order.service';
 import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
+import type { Order } from '@/types/order';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +35,25 @@ export const metadata: Metadata = {
   description: 'Your ZyCart order.',
 };
 
+/**
+ * One order, after the sale.
+ *
+ * ## What Phase 13 added, and the principle behind all of it
+ *
+ * Delivery, progress and returns — and every one of them is rendered from what
+ * the server actually stored. The timeline carries no date nobody recorded, the
+ * delivery panel names no carrier ZyCart was not told about, and the return
+ * button appears only because the *server* said this order is returnable and
+ * for which lines. The page asks; it never decides.
+ *
+ * ## Why the page is server-rendered on every request
+ *
+ * `force-dynamic`, and no polling. Shipment state changes when an operator
+ * changes it, which is minutes or hours apart, so a websocket would be a
+ * connection held open for an event that almost never comes. Navigating here,
+ * or reloading, reads the truth — and the delivery panel carries the timestamps
+ * that make it obvious how fresh that truth is.
+ */
 export default async function OrderDetailPage({
   params,
 }: PageProps<'/account/orders/[orderNumber]'>) {
@@ -39,7 +62,7 @@ export default async function OrderDetailPage({
   const user = await getSessionUser();
   if (!user) redirect(`/login?redirect=/account/orders/${orderNumber}`);
 
-  let order;
+  let order: Order;
   try {
     order = await getOrderById(orderNumber, { cookie: await getSessionCookie() });
   } catch (error) {
@@ -66,7 +89,7 @@ export default async function OrderDetailPage({
           <h2 className="text-h3 break-all">{order.orderNumber}</h2>
           <p className="text-small mt-1.5 text-muted-foreground">
             Placed on {formatDate(order.createdAt)} · {order.itemCount}{' '}
-            {order.itemCount === 1 ? 'item' : 'items'}
+            {order.itemCount === 1 ? 'item' : 'items'} · {formatPrice(order.pricing.total)}
           </p>
         </div>
 
@@ -122,6 +145,14 @@ export default async function OrderDetailPage({
 
                       <p className="text-caption mt-auto pt-2 text-muted-foreground">
                         {formatPrice(item.unitPrice)} × {item.quantity}
+                        {/* Stated on the line itself, so a customer wondering why
+                            they cannot return something does not have to open a
+                            dialog to find out. */}
+                        {item.returnedQuantity > 0 && (
+                          <span className="ml-2">
+                            · {item.returnedQuantity} of {item.quantity} in a return
+                          </span>
+                        )}
                       </p>
 
                       {/* Offered only on a delivered order, and only for a line
@@ -147,16 +178,50 @@ export default async function OrderDetailPage({
               Progress
             </h3>
             <div className="mt-4">
-              <OrderTimeline
-                status={order.status}
-                cancelledAt={order.cancelledAt}
-                cancellationReason={order.cancellationReason}
-              />
+              <OrderTimeline order={order} />
             </div>
           </section>
+
+          {order.returns.length > 0 && (
+            <section aria-labelledby="returns-heading">
+              <h3 id="returns-heading" className="text-h4">
+                Returns
+              </h3>
+
+              <ul className="mt-4 space-y-3">
+                {order.returns.map((request) => (
+                  <li key={request.id}>
+                    <Link
+                      href={`/account/returns/${request.returnNumber}`}
+                      className="focus-ring flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border p-4 transition-colors hover:border-foreground/25"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-small font-semibold break-all">
+                          {request.returnNumber}
+                        </p>
+                        <p className="text-caption mt-0.5 text-muted-foreground">
+                          {request.itemCount} {request.itemCount === 1 ? 'item' : 'items'} ·
+                          requested {formatDate(request.requestedAt)}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <ReturnStatusBadge status={request.status} />
+                        <ArrowRight className="size-4 text-muted-foreground" aria-hidden />
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
 
         <aside className="space-y-4">
+          {/* Delivery sits above the money, because "where is my order?" is the
+              question a post-purchase page is opened to answer. */}
+          <ShipmentCard shipment={order.shipment} orderStatus={order.status} />
+
           <div className="rounded-2xl border border-border bg-surface p-5">
             <h3 className="text-h4">Summary</h3>
 
@@ -187,6 +252,17 @@ export default async function OrderDetailPage({
               <span className="text-small font-semibold">Total</span>
               <span className="text-price">{formatPrice(order.pricing.total)}</span>
             </div>
+
+            {/* Only when money has actually come back. A partial refund would
+                otherwise be invisible beside a "Paid" badge. */}
+            {order.payment.refundedAmount > 0 && (
+              <div className="text-small mt-3 flex items-baseline justify-between border-t border-border pt-3">
+                <span className="text-muted-foreground">Refunded</span>
+                <span className="font-semibold tabular-nums text-success">
+                  −{formatPrice(order.payment.refundedAmount)}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-border p-5">
@@ -230,6 +306,16 @@ export default async function OrderDetailPage({
               </p>
             )}
 
+            {/* Payment state and refund state are separate facts, and a partly
+                refunded order is still, accurately, paid. Saying both keeps the
+                badge honest without hiding the money that went back. */}
+            {order.payment.refundedAmount > 0 &&
+              order.payment.refundedAmount < order.pricing.total && (
+                <p className="text-caption mt-1 text-pretty text-muted-foreground">
+                  {formatPrice(order.payment.refundedAmount)} of this order has been refunded.
+                </p>
+              )}
+
             {order.payment.status === 'FAILED' && order.payment.failureReason && (
               <p className="text-caption mt-1 text-pretty text-muted-foreground">
                 {order.payment.failureReason}
@@ -267,8 +353,55 @@ export default async function OrderDetailPage({
               <CancelOrderDialog orderNumber={order.orderNumber} />
             </div>
           )}
+
+          <ReturnsPanel order={order} />
         </aside>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The returns affordance, and — when there is none — the reason.
+ *
+ * Both branches come from the server's `returnability`. Showing a disabled
+ * button with no explanation is the failure mode this avoids: a customer who
+ * cannot return something is owed the sentence that says why, whether that is
+ * "returns open once it is delivered" or "the window closed on 4 October".
+ *
+ * A delivered order whose window is still open also gets the closing date,
+ * because knowing how long is left is half of what makes the option useful.
+ */
+function ReturnsPanel({ order }: { order: Order }) {
+  const { returnability } = order;
+
+  // Nothing to say at all while an order is still on its way and has never had
+  // a return — a panel explaining a future possibility is clutter.
+  if (!returnability.returnable && order.status !== 'DELIVERED') return null;
+
+  return (
+    <div className="rounded-2xl border border-border p-5">
+      <h3 className="text-small flex items-center gap-2 font-semibold">
+        <RotateCcw className="size-4 text-muted-foreground" aria-hidden />
+        Returns
+      </h3>
+
+      {returnability.returnable ? (
+        <>
+          <p className="text-caption mt-1.5 mb-4 text-pretty text-muted-foreground">
+            Something not right? You can send items back
+            {returnability.windowEndsAt
+              ? ` until ${formatDate(returnability.windowEndsAt)}`
+              : ''}
+            .
+          </p>
+          <ReturnRequestDialog order={order} returnability={returnability} />
+        </>
+      ) : (
+        <p className="text-caption mt-1.5 text-pretty text-muted-foreground">
+          {returnability.reason}
+        </p>
+      )}
     </div>
   );
 }

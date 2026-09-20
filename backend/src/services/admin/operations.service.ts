@@ -1,4 +1,6 @@
 import { Order, type OrderStatus, type PaymentStatus } from '../../models/order.model';
+import { ReturnRequest } from '../../models/return.model';
+import { Shipment } from '../../models/shipment.model';
 import { AppError } from '../../utils/AppError';
 import { setOrderStatus } from '../order.service';
 import type { AuditActor } from './audit.service';
@@ -224,19 +226,29 @@ export interface OperationsSummary {
   breakdown: AttentionBreakdown[];
   /** Fulfilment queue depth, as counts an operator can click through. */
   queue: { pending: number; confirmed: number; processing: number; shipped: number };
+  /**
+   * What has stalled after the sale: returns and parcels.
+   *
+   * Kept in its own list rather than merged into `breakdown`, because those
+   * count orders and these count returns and shipments. Summing them would
+   * produce a total of unlike things, and clicking one would land in a
+   * different queue from clicking its neighbour without warning.
+   */
+  postPurchase: PostPurchaseBreakdown[];
   checkedAt: string;
 }
 
 export async function getOperationsSummary(): Promise<OperationsSummary> {
   const now = new Date();
 
-  const [ordersNeedingAttention, counts, statusCounts] = await Promise.all([
+  const [ordersNeedingAttention, counts, statusCounts, postPurchase] = await Promise.all([
     Order.countDocuments(attentionFilter(now)),
     Promise.all(ATTENTION_RULES.map((rule) => Order.countDocuments(rule.filter(now)))),
     Order.aggregate<{ _id: OrderStatus; count: number }>([
       { $match: { status: { $in: OPEN_STATUSES } } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]),
+    getPostPurchaseExceptions(now),
   ]);
 
   const byStatus = new Map(statusCounts.map((row) => [row._id, row.count]));
@@ -256,8 +268,220 @@ export async function getOperationsSummary(): Promise<OperationsSummary> {
       processing: byStatus.get('PROCESSING') ?? 0,
       shipped: byStatus.get('SHIPPED') ?? 0,
     },
+    postPurchase,
     checkedAt: now.toISOString(),
   };
+}
+
+/* ---------------------------------------------------------------- */
+/* Post-purchase exceptions (Phase 13)                               */
+/* ---------------------------------------------------------------- */
+
+/**
+ * What has stalled after the sale.
+ *
+ * ## Why these are counted separately from the order rules above
+ *
+ * The rules at the top of this file are predicates over an `Order`, written
+ * twice — as a Mongo filter and as a JavaScript matcher — so a row in the
+ * orders list can say which rule flagged it. These are predicates over a
+ * `Shipment` or a `ReturnRequest`, and there is no order row to label with
+ * them: an order whose refund has stalled is not itself in a bad state, its
+ * return is.
+ *
+ * So they are counts with a link each, rather than flags. Each one names the
+ * queue it came from and the filter that lists it, which is what makes them
+ * actionable — a number an operator cannot click through to is a number they
+ * learn to ignore.
+ *
+ * ## The same honesty rule applies
+ *
+ * Every condition below is decidable from a stored timestamp and a stored
+ * status. There is no "likely to be disputed", no risk score and no prediction.
+ * An operator can verify any of these by opening the record.
+ */
+
+/** How long a return may sit unreviewed before it is worth chasing. */
+const RETURN_REVIEW_HOURS = 24;
+
+/**
+ * How long ZyCart waits for approved goods to come back.
+ *
+ * Seven days is a postal assumption rather than a policy — nothing expires at
+ * it, and the return stays open. It is the point at which somebody should ask
+ * the customer whether they have sent it.
+ */
+const RETURN_TRANSIT_DAYS = 7;
+
+/** How long after receipt an unrefunded return is overdue. */
+const REFUND_DUE_DAYS = 2;
+
+/**
+ * How long a refund may sit at the gateway before it is worth checking.
+ *
+ * Razorpay's normal-speed refunds settle in five to seven working days through
+ * a bank, so three days is early enough to catch a stuck one and late enough
+ * not to flag every healthy refund on its second morning.
+ */
+const REFUND_STALL_DAYS = 3;
+
+export const POST_PURCHASE_KEYS = [
+  'RETURN_REVIEW_DUE',
+  'RETURN_AWAITING_GOODS',
+  'RETURN_REFUND_DUE',
+  'RETURN_REFUND_STALLED',
+  'RETURN_REFUND_FAILED',
+  'SHIPMENT_EXCEPTION',
+  'DELIVERY_OVERDUE',
+] as const;
+export type PostPurchaseKey = (typeof POST_PURCHASE_KEYS)[number];
+
+interface PostPurchaseRule {
+  key: PostPurchaseKey;
+  label: string;
+  action: string;
+  severity: AttentionSeverity;
+  /** Which collection to count in. */
+  source: 'RETURN' | 'SHIPMENT';
+  filter: (now: Date) => Record<string, unknown>;
+  /** Where the console sends an operator who clicks it. */
+  href: string;
+}
+
+export const POST_PURCHASE_RULES: readonly PostPurchaseRule[] = [
+  {
+    key: 'RETURN_REVIEW_DUE',
+    label: 'Returns awaiting review',
+    action: `Requested more than ${RETURN_REVIEW_HOURS} hours ago and not yet approved or rejected.`,
+    severity: 'warning',
+    source: 'RETURN',
+    filter: (now) => ({
+      status: 'REQUESTED',
+      requestedAt: { $lt: ago(now, RETURN_REVIEW_HOURS * HOUR) },
+    }),
+    href: '/admin/returns?status=REQUESTED&sort=oldest',
+  },
+  {
+    key: 'RETURN_AWAITING_GOODS',
+    label: 'Approved, nothing received',
+    action: `Approved more than ${RETURN_TRANSIT_DAYS} days ago and the goods have not arrived.`,
+    severity: 'warning',
+    source: 'RETURN',
+    filter: (now) => ({
+      status: 'APPROVED',
+      decidedAt: { $lt: ago(now, RETURN_TRANSIT_DAYS * 24 * HOUR) },
+    }),
+    href: '/admin/returns?status=APPROVED&sort=oldest',
+  },
+  {
+    key: 'RETURN_REFUND_DUE',
+    label: 'Refunds not started',
+    action: `Goods received more than ${REFUND_DUE_DAYS} days ago and no refund has been issued.`,
+    severity: 'critical',
+    source: 'RETURN',
+    filter: (now) => ({
+      status: 'RECEIVED',
+      receivedAt: { $lt: ago(now, REFUND_DUE_DAYS * 24 * HOUR) },
+      'refund.failureReason': null,
+    }),
+    href: '/admin/returns?status=RECEIVED&sort=oldest',
+  },
+  {
+    key: 'RETURN_REFUND_STALLED',
+    label: 'Refunds not settled',
+    action: `Sent to Razorpay more than ${REFUND_STALL_DAYS} days ago and still pending. Check the gateway.`,
+    severity: 'critical',
+    source: 'RETURN',
+    filter: (now) => ({
+      status: 'REFUND_PENDING',
+      'refund.initiatedAt': { $lt: ago(now, REFUND_STALL_DAYS * 24 * HOUR) },
+    }),
+    href: '/admin/returns?status=REFUND_PENDING&sort=oldest',
+  },
+  {
+    /**
+     * A refund ZyCart tried to issue and could not.
+     *
+     * Critical and unconditioned on elapsed time, because this is money the
+     * customer is owed and an attempt has already visibly failed. The return
+     * sits back at RECEIVED so it can be retried; this is what makes sure
+     * somebody does.
+     */
+    key: 'RETURN_REFUND_FAILED',
+    label: 'Refund attempts failed',
+    action: 'A refund was attempted and the gateway refused it. Open the return and try again.',
+    severity: 'critical',
+    source: 'RETURN',
+    filter: () => ({ status: 'RECEIVED', 'refund.failureReason': { $ne: null } }),
+    href: '/admin/returns?status=RECEIVED',
+  },
+  {
+    key: 'SHIPMENT_EXCEPTION',
+    label: 'Shipments in exception',
+    action: 'A parcel reported a problem in transit. Contact the carrier or the customer.',
+    severity: 'critical',
+    source: 'SHIPMENT',
+    filter: () => ({ status: 'EXCEPTION' }),
+    href: '/admin/orders?status=SHIPPED',
+  },
+  {
+    /**
+     * Past its own estimate.
+     *
+     * Decidable only because the estimate was typed in by a person — there is
+     * no transit-time model here inventing one. A parcel with no estimate can
+     * never trip this rule, which is correct: nothing was promised.
+     */
+    key: 'DELIVERY_OVERDUE',
+    label: 'Deliveries overdue',
+    action: 'Past the estimated delivery date and not yet delivered.',
+    severity: 'warning',
+    source: 'SHIPMENT',
+    filter: (now) => ({
+      status: { $in: ['SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'EXCEPTION'] },
+      estimatedDeliveryAt: { $ne: null, $lt: now },
+    }),
+    href: '/admin/orders?status=SHIPPED',
+  },
+];
+
+export interface PostPurchaseBreakdown {
+  key: PostPurchaseKey;
+  label: string;
+  action: string;
+  severity: AttentionSeverity;
+  href: string;
+  count: number;
+}
+
+/**
+ * Counts every post-purchase rule, in one round of parallel counts.
+ *
+ * Seven `countDocuments` rather than an aggregation, because each rule targets
+ * a different shape and every one of them is served by an index — the return
+ * queue's `{ status, createdAt }`, the shipment queue's `{ status, createdAt }`
+ * and the partial index on `estimatedDeliveryAt`. An aggregation would have to
+ * scan to produce what seven indexed counts answer directly.
+ */
+export async function getPostPurchaseExceptions(
+  now: Date = new Date(),
+): Promise<PostPurchaseBreakdown[]> {
+  const counts = await Promise.all(
+    POST_PURCHASE_RULES.map((rule) =>
+      rule.source === 'RETURN'
+        ? ReturnRequest.countDocuments(rule.filter(now))
+        : Shipment.countDocuments(rule.filter(now)),
+    ),
+  );
+
+  return POST_PURCHASE_RULES.map((rule, index) => ({
+    key: rule.key,
+    label: rule.label,
+    action: rule.action,
+    severity: rule.severity,
+    href: rule.href,
+    count: counts[index] ?? 0,
+  })).filter((entry) => entry.count > 0);
 }
 
 /* ---------------------------------------------------------------- */

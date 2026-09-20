@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as controller from '../controllers/admin.controller';
+import * as fulfillment from '../controllers/fulfillment.controller';
 import * as operations from '../controllers/inventory.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireRole } from '../middleware/role.middleware';
@@ -72,6 +73,66 @@ adminRouter.get('/admin/orders/:orderRef', asyncHandler(controller.getOrder));
  * asserted it would make every "Paid" badge in ZyCart mean less.
  */
 adminRouter.patch('/admin/orders/:orderRef/status', asyncHandler(controller.updateOrderStatus));
+
+/* Fulfilment ------------------------------------------------------ */
+
+/**
+ * The parcel for one order.
+ *
+ * Three endpoints rather than one, because they are governed by three different
+ * rules. Creation checks that the order is in a state where packing makes
+ * sense; the details update accepts a correction at any point in the parcel's
+ * life; the status move is checked against the shipment's transition graph and
+ * carries the order along with it.
+ *
+ * Nested under the order because a shipment has no life of its own — it belongs
+ * to exactly one order, and there is no request shape here in which that order
+ * can be absent, wrong or supplied by the client as a body field.
+ */
+adminRouter.post('/admin/orders/:orderRef/shipment', asyncHandler(fulfillment.createShipment));
+adminRouter.patch('/admin/orders/:orderRef/shipment', asyncHandler(fulfillment.updateShipment));
+adminRouter.post(
+  '/admin/orders/:orderRef/shipment/status',
+  asyncHandler(fulfillment.updateShipmentStatus),
+);
+
+/* Returns --------------------------------------------------------- */
+
+adminRouter.get('/admin/returns', asyncHandler(fulfillment.listReturns));
+
+// Declared before `:returnRef`, which would otherwise match "summary" as a
+// return reference — the same trap `/admin/inventory/summary` had to avoid.
+adminRouter.get('/admin/returns/summary', asyncHandler(fulfillment.getReturnsSummary));
+
+adminRouter.get('/admin/returns/:returnRef', asyncHandler(fulfillment.getReturn));
+
+/**
+ * The four decisions, each its own endpoint.
+ *
+ * Deliberately not one `PATCH /admin/returns/:returnRef` taking a status. Each
+ * of these means something different — approving records quantities, rejecting
+ * requires an explanation the customer will read, receiving decides the fate of
+ * the goods, refunding moves money — and a single status endpoint would have to
+ * accept the union of their bodies and work out which rules applied. Separate
+ * paths mean separate schemas, and a request that does not fit one is refused
+ * by the validator rather than by a branch inside a handler.
+ */
+adminRouter.post('/admin/returns/:returnRef/approve', asyncHandler(fulfillment.approveReturn));
+adminRouter.post('/admin/returns/:returnRef/reject', asyncHandler(fulfillment.rejectReturn));
+adminRouter.post('/admin/returns/:returnRef/receive', asyncHandler(fulfillment.receiveReturn));
+adminRouter.post('/admin/returns/:returnRef/refund', asyncHandler(fulfillment.refundReturn));
+
+/**
+ * Asks the gateway whether a pending refund has settled.
+ *
+ * There is deliberately no endpoint beside this that simply marks one refunded.
+ * Whether money moved is a fact at Razorpay, exactly as whether a payment was
+ * captured is, and this is how ZyCart finds it out rather than asserts it.
+ */
+adminRouter.post(
+  '/admin/returns/:returnRef/refund/check',
+  asyncHandler(fulfillment.reconcileReturnRefund),
+);
 
 /* Inventory ------------------------------------------------------- */
 

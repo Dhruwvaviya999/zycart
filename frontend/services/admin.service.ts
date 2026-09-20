@@ -1,4 +1,10 @@
 import { request, requestList, send, sendMessage, type RequestOptions } from '@/services/api';
+import type {
+  Shipment,
+  ShipmentInput,
+  ShipmentStatus,
+  ShipmentUpdateInput,
+} from '@/types/fulfillment';
 import type { OrderStatus } from '@/types/order';
 import type {
   AdjustStockInput,
@@ -15,9 +21,13 @@ import type {
   AdminOrderRow,
   AdminProductQuery,
   AdminProductRow,
+  AdminReturnDetail,
+  AdminReturnQuery,
+  AdminReturnRow,
   AdminReviewDetail,
   AdminReviewQuery,
   AdminReviewRow,
+  ReturnsSummary,
   AdminTaxonomyRow,
   AuditLogRow,
   AuditQuery,
@@ -403,4 +413,164 @@ export function moderateReview(
   return send<AdminReviewDetail>('patch', `/api/admin/reviews/${encodeURIComponent(id)}/status`, {
     status,
   });
+}
+
+/* ---------------------------------------------------------------- */
+/* Fulfilment                                                        */
+/* ---------------------------------------------------------------- */
+
+/**
+ * The parcel for one order.
+ *
+ * Three calls, because the server has three endpoints, because they obey three
+ * different rules. Creation takes no status — the server derives it from the
+ * order, so the console cannot ask for a parcel state that contradicts it.
+ */
+export function createShipment(
+  orderRef: string,
+  input: ShipmentInput,
+): Promise<Shipment> {
+  return send<Shipment>(
+    'post',
+    `/api/admin/orders/${encodeURIComponent(orderRef)}/shipment`,
+    input,
+  );
+}
+
+export function updateShipment(
+  orderRef: string,
+  input: ShipmentUpdateInput,
+): Promise<Shipment> {
+  return send<Shipment>(
+    'patch',
+    `/api/admin/orders/${encodeURIComponent(orderRef)}/shipment`,
+    input,
+  );
+}
+
+/** Moves the parcel; the server carries the order along with it. */
+export function updateShipmentStatus(
+  orderRef: string,
+  status: ShipmentStatus,
+  note?: string,
+): Promise<Shipment> {
+  return send<Shipment>(
+    'post',
+    `/api/admin/orders/${encodeURIComponent(orderRef)}/shipment/status`,
+    { status, ...(note?.trim() ? { note: note.trim() } : {}) },
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Returns                                                           */
+/* ---------------------------------------------------------------- */
+
+export async function getReturns(
+  query: AdminReturnQuery = {},
+  options?: RequestOptions,
+): Promise<AdminList<AdminReturnRow>> {
+  const { items, pagination } = await requestList<AdminReturnRow>(
+    '/api/admin/returns',
+    params(query),
+    options,
+  );
+
+  return { items, pagination };
+}
+
+export function getReturnsSummary(options?: RequestOptions): Promise<ReturnsSummary> {
+  return request<ReturnsSummary>('/api/admin/returns/summary', undefined, options);
+}
+
+export function getReturn(
+  returnRef: string,
+  options?: RequestOptions,
+): Promise<AdminReturnDetail> {
+  return request<AdminReturnDetail>(
+    `/api/admin/returns/${encodeURIComponent(returnRef)}`,
+    undefined,
+    options,
+  );
+}
+
+/**
+ * Approving, with the quantities the operator agreed to.
+ *
+ * Omitting `items` approves what was asked for, which is the common case. The
+ * server refuses an approval for more than was requested, so the console does
+ * not have to police that either.
+ */
+export function approveReturn(
+  returnRef: string,
+  input: {
+    items?: { orderItemId: string; approvedQuantity: number }[];
+    resolutionNote?: string;
+    adminNote?: string;
+  } = {},
+): Promise<AdminReturnDetail> {
+  return send<AdminReturnDetail>(
+    'post',
+    `/api/admin/returns/${encodeURIComponent(returnRef)}/approve`,
+    input,
+  );
+}
+
+/** `resolutionNote` is required by the server — the customer will read it. */
+export function rejectReturn(
+  returnRef: string,
+  resolutionNote: string,
+  adminNote?: string,
+): Promise<AdminReturnDetail> {
+  return send<AdminReturnDetail>(
+    'post',
+    `/api/admin/returns/${encodeURIComponent(returnRef)}/reject`,
+    { resolutionNote, ...(adminNote?.trim() ? { adminNote: adminNote.trim() } : {}) },
+  );
+}
+
+/**
+ * Marking the goods received, with the resellable judgement.
+ *
+ * `resellable` has no default here or on the server. Only `true` puts units
+ * back into sellable stock, and it does so through the Phase 12 inventory
+ * ledger — never by this console touching a product.
+ */
+export function receiveReturn(
+  returnRef: string,
+  resellable: boolean,
+  adminNote?: string,
+): Promise<AdminReturnDetail> {
+  return send<AdminReturnDetail>(
+    'post',
+    `/api/admin/returns/${encodeURIComponent(returnRef)}/receive`,
+    { resellable, ...(adminNote?.trim() ? { adminNote: adminNote.trim() } : {}) },
+  );
+}
+
+/**
+ * Issues the refund.
+ *
+ * No amount. The server computes it from the order's historical snapshot and
+ * the approved quantities, and caps it at what is left refundable — there is no
+ * figure for this call to get wrong.
+ */
+export function refundReturn(returnRef: string): Promise<AdminReturnDetail> {
+  return send<AdminReturnDetail>(
+    'post',
+    `/api/admin/returns/${encodeURIComponent(returnRef)}/refund`,
+  );
+}
+
+/**
+ * Asks Razorpay whether a pending refund has landed.
+ *
+ * There is no "mark refunded" beside this on purpose: whether money moved is a
+ * fact at the gateway, and asserting it from a console would make every
+ * "Refunded" badge mean less.
+ */
+export function checkReturnRefund(returnRef: string): Promise<AdminReturnDetail> {
+  return send<AdminReturnDetail>(
+    'post',
+    `/api/admin/returns/${encodeURIComponent(returnRef)}/refund/check`,
+  );
 }

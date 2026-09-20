@@ -24,10 +24,41 @@ export const AUDIT_ACTIONS = [
   'PRODUCT_DELETED',
   'REVIEW_MODERATED',
   'CUSTOMER_STATUS_CHANGED',
+
+  /**
+   * Post-purchase, from Phase 13.
+   *
+   * Each one is a distinct administrative decision with a distinct consequence,
+   * which is why they are separate actions rather than one RETURN_UPDATED with
+   * the detail buried in a summary string. An operator filtering for "who has
+   * been approving returns this week" is asking a question the filter should be
+   * able to answer directly.
+   *
+   * There is no RETURN_REQUESTED here, and there should not be. A customer
+   * asking for a return is not an administrative action, and putting shoppers
+   * in the staff audit trail would both dilute it and record an identity the
+   * operational log has no use for. The request's own `requestedAt` is where
+   * that fact lives.
+   */
+  'SHIPMENT_CREATED',
+  'SHIPMENT_UPDATED',
+  'SHIPMENT_STATUS_CHANGED',
+  'RETURN_APPROVED',
+  'RETURN_REJECTED',
+  'RETURN_RECEIVED',
+  'RETURN_REFUND_INITIATED',
+  'RETURN_REFUND_COMPLETED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
-export const AUDIT_ENTITIES = ['PRODUCT', 'ORDER', 'REVIEW', 'CUSTOMER'] as const;
+export const AUDIT_ENTITIES = [
+  'PRODUCT',
+  'ORDER',
+  'REVIEW',
+  'CUSTOMER',
+  'SHIPMENT',
+  'RETURN',
+] as const;
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number];
 
 /**

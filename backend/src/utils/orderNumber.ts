@@ -15,6 +15,26 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
  * retry on collision.
  */
 export function generateOrderNumber(now = new Date()): string {
+  return reference('ZYC', now);
+}
+
+/**
+ * The same shape for a return request: `ZYR-20260919-AB12`.
+ *
+ * A distinct prefix rather than a shared sequence, because the two get quoted
+ * in the same conversation — "my order ZYC-…, the return ZYR-…" — and a
+ * customer reading one out should not have to remember which kind it was. It
+ * also means `orderRefSchema`'s pattern matches both, so a return number typed
+ * into an order lookup fails as "not found" rather than as a validation error
+ * whose wording would leak that the reference exists somewhere else.
+ *
+ * Uniqueness is the unique index's job here too; callers retry on collision.
+ */
+export function generateReturnNumber(now = new Date()): string {
+  return reference('ZYR', now);
+}
+
+function reference(prefix: string, now: Date): string {
   const date = [
     now.getFullYear(),
     String(now.getMonth() + 1).padStart(2, '0'),
@@ -26,5 +46,5 @@ export function generateOrderNumber(now = new Date()): string {
     suffix += ALPHABET[randomInt(ALPHABET.length)];
   }
 
-  return `ZYC-${date}-${suffix}`;
+  return `${prefix}-${date}-${suffix}`;
 }

@@ -114,6 +114,8 @@ export const newsletter = {
 
 export const trustBadges = [
   { title: 'Free shipping', body: 'On orders above ₹999' },
+  // Enforced from Phase 13: `RETURN_WINDOW_DAYS` in the backend's return model
+  // is the rule this advertises. Change them together.
   { title: '30-day returns', body: 'No questions asked' },
   { title: 'Secure checkout', body: '256-bit encryption' },
   { title: 'Genuine products', body: 'Sourced from authorised sellers' },

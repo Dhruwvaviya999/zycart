@@ -75,6 +75,33 @@ const orderItemSchema = new Schema(
     lineTotal: { type: Number, required: true, min: 0 },
     selectedColor: { type: String, default: null },
     selectedSize: { type: String, default: null },
+
+    /**
+     * How many of this line are spoken for by a return.
+     *
+     * ## Why the counter lives here and not on the returns
+     *
+     * "How much of this line is still returnable?" could be answered by summing
+     * over `ReturnRequest`. It would also be a race: two tabs each requesting
+     * the last unit are two *inserts*, into different documents, which conflict
+     * with nothing — so both would read the same remaining quantity and both
+     * would succeed.
+     *
+     * Incrementing a counter on the order closes that window, because the guard
+     * can ride in the update's own array filter. One `updateOne` with
+     * `arrayFilters: [{ 'it.returnedQuantity': { $lte: quantity - requested } }]`
+     * is a single atomic operation with the sufficiency check inside it — the
+     * same technique `commitStock` uses to stop two customers buying the last
+     * unit, for the same reason.
+     *
+     * ## What it counts
+     *
+     * Units held by a return in any of `HOLDING_RETURN_STATUSES`. A rejected or
+     * cancelled request gives its units back, so the customer can ask again.
+     * The invariant `returnedQuantity <= quantity` is enforced by every write,
+     * and `verify-returns` asserts this counter against the return collection.
+     */
+    returnedQuantity: { type: Number, required: true, default: 0, min: 0 },
   },
   baseSchemaOptions,
 );
@@ -146,6 +173,30 @@ const paymentSchema = new Schema(
     refundId: { type: String, default: null },
     refundedAt: { type: Date, default: null },
     refundReason: { type: String, default: null },
+
+    /**
+     * How many rupees of this order have been refunded, in total.
+     *
+     * ## Why a running total was needed
+     *
+     * Until Phase 13 there was exactly one kind of refund — "the money was
+     * taken and the order cannot be fulfilled" — and it was always the whole
+     * payment, so `refundId` and `refundedAt` said everything. Returns break
+     * that: one order can produce several partial refunds, each with its own
+     * amount and its own gateway id, and neither of those two fields can hold a
+     * second one.
+     *
+     * The gateway ids and timestamps for return refunds therefore live on the
+     * `ReturnRequest` that caused them. What has to stay on the order is the
+     * figure every refund path must agree on, because it is the cap: no refund
+     * may ever take the cumulative total past `pricing.total`. That check is
+     * only meaningful against one number, and this is it.
+     *
+     * Incremented with `$inc` inside the transaction that records the refund,
+     * never recomputed from a sum — so a refund that was issued at the gateway
+     * cannot be forgotten by a later read.
+     */
+    refundedAmount: { type: Number, required: true, default: 0, min: 0 },
   },
   { _id: false },
 );
@@ -186,6 +237,32 @@ const orderSchema = new Schema(
 
     cancellationReason: { type: String, default: null },
     cancelledAt: { type: Date, default: null },
+
+    /**
+     * When this order was recorded as delivered.
+     *
+     * ## Why it had to exist
+     *
+     * The return window is counted from delivery, and before Phase 13 nothing
+     * on the order recorded when that was. The audit trail knew — every
+     * administrative status change writes a row — but a policy that decides
+     * whether a customer may return something should not depend on a log that
+     * exists for a different purpose and that a retention policy could one day
+     * trim.
+     *
+     * Written by `transitionOrderStatus` in the same transaction as the move to
+     * DELIVERED, and by nothing else.
+     *
+     * ## Orders delivered before this field existed
+     *
+     * Null, and deliberately not filled in with a guess. `migrate-phase13`
+     * backfills it from the audit row that recorded the transition, which is a
+     * timestamp somebody actually wrote down. Where no such row exists — an
+     * order delivered before Phase 12's audit trail — it stays null, and the
+     * return flow refuses rather than inventing a start date for a window it
+     * cannot honestly compute. The customer is told to contact support.
+     */
+    deliveredAt: { type: Date, default: null },
   },
   baseSchemaOptions,
 );
@@ -193,6 +270,15 @@ const orderSchema = new Schema(
 // The order history query: this customer's orders, newest first.
 orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ status: 1 });
+
+/**
+ * Delivered orders in a window — the denominator of the return rate.
+ *
+ * Added rather than leaning on `{ status: 1 }` because that index cannot serve
+ * the date range, and the returns dashboard would otherwise scan every
+ * delivered order ZyCart has ever had to count the last thirty days of them.
+ */
+orderSchema.index({ status: 1, deliveredAt: -1 });
 
 /**
  * One Razorpay order belongs to exactly one ZyCart order, enforced by the

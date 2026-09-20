@@ -11,6 +11,7 @@ import { orderRouter } from './order.routes';
 import { paymentRouter } from './payment.routes';
 import { productRouter } from './product.routes';
 import { recommendationRouter } from './recommendation.routes';
+import { returnRouter } from './return.routes';
 import { reviewRouter } from './review.routes';
 import { searchRouter } from './search.routes';
 import { userRouter } from './user.routes';
@@ -32,6 +33,10 @@ apiRouter.use(cartRouter);
 apiRouter.use(wishlistRouter);
 apiRouter.use(checkoutRouter);
 apiRouter.use(orderRouter);
+// Declared after the order router so `/orders/:orderRef/returns` is reached
+// only once `/orders/:orderRef` has had its chance — and before the product
+// router, which owns no `/returns` path but sits at the end of the chain.
+apiRouter.use(returnRouter);
 apiRouter.use(paymentRouter);
 // Declared before the product router so `/products/:id/reviews` is matched
 // here rather than falling through to the catalogue's own parameter routes.

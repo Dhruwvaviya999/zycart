@@ -17,17 +17,33 @@ import { baseSchemaOptions } from './shared';
  * ```text
  * SALE               decrease   stock taken for an order
  * CANCELLATION       increase   stock given back when an order is cancelled
+ * RETURN             increase   goods sent back and judged resellable
  * INITIAL_STOCK      increase   the quantity a product was created with
  * MANUAL_ADJUSTMENT  either     an operator correcting the count
  * ```
  *
  * MANUAL_ADJUSTMENT is the only one an administrator can cause directly. The
- * other three are consequences of the storefront doing its job, recorded by the
+ * others are consequences of the storefront doing its job, recorded by the
  * services that already owned those writes.
+ *
+ * ## Why RETURN is not CANCELLATION
+ *
+ * Both put units back, and a single "units came back" type would have been
+ * simpler. They are separated because they answer different questions and are
+ * counted differently: a cancellation means the order never happened, and a
+ * return means it happened and was undone. A store working out how much of its
+ * revenue survives has to be able to tell those apart, and a ledger that
+ * conflated them could not.
+ *
+ * Crucially, a RETURN movement is **not** written for every return. It is
+ * written only when an operator, holding the item, judges it resellable. A
+ * returned pair of shoes that came back damaged leaves a return record and no
+ * movement, because no sellable unit came back. See `restockFromReturn`.
  */
 export const MOVEMENT_TYPES = [
   'SALE',
   'CANCELLATION',
+  'RETURN',
   'INITIAL_STOCK',
   'MANUAL_ADJUSTMENT',
 ] as const;
@@ -39,6 +55,7 @@ export const MOVEMENT_DIRECTION: Readonly<
 > = {
   SALE: 'decrease',
   CANCELLATION: 'increase',
+  RETURN: 'increase',
   INITIAL_STOCK: 'increase',
   MANUAL_ADJUSTMENT: 'either',
 };
@@ -98,8 +115,14 @@ export const MAX_ADJUSTMENT = 100_000;
  */
 export const LARGE_ADJUSTMENT = 100;
 
-/** What a movement points at, when it points at anything. */
-export const MOVEMENT_REFERENCE_TYPES = ['ORDER', 'PRODUCT'] as const;
+/**
+ * What a movement points at, when it points at anything.
+ *
+ * RETURN joins ORDER rather than replacing it: a restock caused by a return
+ * names the return, because that is the record an operator would open to find
+ * out why units reappeared — and the return itself names the order.
+ */
+export const MOVEMENT_REFERENCE_TYPES = ['ORDER', 'PRODUCT', 'RETURN'] as const;
 export type MovementReferenceType = (typeof MOVEMENT_REFERENCE_TYPES)[number];
 
 /**

@@ -89,6 +89,8 @@ export default async function AdminOperationsPage() {
         </section>
       )}
 
+      <PostPurchase exceptions={summary.postPurchase} />
+
       <QueueDepth queue={summary.queue} />
 
       {!clear && (
@@ -138,6 +140,54 @@ export default async function AdminOperationsPage() {
         </section>
       )}
     </>
+  );
+}
+
+/**
+ * What has stalled after the sale.
+ *
+ * ## Its own section, not merged into the counts above
+ *
+ * Those count orders; these count returns and shipments. Summing them would
+ * produce a total of unlike things, and an operator clicking one card would
+ * land in a different queue from the one beside it with no warning. So they sit
+ * apart, each carrying the link the server built for it.
+ *
+ * ## Nothing here is inferred
+ *
+ * Every condition is a stored status and a stored timestamp: a return
+ * unreviewed for a day, goods received two days ago with no refund started, a
+ * refund the gateway refused, a parcel past the delivery date a person typed
+ * in. An operator can open any of these and see the same fact the rule saw —
+ * which is the only reason an exception panel keeps getting looked at.
+ *
+ * Absent entirely when nothing has stalled, rather than showing seven zeroes.
+ */
+function PostPurchase({ exceptions }: { exceptions: OperationsSummary['postPurchase'] }) {
+  if (exceptions.length === 0) return null;
+
+  return (
+    <section aria-label="Returns and deliveries" className="mt-4">
+      <h2 className="text-small mb-3 font-semibold">After the sale</h2>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {exceptions.map((entry) => (
+          <Link
+            key={entry.key}
+            href={entry.href}
+            className="focus-ring block rounded-xl border border-border bg-surface/40 p-4 transition-colors hover:border-foreground/25"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-small font-semibold">{entry.label}</p>
+              <StatusBadge tone={attentionTone(entry.severity)}>
+                {entry.count.toLocaleString('en-IN')}
+              </StatusBadge>
+            </div>
+            <p className="text-caption mt-1.5 text-pretty text-muted-foreground">{entry.action}</p>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 

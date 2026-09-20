@@ -1,4 +1,5 @@
 import type { Pagination } from '@/types/product';
+import type { Returnability, ReturnSummary, Shipment } from '@/types/fulfillment';
 
 export type OrderStatus =
   'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
@@ -48,6 +49,14 @@ export interface OrderItem {
   lineTotal: number;
   selectedColor: string | null;
   selectedSize: string | null;
+  /**
+   * How many of this line are already spoken for by a return.
+   *
+   * The server's counter, and the reason a customer cannot request the same
+   * unit twice from two tabs. Rendered so the return dialog can say "1 of 2
+   * left" rather than offering a quantity that would be refused.
+   */
+  returnedQuantity: number;
 }
 
 export interface OrderShippingAddress {
@@ -82,6 +91,13 @@ export interface OrderPayment {
   failureReason: string | null;
   refundId: string | null;
   refundedAt: string | null;
+  /**
+   * Total rupees refunded across every refund on this order.
+   *
+   * Needed because a return can refund part of an order, and a payment panel
+   * that only said "Paid" would be hiding money that has already gone back.
+   */
+  refundedAmount: number;
 }
 
 /** What the order list returns: enough to recognise an order, no more. */
@@ -106,8 +122,21 @@ export interface Order extends Omit<OrderListItem, 'preview'> {
   payment: OrderPayment;
   cancellationReason: string | null;
   cancelledAt: string | null;
+  /** When delivery was recorded. Null on every order delivered before Phase 13. */
+  deliveredAt: string | null;
   updatedAt: string;
   canCancel: boolean;
+
+  /**
+   * Null when nothing has been dispatched, and for every order placed before
+   * shipments existed. The page says tracking is not available rather than
+   * inventing a carrier and a date.
+   */
+  shipment: Shipment | null;
+  /** Every return raised against this order, newest first. */
+  returns: ReturnSummary[];
+  /** The server's verdict on whether a return may be started, and for what. */
+  returnability: Returnability;
 }
 
 export interface OrderListResponse {

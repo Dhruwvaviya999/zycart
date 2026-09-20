@@ -18,6 +18,14 @@ import { cn } from '@/lib/utils';
 
 const ASSURANCES = [
   { icon: Truck, label: 'Free delivery above ₹999' },
+  /**
+   * This number is a promise, and from Phase 13 it is also enforced.
+   *
+   * `RETURN_WINDOW_DAYS` in `backend/src/models/return.model.ts` is what the
+   * server actually applies. Change one and change the other, or the shop will
+   * advertise a window it refuses to honour. The same string is in
+   * `data/banners.ts`.
+   */
   { icon: RotateCcw, label: '30-day returns' },
   { icon: ShieldCheck, label: '2-year warranty' },
 ];
