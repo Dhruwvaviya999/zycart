@@ -148,6 +148,42 @@ function assertPaymentMatchesOrder(
   }
 }
 
+/**
+ * The two gateway reads payment finalisation depends on.
+ *
+ * ## Why this is a parameter with a default rather than a direct call
+ *
+ * Finalisation is the most consequential function in ZyCart — it is where a
+ * payment becomes a confirmed order, where stock is taken, and where captured
+ * money with nothing to ship gets refunded. Phase 15 set out to test it
+ * directly, and found it could not be: every path runs through a live HTTP call
+ * to `api.razorpay.com`, so the entire function was reachable only by a
+ * deployment holding real credentials.
+ *
+ * So the two reads it makes are a parameter. Production passes nothing and gets
+ * `LIVE_GATEWAY`; the verification script passes a stub and can drive captured,
+ * failed, authorised and unfulfillable through the real transaction, the real
+ * claim and the real refund bookkeeping.
+ *
+ * ## Why this is not a hole
+ *
+ * It is an ordinary function argument with a production default. There is no
+ * exported setter, no mutable module state and no environment variable that
+ * swaps it, so nothing reachable over HTTP can supply one: every caller in
+ * `payment.controller` and `dispatchWebhook` calls the three-argument form. The
+ * alternative — a `__setGatewayForTests` global — is the shape that becomes a
+ * vulnerability, and it is deliberately not what this is.
+ */
+export interface PaymentGatewayReads {
+  fetchPayment: typeof razorpay.fetchPayment;
+  refundPaymentInFull: typeof razorpay.refundPaymentInFull;
+}
+
+const LIVE_GATEWAY: PaymentGatewayReads = {
+  fetchPayment: razorpay.fetchPayment,
+  refundPaymentInFull: razorpay.refundPaymentInFull,
+};
+
 /** Re-reads the order to explain why a finalisation claim did not match. */
 function classifySettled(order: OrderDoc): FinalizeOutcome {
   if (order.payment.status === 'PAID') return 'ALREADY_FINALIZED';
@@ -176,6 +212,7 @@ async function refundUnfulfillablePayment(
   order: OrderDoc,
   razorpayPaymentId: string,
   reason: string,
+  gateway: PaymentGatewayReads,
 ): Promise<FinalizeResult> {
   const claimed = await Order.findOneAndUpdate(
     {
@@ -194,7 +231,7 @@ async function refundUnfulfillablePayment(
         cancellationReason: `${reason} Your payment is being refunded.`,
       },
     },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   // Another request is already refunding this payment. Leave it alone.
@@ -208,7 +245,7 @@ async function refundUnfulfillablePayment(
   );
 
   try {
-    const refund = await razorpay.refundPaymentInFull(env, {
+    const refund = await gateway.refundPaymentInFull(env, {
       razorpayPaymentId,
       amountInRupees: claimed.pricing.total,
       reason: 'stock_unavailable',
@@ -236,7 +273,7 @@ async function refundUnfulfillablePayment(
           'payment.refundedAmount': claimed.pricing.total,
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
 
     return { outcome: 'REFUNDED_UNFULFILLABLE', order: updated ?? claimed };
@@ -276,6 +313,8 @@ export async function finalizeSuccessfulPayment(
   env: Env,
   order: OrderDoc,
   razorpayPaymentId: string,
+  /** See `PaymentGatewayReads`. Production callers omit it. */
+  gateway: PaymentGatewayReads = LIVE_GATEWAY,
 ): Promise<FinalizeResult> {
   // Cheap exit for the common duplicate: the webhook arriving after the
   // callback has already done the work.
@@ -289,7 +328,7 @@ export async function finalizeSuccessfulPayment(
 
   assertOrderTotalIntact(order);
 
-  const payment = await razorpay.fetchPayment(env, razorpayPaymentId);
+  const payment = await gateway.fetchPayment(env, razorpayPaymentId);
   assertPaymentMatchesOrder(order, payment);
 
   if (payment.status === 'failed') {
@@ -312,7 +351,7 @@ export async function finalizeSuccessfulPayment(
           'payment.failureReason': null,
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
 
     return { outcome: 'AWAITING_CAPTURE', order: updated ?? order };
@@ -358,7 +397,7 @@ export async function finalizeSuccessfulPayment(
             stockCommitted: true,
           },
         },
-        { session, new: true },
+        { session, returnDocument: 'after' },
       );
 
       if (!claimed) {
@@ -393,7 +432,7 @@ export async function finalizeSuccessfulPayment(
 
     // The transaction rolled back cleanly: the order is untouched and unpaid,
     // no stock moved. What remains is captured money with nothing to ship.
-    return refundUnfulfillablePayment(env, order, payment.id, unfulfillable.reason);
+    return refundUnfulfillablePayment(env, order, payment.id, unfulfillable.reason, gateway);
   } finally {
     await session.endSession();
   }
@@ -431,7 +470,7 @@ async function recordPaymentFailure(
         'payment.failureReason': description?.slice(0, 300) ?? 'The payment did not go through.',
       },
     },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (updated) {
@@ -555,7 +594,7 @@ export async function createCheckoutSession(
         'payment.razorpayOrderId': null,
       },
       { $set: { 'payment.razorpayOrderId': created.id, 'payment.provider': 'razorpay' } },
-      { new: true },
+      { returnDocument: 'after' },
     );
 
     if (attached) {

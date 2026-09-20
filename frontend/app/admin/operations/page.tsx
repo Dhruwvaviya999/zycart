@@ -166,10 +166,13 @@ export default async function AdminOperationsPage() {
  */
 function Communication({ summary }: { summary: CommunicationSummary | null }) {
   if (!summary) return null;
-  if (summary.failed === 0 && summary.pending === 0) return null;
+  if (summary.failed === 0 && summary.pending === 0 && summary.stale === 0) return null;
 
   const parts: string[] = [];
   if (summary.failed > 0) parts.push(`${summary.failed.toLocaleString('en-IN')} failed`);
+  // Listed separately from "waiting", because it needs a decision rather than
+  // time. See the notice on /admin/notifications.
+  if (summary.stale > 0) parts.push(`${summary.stale.toLocaleString('en-IN')} abandoned mid-send`);
   if (summary.pending > 0) parts.push(`${summary.pending.toLocaleString('en-IN')} waiting to send`);
 
   return (
@@ -178,7 +181,11 @@ function Communication({ summary }: { summary: CommunicationSummary | null }) {
 
       <Link
         href={
-          summary.failed > 0 ? '/admin/notifications?status=FAILED' : '/admin/notifications'
+          summary.stale > 0
+            ? '/admin/notifications?status=SENDING'
+            : summary.failed > 0
+              ? '/admin/notifications?status=FAILED'
+              : '/admin/notifications'
         }
         className="focus-ring flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface/40 p-4 transition-colors hover:border-foreground/25"
       >
@@ -189,9 +196,11 @@ function Communication({ summary }: { summary: CommunicationSummary | null }) {
               {parts.join(' · ')}
             </p>
             <p className="text-caption mt-1 text-pretty text-muted-foreground">
-              {summary.failed > 0
-                ? 'Customers have not been told about these. Nothing will retry them on its own.'
-                : 'Recorded and not yet accepted by the provider.'}
+              {summary.stale > 0
+                ? 'A send was abandoned and nobody knows whether it went out. Open it to decide.'
+                : summary.failed > 0
+                  ? 'Customers have not been told about these. Nothing will retry them on its own.'
+                  : 'Recorded and not yet accepted by the provider. The scheduled drain will send them.'}
             </p>
           </div>
         </div>

@@ -350,41 +350,125 @@ export type AttemptOutcome =
  * the claim — a stale reclaim by an operator, say — cannot overwrite the state
  * the current holder has since written.
  */
+/**
+ * Who is asking for a send, and therefore what they are allowed to claim.
+ *
+ * Three callers, three different eligibility rules, all expressed as database
+ * filters so that the rule and the claim are one operation. See
+ * `eligibilityFilter` for what each one may take.
+ */
+export type AttemptMode =
+  /** Immediately after the transaction that raised the event. */
+  | 'automatic'
+  /** An administrator pressing Retry on one message. */
+  | 'manual'
+  /** `pnpm notifications:drain`, recovering work a crash stranded. */
+  | 'drain'
+  /** The drain, explicitly told to reclaim abandoned SENDING rows as well. */
+  | 'drain-stale';
+
+/** When a SENDING row is old enough to be treated as abandoned. */
+export const staleSendingBefore = (now: Date = new Date()): Date =>
+  new Date(now.getTime() - STALE_SENDING_MS);
+
+/**
+ * What each caller may claim, as a query the database evaluates atomically.
+ *
+ * ## The rules, and why they differ
+ *
+ * - **automatic** — PENDING or FAILED, with attempts left in the budget. This
+ *   runs in the request that caused the event and is the only mode that loops.
+ * - **manual** — anything not already SENT, plus a SENDING row abandoned long
+ *   enough that the process holding it must have died. Not bounded by the
+ *   automatic budget: a person pressing a button is not a loop.
+ * - **drain** — PENDING only, with attempts left. Deliberately *not* FAILED:
+ *   a message that has used its budget is one an operator should look at, and a
+ *   cron job that quietly kept retrying it would turn a bounded policy into an
+ *   unbounded one. See `docs/phase-15.md`.
+ * - **drain-stale** — as `drain`, plus abandoned SENDING rows. Separate because
+ *   reclaiming one can put a second copy of a message in a customer's inbox;
+ *   the operator has to ask for it.
+ *
+ * `SENT` appears in none of them. A message the provider has accepted is never
+ * re-sent by any path in this file.
+ */
+function eligibilityFilter(
+  mode: AttemptMode,
+  now: Date,
+): QueryFilter<NotificationDeliveryDocument> {
+  const withBudget = { attempts: { $lt: MAX_AUTOMATIC_ATTEMPTS } };
+  // Typed as the delivery status it is, so the literal narrows for Mongoose
+  // rather than widening to `string` inside an object literal.
+  const abandoned: QueryFilter<NotificationDeliveryDocument> = {
+    status: 'SENDING' as DeliveryStatus,
+    lastAttemptAt: { $lt: staleSendingBefore(now) },
+  };
+
+  switch (mode) {
+    case 'automatic':
+      return { status: { $in: ['PENDING', 'FAILED'] }, ...withBudget };
+    case 'manual':
+      return { $or: [{ status: { $in: ['PENDING', 'FAILED'] } }, abandoned] };
+    case 'drain':
+      return { status: 'PENDING', ...withBudget };
+    case 'drain-stale':
+      return { $or: [{ status: 'PENDING', ...withBudget }, abandoned] };
+  }
+}
+
+/**
+ * The ids a drain could work on, without claiming any of them.
+ *
+ * Reads only, and bounded. Used to page through eligible work and — with
+ * `--dry-run` — to report what a real run would do without touching a row.
+ * The claim is still what decides ownership: an id returned here may well be
+ * claimed by another drain before this one gets to it, which is exactly why the
+ * caller must treat a `NOT_ELIGIBLE` outcome as ordinary.
+ */
+export async function eligibleForDrain(
+  mode: 'drain' | 'drain-stale',
+  limit: number,
+  options: { now?: Date; exclude?: readonly Types.ObjectId[] } = {},
+): Promise<Types.ObjectId[]> {
+  const now = options.now ?? new Date();
+  const exclude = options.exclude ?? [];
+
+  /**
+   * `exclude` carries the ids this drain run has already attempted.
+   *
+   * It is not an optimisation, it is correctness. A temporary failure leaves a
+   * message PENDING with one more attempt spent, so it is immediately eligible
+   * again — and a page that came back full of rows the caller had just tried
+   * would look like "no new work" and stop the run with a backlog still
+   * waiting. Excluding them makes an empty page mean what it says.
+   *
+   * Bounded by the run's own limit, so the `$nin` stays small.
+   */
+  const filter = {
+    ...eligibilityFilter(mode, now),
+    ...(exclude.length > 0 ? { _id: { $nin: exclude } } : {}),
+  };
+
+  const rows = await NotificationDelivery.find(filter)
+    // Oldest first: the customer who has been waiting longest is told first,
+    // and the ordering is stable across concurrent drains.
+    .sort({ createdAt: 1, _id: 1 })
+    .limit(limit)
+    .select('_id')
+    .lean<{ _id: Types.ObjectId }[]>();
+
+  return rows.map((row) => row._id);
+}
+
 async function attemptDelivery(
   env: Env,
   id: Types.ObjectId,
-  options: { automatic: boolean },
+  options: { mode: AttemptMode },
 ): Promise<AttemptOutcome> {
   const now = new Date();
 
-  /**
-   * What may be claimed.
-   *
-   * Automatic dispatch takes PENDING and FAILED rows that still have attempts
-   * left in the budget. A manual retry additionally takes a row stuck in
-   * SENDING long enough that the process holding it must have died — and it is
-   * not bounded by the automatic budget, because a person pressing a button is
-   * not a loop.
-   *
-   * SENT is in neither. A message the provider has accepted is never re-sent by
-   * any path in this file.
-   */
-  const claimable: QueryFilter<NotificationDeliveryDocument> = options.automatic
-    ? {
-        _id: id,
-        status: { $in: ['PENDING', 'FAILED'] },
-        attempts: { $lt: MAX_AUTOMATIC_ATTEMPTS },
-      }
-    : {
-        _id: id,
-        $or: [
-          { status: { $in: ['PENDING', 'FAILED'] } },
-          { status: 'SENDING', lastAttemptAt: { $lt: new Date(now.getTime() - STALE_SENDING_MS) } },
-        ],
-      };
-
   const claimed = await NotificationDelivery.findOneAndUpdate(
-    claimable,
+    { _id: id, ...eligibilityFilter(options.mode, now) },
     { $set: { status: 'SENDING', lastAttemptAt: now }, $inc: { attempts: 1 } },
     { returnDocument: 'after' },
   );
@@ -529,6 +613,26 @@ async function recordFailure(
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * One drain attempt at one message.
+ *
+ * The drain's only route into sending. It performs exactly one attempt with no
+ * inline retry loop, because a drain run that retried within itself would spend
+ * the automatic budget on a single message while others waited — and because
+ * the next scheduled run is the retry.
+ *
+ * A `NOT_ELIGIBLE` outcome is ordinary and not an error: it means another drain,
+ * an administrator or the original request got there between the read that
+ * listed this id and the claim that would have taken it.
+ */
+export function deliverForDrain(
+  env: Env,
+  id: Types.ObjectId,
+  mode: 'drain' | 'drain-stale',
+): Promise<AttemptOutcome> {
+  return attemptDelivery(env, id, { mode });
+}
+
+/**
  * The automatic attempt loop for one message.
  *
  * Bounded twice over: by `MAX_AUTOMATIC_ATTEMPTS`, and by a wall-clock deadline
@@ -545,7 +649,7 @@ async function deliverAutomatically(env: Env, id: Types.ObjectId): Promise<Attem
   const startedAt = Date.now();
 
   for (let round = 0; round < MAX_AUTOMATIC_ATTEMPTS; round += 1) {
-    const outcome = await attemptDelivery(env, id, { automatic: true });
+    const outcome = await attemptDelivery(env, id, { mode: 'automatic' });
 
     if (outcome.result !== 'RETRYABLE') return outcome;
 
@@ -578,6 +682,20 @@ export interface NotificationRow {
   sentAt: string | null;
   /** Empty until an attempt has been made. Never a credential or a raw error. */
   failureReason: string;
+  /**
+   * A SENDING row whose attempt was abandoned longer ago than the stale
+   * threshold.
+   *
+   * Computed rather than stored, and deliberately **not** a fifth status. The
+   * fact is "this row has been SENDING for a long time", which is a reading of
+   * `status` and `lastAttemptAt` together — storing it would mean a value that
+   * has to be kept true by something, and nothing would be keeping it true.
+   *
+   * It is on the row rather than only the detail because the one question this
+   * screen exists to answer is "is anything stuck?", and an operator should be
+   * able to see the answer without opening five records.
+   */
+  stale: boolean;
 }
 
 export interface NotificationDetail extends NotificationRow {
@@ -615,7 +733,12 @@ type DeliveryLean = {
   failure?: { kind: 'TEMPORARY' | 'PERMANENT'; reason: string; at: Date } | null;
 };
 
-function toRow(entry: DeliveryLean): NotificationRow {
+/** `SENDING`, and last touched longer ago than any transport would take. */
+const isStale = (entry: DeliveryLean, now: Date): boolean =>
+  entry.status === 'SENDING' &&
+  (entry.lastAttemptAt?.getTime() ?? 0) < now.getTime() - STALE_SENDING_MS;
+
+function toRow(entry: DeliveryLean, now: Date = new Date()): NotificationRow {
   return {
     id: String(entry._id),
     event: entry.event,
@@ -630,6 +753,7 @@ function toRow(entry: DeliveryLean): NotificationRow {
     lastAttemptAt: entry.lastAttemptAt?.toISOString() ?? null,
     sentAt: entry.sentAt?.toISOString() ?? null,
     failureReason: entry.failure?.reason ?? '',
+    stale: isStale(entry, now),
   };
 }
 
@@ -644,9 +768,7 @@ function retryability(
   entry: DeliveryLean,
   now: Date,
 ): { canRetry: boolean; reason: string; stale: boolean } {
-  const stale =
-    entry.status === 'SENDING' &&
-    (entry.lastAttemptAt?.getTime() ?? 0) < now.getTime() - STALE_SENDING_MS;
+  const stale = isStale(entry, now);
 
   if (entry.status === 'SENT') {
     return { canRetry: false, reason: 'This message was already accepted by the provider.', stale };
@@ -671,7 +793,7 @@ function toDetail(entry: DeliveryLean, now: Date = new Date()): NotificationDeta
   const { canRetry, reason, stale } = retryability(entry, now);
 
   return {
-    ...toRow(entry),
+    ...toRow(entry, now),
     template: entry.template,
     templateVersion: entry.templateVersion,
     provider: entry.provider ?? '',
@@ -706,6 +828,8 @@ export async function listNotifications(query: AdminNotificationQuery) {
     filter.createdAt = { $gte: startOfDaysAgo(query.period === 'today' ? 1 : query.period === '7d' ? 7 : 30) };
   }
 
+  const now = new Date();
+
   const [entries, total] = await Promise.all([
     NotificationDelivery.find(filter)
       .sort({ createdAt: -1, _id: -1 })
@@ -716,7 +840,7 @@ export async function listNotifications(query: AdminNotificationQuery) {
   ]);
 
   return {
-    items: entries.map(toRow),
+    items: entries.map((entry) => toRow(entry, now)),
     pagination: {
       page: query.page,
       limit: query.limit,
@@ -736,8 +860,25 @@ export async function getNotification(id: string): Promise<NotificationDetail> {
 
 export interface RetryResult {
   delivery: NotificationDetail;
-  /** Whether this attempt got the message accepted. */
+  /**
+   * Whether the message is now sent — **not** whether this request sent it.
+   *
+   * The distinction is real and it took two administrators clicking at the same
+   * instant to surface it. The loser of that race finds the row already SENT,
+   * and "is it sent?" is then true for both callers while only one of them
+   * caused it. This flag drives the tone of the message shown, so "it is sent"
+   * is the right reading for it; `claimed` is how a caller learns which of the
+   * two it was.
+   */
   sent: boolean;
+  /**
+   * Whether this request performed the attempt.
+   *
+   * Exactly one of two concurrent retries can be true, because exactly one can
+   * win the atomic claim. Without this, a count of `sent` responses would say
+   * two sends happened when one did.
+   */
+  claimed: boolean;
   message: string;
 }
 
@@ -755,8 +896,9 @@ export interface RetryResult {
  * ## Two administrators, one send
  *
  * Both calls reach `attemptDelivery`, and its atomic claim admits exactly one.
- * The loser is told the delivery is not in a state that can be retried, which
- * is the truth, and no second message is composed.
+ * The loser composes nothing and sends nothing; it re-reads the row and reports
+ * where it got to, which by then may well be SENT. `claimed` is what separates
+ * "I sent this" from "this is sent" — see `RetryResult`.
  */
 export async function retryNotification(env: Env, id: string): Promise<RetryResult> {
   const before = await NotificationDelivery.findById(id).lean<DeliveryLean | null>();
@@ -767,11 +909,11 @@ export async function retryNotification(env: Env, id: string): Promise<RetryResu
 
   if (!canRetry) throw new AppError(reason, 409);
 
-  const outcome = await attemptDelivery(env, before._id, { automatic: false });
+  const outcome = await attemptDelivery(env, before._id, { mode: 'manual' });
   const delivery = await getNotification(id);
 
   if (outcome.result === 'SENT') {
-    return { delivery, sent: true, message: 'Email sent successfully.' };
+    return { delivery, sent: true, claimed: true, message: 'Email sent successfully.' };
   }
 
   if (outcome.result === 'NOT_ELIGIBLE') {
@@ -779,13 +921,17 @@ export async function retryNotification(env: Env, id: string): Promise<RetryResu
      * Something changed between the read above and the claim — almost always
      * another administrator's retry landing first. Not an error: the operator
      * is shown the current state, which may well now be SENT.
+     *
+     * `claimed: false` says this request did nothing, which is what stops the
+     * pair being counted as two sends.
      */
     return {
       delivery,
       sent: delivery.status === 'SENT',
+      claimed: false,
       message:
         delivery.status === 'SENT'
-          ? 'This message has been sent.'
+          ? 'This message has been sent. Another attempt got there first.'
           : 'This delivery was being handled elsewhere. Refresh to see where it got to.',
     };
   }
@@ -793,6 +939,7 @@ export async function retryNotification(env: Env, id: string): Promise<RetryResu
   return {
     delivery,
     sent: false,
+    claimed: true,
     message:
       'The email could not be sent. The delivery remains failed and can be retried later.',
   };
@@ -807,6 +954,16 @@ export interface CommunicationSummary {
   failed: number;
   sentToday: number;
   /**
+   * Deliveries abandoned mid-send.
+   *
+   * Counted separately from `pending` because they need a different action:
+   * nothing — not the automatic loop, not the drain — will touch one without a
+   * person deciding to, since reclaiming it can duplicate a message. It is the
+   * only genuinely stuck state this subsystem has, and the one number an
+   * operator must not have to go looking for.
+   */
+  stale: number;
+  /**
    * The transport this deployment is currently configured with.
    *
    * Reported because "124 sent today" means something very different on `mock`
@@ -820,19 +977,25 @@ export interface CommunicationSummary {
 export async function getCommunicationSummary(env: Env): Promise<CommunicationSummary> {
   const now = new Date();
 
-  const [pending, failed, sentToday] = await Promise.all([
+  const [pending, failed, sentToday, stale] = await Promise.all([
     // SENDING is counted with PENDING: from an operator's point of view both
     // mean "not yet sent", and separating them would put a transient state on
-    // a summary card where it would mostly read zero.
+    // a summary card where it would mostly read zero. An *abandoned* SENDING
+    // row is a different matter and is counted on its own, below.
     NotificationDelivery.countDocuments({ status: { $in: ['PENDING', 'SENDING'] } }),
     NotificationDelivery.countDocuments({ status: 'FAILED' }),
     NotificationDelivery.countDocuments({ status: 'SENT', sentAt: { $gte: startOfDaysAgo(1) } }),
+    NotificationDelivery.countDocuments({
+      status: 'SENDING',
+      lastAttemptAt: { $lt: staleSendingBefore(now) },
+    }),
   ]);
 
   return {
     pending,
     failed,
     sentToday,
+    stale,
     provider: emailConfig(env).provider,
     checkedAt: now.toISOString(),
   };

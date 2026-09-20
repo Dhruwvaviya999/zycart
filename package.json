@@ -18,6 +18,8 @@
     "inventory:verify": "pnpm --filter zycart-backend inventory:verify",
     "returns:verify": "pnpm --filter zycart-backend returns:verify",
     "notifications:verify": "pnpm --filter zycart-backend notifications:verify",
+    "notifications:drain": "pnpm --filter zycart-backend notifications:drain",
+    "payments:verify": "pnpm --filter zycart-backend payments:verify",
     "seed:reviews": "pnpm --filter zycart-backend seed:reviews",
     "make-admin": "pnpm --filter zycart-backend make-admin",
     "lint": "pnpm -r lint",

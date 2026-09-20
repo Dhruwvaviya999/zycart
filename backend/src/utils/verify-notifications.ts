@@ -2,7 +2,7 @@ import 'dotenv/config';
 import mongoose, { Types } from 'mongoose';
 import { connectDatabase } from '../config/database';
 import { loadEnv, type Env } from '../config/env';
-import { MAX_AUTOMATIC_ATTEMPTS } from '../config/notifications';
+import { MAX_AUTOMATIC_ATTEMPTS, STALE_SENDING_MS } from '../config/notifications';
 import { AuditLog } from '../models/audit-log.model';
 import { Brand } from '../models/brand.model';
 import { Category } from '../models/category.model';
@@ -24,8 +24,12 @@ import {
   failNextSends,
   resetCapturedEmails,
 } from '../services/notifications/mock.provider';
-import { getNotification, retryNotification } from '../services/notifications/notification.service';
-import { setOrderStatus } from '../services/order.service';
+import { drainNotifications } from '../services/notifications/drain';
+import {
+  getNotification,
+  retryNotification,
+} from '../services/notifications/notification.service';
+import { setOrderStatus, transitionOrderStatus } from '../services/order.service';
 import { applyRefundOutcome } from '../services/returns/refund.service';
 import * as returns from '../services/returns/return.service';
 import { AppError } from './AppError';
@@ -772,12 +776,35 @@ async function verifyConcurrency(env: Env, fixtures: Fixtures): Promise<void> {
     retryNotification(env, id),
   ]);
 
-  const sentCount = retries.filter(
-    (result) => result.status === 'fulfilled' && result.value.sent,
+  /**
+   * `claimed`, not `sent`.
+   *
+   * The loser of the race re-reads a row the winner may already have finished,
+   * so "is it sent?" is true for both while only one of them caused it — which
+   * is exactly what this check exists to distinguish, and what an earlier
+   * version of it got wrong often enough to be caught by a timing difference
+   * between runs.
+   */
+  const claimedCount = retries.filter(
+    (result) => result.status === 'fulfilled' && result.value.claimed,
   ).length;
 
-  check('two concurrent retries report exactly one send', sentCount === 1);
+  check('exactly one of two concurrent retries performed the attempt', claimedCount === 1);
   check('and exactly one message left', capturedEmails().length === 1);
+
+  /**
+   * The loser is honest about two different situations, and both are correct:
+   * it may find the row already SENT, or still SENDING while the winner works.
+   * What must never happen is either caller being told the send failed — that
+   * would put a red "could not be sent" in front of an administrator whose
+   * colleague just sent it.
+   */
+  check(
+    'neither caller is told the send failed',
+    retries.every(
+      (result) => result.status === 'fulfilled' && (!result.value.claimed || result.value.sent),
+    ),
+  );
 
   const afterRetry = await deliveryFor(failingOrder._id, 'ORDER_SHIPPED');
   check('the delivery is now SENT', afterRetry?.status === 'SENT');
@@ -954,6 +981,288 @@ async function verifyRecipientResolution(env: Env, fixtures: Fixtures): Promise<
 }
 
 /* ---------------------------------------------------------------- */
+/* 7 · The drain                                                     */
+/* ---------------------------------------------------------------- */
+
+/**
+ * Strands a delivery exactly as a crash between commit and send would.
+ *
+ * The domain transition runs with no outbox, so the intent is written inside
+ * its transaction and committed, and nothing ever attempts it — which is
+ * precisely the state Phase 14 left open and Phase 15 exists to recover. It is
+ * produced by the real service rather than by inserting a row, so what the
+ * drain finds is what a crash actually leaves behind.
+ */
+async function strandOne(fixtures: Fixtures, suffix: string) {
+  const product = await makeProduct(fixtures, suffix);
+  const order = await makeOrder(fixtures, { lines: [{ product, quantity: 1 }] });
+
+  const session = await mongoose.startSession();
+
+  try {
+    await session.withTransaction(async () => {
+      const loaded = await Order.findById(order._id).session(session);
+      if (!loaded) throw new Error('fixture order vanished');
+
+      // No `outbox`: the intent commits, and nothing is ever handed to a
+      // provider. See `transitionOrderStatus`.
+      await transitionOrderStatus(loaded, 'SHIPPED', session, { actor: fixtures.actor });
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return { order, product };
+}
+
+async function verifyDrain(env: Env, fixtures: Fixtures): Promise<void> {
+  section('The drain recovers what a crash stranded');
+
+  const { order } = await strandOne(fixtures, 'Stranded');
+
+  const stranded = await deliveryFor(order._id, 'ORDER_SHIPPED');
+
+  check(
+    'a committed transition with no dispatch leaves a PENDING delivery',
+    stranded?.status === 'PENDING',
+  );
+  check('with no attempt made', stranded?.attempts === 0);
+
+  resetCapturedEmails();
+
+  /* §59 · a dry run must report without touching anything. */
+  const dry = await drainNotifications(env, { limit: 10, includeStale: false, dryRun: true });
+
+  check('a dry run finds the stranded delivery', dry.claimed >= 1);
+  check('and sends nothing', capturedEmails().length === 0);
+
+  const afterDry = await deliveryFor(order._id, 'ORDER_SHIPPED');
+
+  check('and claims nothing', afterDry?.status === 'PENDING');
+  check('and spends no attempt', afterDry?.attempts === 0);
+
+  /* The real run. */
+  const run = await drainNotifications(env, { limit: 10, includeStale: false, dryRun: false });
+
+  check('a real run sends it', run.sent >= 1);
+  check('and reports no failures', run.failed === 0);
+  check('and names the provider it used', run.provider === 'mock');
+
+  const delivered = await deliveryFor(order._id, 'ORDER_SHIPPED');
+
+  check('the delivery is now SENT', delivered?.status === 'SENT');
+  check('on its first attempt', delivered?.attempts === 1);
+  check('and the message was really composed', capturedEmails().length === 1);
+  check('addressed to the account', capturedEmails().at(-1)?.to === `shopper@${EMAIL_DOMAIN}`);
+
+  /* A second run finds nothing left. */
+  const empty = await drainNotifications(env, { limit: 10, includeStale: false, dryRun: false });
+
+  check('a second run finds nothing to do', empty.claimed === 0 && empty.sent === 0);
+  check('and sends nothing further', capturedEmails().length === 1);
+
+  /**
+   * §22 · a FAILED delivery is not drain work.
+   *
+   * It has used its automatic budget, which means a person should look at it. A
+   * cron job quietly retrying it forever would turn a bounded retry policy into
+   * an unbounded one.
+   */
+  const { order: failedOrder } = await strandOne(fixtures, 'Exhausted');
+  const failedDelivery = await deliveryFor(failedOrder._id, 'ORDER_SHIPPED');
+
+  failNextSends(MAX_AUTOMATIC_ATTEMPTS);
+  resetCapturedEmails();
+
+  // Burn the budget through the drain itself, one attempt per run — which is
+  // also the assertion that a run does not retry within itself.
+  for (let round = 0; round < MAX_AUTOMATIC_ATTEMPTS; round += 1) {
+    await drainNotifications(env, { limit: 10, includeStale: false, dryRun: false });
+  }
+
+  clearForcedFailures();
+
+  const exhausted = await deliveryFor(failedOrder._id, 'ORDER_SHIPPED');
+
+  check('the drain spends one attempt per run', exhausted?.attempts === MAX_AUTOMATIC_ATTEMPTS);
+  check('and stops at FAILED', exhausted?.status === 'FAILED');
+  check('nothing was sent', capturedEmails().length === 0);
+
+  const afterExhausted = await drainNotifications(env, {
+    limit: 10,
+    includeStale: false,
+    dryRun: false,
+  });
+
+  check('a FAILED delivery is not picked up again by the drain', afterExhausted.claimed === 0);
+  check('and still nothing was sent', capturedEmails().length === 0);
+
+  /* §23 · the admin retry still reaches it, under its own rules. */
+  const retried = await retryNotification(env, String(failedDelivery?._id));
+
+  check('an administrator can still retry it by hand', retried.sent);
+  check('and that is what sends it', capturedEmails().length === 1);
+
+  /* §9 · an abandoned SENDING row. */
+  const { order: staleOrder } = await strandOne(fixtures, 'Stale');
+  const staleDelivery = await deliveryFor(staleOrder._id, 'ORDER_SHIPPED');
+
+  /**
+   * Written directly, because there is no way to make a process die mid-send on
+   * demand. The row is put in exactly the state a crash leaves behind: SENDING,
+   * one attempt begun, last touched longer ago than the stale threshold.
+   */
+  await NotificationDelivery.updateOne(
+    { _id: staleDelivery?._id },
+    {
+      $set: {
+        status: 'SENDING',
+        attempts: 1,
+        lastAttemptAt: new Date(Date.now() - STALE_SENDING_MS - 60_000),
+      },
+    },
+  );
+
+  resetCapturedEmails();
+
+  const withStale = await drainNotifications(env, {
+    limit: 10,
+    includeStale: false,
+    dryRun: false,
+  });
+
+  check('an ordinary drain does not touch an abandoned SENDING row', withStale.claimed === 0);
+  check('but it reports that one is waiting', withStale.staleWaiting >= 1);
+  check('and sends nothing', capturedEmails().length === 0);
+
+  const untouched = await deliveryFor(staleOrder._id, 'ORDER_SHIPPED');
+  check('the row is left exactly as it was', untouched?.attempts === 1);
+
+  const reclaimed = await drainNotifications(env, {
+    limit: 10,
+    includeStale: true,
+    dryRun: false,
+  });
+
+  const afterReclaim = await deliveryFor(staleOrder._id, 'ORDER_SHIPPED');
+
+  check('--include-stale reclaims it', reclaimed.sent === 1);
+  check('and it is sent', afterReclaim?.status === 'SENT');
+  check('with the extra attempt counted', afterReclaim?.attempts === 2);
+  check('and exactly one message left', capturedEmails().length === 1);
+
+  /* §12 · the limit is honoured, and the remainder is reported. */
+  await strandOne(fixtures, 'Batch1');
+  await strandOne(fixtures, 'Batch2');
+  await strandOne(fixtures, 'Batch3');
+
+  resetCapturedEmails();
+
+  const limited = await drainNotifications(env, { limit: 2, includeStale: false, dryRun: false });
+
+  check('a run stops at its limit', limited.sent === 2);
+  check('and says how much is left', limited.remaining >= 1);
+  check('and sent exactly that many messages', capturedEmails().length === 2);
+
+  const rest = await drainNotifications(env, { limit: 10, includeStale: false, dryRun: false });
+
+  check('the next run picks up the remainder', rest.sent === 1);
+  check('and then there is nothing left', rest.remaining === 0);
+}
+
+/**
+ * §11/§63: two drains at once.
+ */
+async function verifyDrainConcurrency(env: Env, fixtures: Fixtures): Promise<void> {
+  section('Two drains at once');
+
+  const stranded = [
+    await strandOne(fixtures, 'Race1'),
+    await strandOne(fixtures, 'Race2'),
+    await strandOne(fixtures, 'Race3'),
+  ];
+
+  resetCapturedEmails();
+
+  const [a, b] = await Promise.all([
+    drainNotifications(env, { limit: 10, includeStale: false, dryRun: false }),
+    drainNotifications(env, { limit: 10, includeStale: false, dryRun: false }),
+  ]);
+
+  check('the three messages were sent exactly once between them', a.sent + b.sent === 3);
+  check('and exactly three messages left', capturedEmails().length === 3);
+  check('neither run reported a failure', a.failed === 0 && b.failed === 0);
+
+  for (const { order } of stranded) {
+    const delivery = await deliveryFor(order._id, 'ORDER_SHIPPED');
+
+    check(
+      `${order.orderNumber} was attempted exactly once`,
+      delivery?.attempts === 1 && delivery.status === 'SENT',
+    );
+  }
+}
+
+/**
+ * §64: the delivery ledger says only things that can be true together.
+ */
+async function verifyLedgerConsistency(fixtures: Fixtures): Promise<void> {
+  section('The delivery ledger is internally consistent');
+
+  const returnIds = (
+    await ReturnRequest.find({ order: { $in: fixtures.orderIds } }).select('_id')
+  ).map((row) => row._id);
+
+  const rows = await NotificationDelivery.find({
+    entityId: { $in: [...fixtures.orderIds, ...returnIds] },
+  });
+
+  const keys = new Set(rows.map((row) => row.key));
+
+  check('every notification key is unique', keys.size === rows.length);
+
+  let sentWithoutTime = 0;
+  let sentWithoutProvider = 0;
+  let failedWithoutReason = 0;
+  let negativeAttempts = 0;
+  let sentWithoutAttempt = 0;
+  let futureTimestamps = 0;
+
+  const now = Date.now();
+
+  for (const row of rows) {
+    if (row.status === 'SENT') {
+      if (!row.sentAt) sentWithoutTime += 1;
+      if (!row.provider) sentWithoutProvider += 1;
+      if (row.attempts < 1) sentWithoutAttempt += 1;
+    }
+
+    if (row.status === 'FAILED' && !row.failure?.reason) failedWithoutReason += 1;
+    if (row.attempts < 0) negativeAttempts += 1;
+
+    for (const stamp of [row.createdAt, row.lastAttemptAt, row.sentAt]) {
+      if (stamp && stamp.getTime() > now + 60_000) futureTimestamps += 1;
+    }
+  }
+
+  check('every SENT delivery records when it was accepted', sentWithoutTime === 0);
+  check('and which transport accepted it', sentWithoutProvider === 0);
+  check('and took at least one attempt to get there', sentWithoutAttempt === 0);
+  check('every FAILED delivery records a reason', failedWithoutReason === 0);
+  check('no attempt count is negative', negativeAttempts === 0);
+  check('no timestamp is in the future', futureTimestamps === 0);
+
+  /**
+   * Nothing is repaired here. A verification script that quietly fixed what it
+   * found would be unable to tell anybody what was wrong — and the next run
+   * would report a clean ledger over a bug that is still there.
+   */
+  const stuck = rows.filter((row) => row.status === 'SENDING');
+
+  check('no delivery is left mid-send', stuck.length === 0, stuck.map((row) => row.key).join(', '));
+}
+
+/* ---------------------------------------------------------------- */
 /* Entry point                                                       */
 /* ---------------------------------------------------------------- */
 
@@ -996,6 +1305,9 @@ async function main(): Promise<void> {
     await verifyNoBackfill(env, fixtures);
     await verifyOrdering(env, fixtures);
     await verifyRecipientResolution(env, fixtures);
+    await verifyDrain(env, fixtures);
+    await verifyDrainConcurrency(env, fixtures);
+    await verifyLedgerConsistency(fixtures);
   } finally {
     clearForcedFailures();
     resetCapturedEmails();

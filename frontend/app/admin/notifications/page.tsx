@@ -131,6 +131,37 @@ export default async function AdminNotificationsPage({
         </div>
       )}
 
+      {/*
+        Rendered only when there is one. An abandoned delivery is the single
+        stuck state this subsystem has — nothing automatic will touch it,
+        because reclaiming one can duplicate a message — so it gets its own
+        notice rather than a column an operator has to notice.
+      */}
+      {summary && summary.stale > 0 && (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4"
+        >
+          <p className="text-small font-semibold text-destructive">
+            {summary.stale === 1
+              ? '1 delivery was abandoned mid-send'
+              : `${summary.stale.toLocaleString('en-IN')} deliveries were abandoned mid-send`}
+          </p>
+          <p className="text-caption mt-1 text-pretty text-muted-foreground">
+            A process handed {summary.stale === 1 ? 'it' : 'them'} to the provider and stopped
+            before hearing back, so whether the message was accepted is unknown. Nothing will
+            retry {summary.stale === 1 ? 'it' : 'them'} on its own — retrying may send a second
+            copy. Open one to decide.
+          </p>
+          <Link
+            href="/admin/notifications?status=SENDING"
+            className="focus-ring text-caption mt-2 inline-block rounded-sm font-medium text-brand hover:underline"
+          >
+            Show them
+          </Link>
+        </div>
+      )}
+
       {summary && (
         <section
           aria-label="Email summary"
@@ -226,9 +257,14 @@ export default async function AdminNotificationsPage({
                 </Td>
 
                 <Td>
-                  <StatusBadge tone={deliveryTone(row.status)}>
+                  <StatusBadge tone={row.stale ? 'danger' : deliveryTone(row.status)}>
                     {DELIVERY_STATUS_LABEL[row.status]}
                   </StatusBadge>
+                  {/* The word, not only the colour — and on its own line so it
+                      cannot be mistaken for part of the status. */}
+                  {row.stale && (
+                    <span className="text-caption mt-1 block text-destructive">Abandoned</span>
+                  )}
                 </Td>
               </Tr>
             ))}
@@ -253,8 +289,8 @@ export default async function AdminNotificationsPage({
                         {row.entityLabel} · {row.customer.email || 'No address on file'}
                       </p>
                     </div>
-                    <StatusBadge tone={deliveryTone(row.status)}>
-                      {DELIVERY_STATUS_LABEL[row.status]}
+                    <StatusBadge tone={row.stale ? 'danger' : deliveryTone(row.status)}>
+                      {row.stale ? 'Abandoned' : DELIVERY_STATUS_LABEL[row.status]}
                     </StatusBadge>
                   </div>
 

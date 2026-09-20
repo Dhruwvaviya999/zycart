@@ -43,6 +43,12 @@ export function NotificationRetry({ delivery }: { delivery: NotificationDetail }
 
     try {
       const result = await retryNotification(delivery.id);
+      /**
+       * `sent` picks the tone, and the server's own sentence says who did it.
+       * An administrator whose click lost a race to a colleague's is told the
+       * message has been sent and that another attempt got there first —
+       * never that they sent it.
+       */
       setOutcome({ sent: result.sent, message: result.message });
       // Re-reads the page from the server rather than patching state here: the
       // attempt count, the status and the failure reason all changed, and all

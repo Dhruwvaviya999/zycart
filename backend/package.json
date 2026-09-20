@@ -19,6 +19,8 @@
     "inventory:verify": "tsx src/utils/verify-inventory.ts",
     "returns:verify": "tsx src/utils/verify-returns.ts",
     "notifications:verify": "tsx src/utils/verify-notifications.ts",
+    "notifications:drain": "tsx src/utils/drain-notifications.ts",
+    "payments:verify": "tsx src/utils/verify-payments.ts",
     "seed:reviews": "tsx src/utils/seed-reviews.ts",
     "make-admin": "tsx src/utils/make-admin.ts",
     "test": "node --import tsx --test \"tests/*.test.ts\"",

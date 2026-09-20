@@ -10,8 +10,9 @@ UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
 **Phase 8 (reviews & ratings)**, **Phase 9 (admin console)**, **Phase 10 (AI
 shopping assistant)**, **Phase 11 (AI discovery, smart search &
 recommendations)**, **Phase 12 (admin operations, inventory & fulfilment)**,
-**Phase 13 (shipping, returns & refunds)** and
-**Phase 14 (transactional email)** — a Next.js storefront backed by a
+**Phase 13 (shipping, returns & refunds)**,
+**Phase 14 (transactional email)** and
+**Phase 15 (operational hardening)** — a Next.js storefront backed by a
 real MongoDB catalogue, customer accounts, a persistent cart, ordering paid
 either online or on delivery, ratings written only by customers who received what
 they are rating, a console to run the store, a shopping assistant that answers
@@ -60,7 +61,9 @@ was reachable, a failed message is visible in the console and retryable with one
 click, and duplicate webhooks, double-clicked buttons and retried requests
 cannot produce a second copy in anybody's inbox. Leave `EMAIL_PROVIDER` at its
 default and messages are composed and recorded but never delivered — everything
-else in the store works exactly as before.
+else in the store works exactly as before. From Phase 15 a message stranded by a
+crash between commit and send is recovered by `pnpm notifications:drain`, a
+finite command meant for cron — not a worker, not a queue.
 
 **ZyCart discovers as well as it answers.** Typing a sentence into the shop's
 search box — "black shoes under ₹15,000", "highly rated headphones" — resolves
@@ -75,7 +78,8 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 7](docs/phase-7.md), [phase 8](docs/phase-8.md),
 [phase 9](docs/phase-9.md), [phase 10](docs/phase-10.md),
 [phase 11](docs/phase-11.md), [phase 12](docs/phase-12.md),
-[phase 13](docs/phase-13.md), [phase 14](docs/phase-14.md).
+[phase 13](docs/phase-13.md), [phase 14](docs/phase-14.md),
+[phase 15](docs/phase-15.md).
 
 ---
 
@@ -168,7 +172,8 @@ zycart/
 │       │   ├── inventory/ # Stock ledger, atomic adjustment, thresholds
 │       │   ├── fulfillment/   # Shipment lifecycle and order/parcel sync
 │       │   ├── returns/       # Return policy, workflow and partial refunds
-│       │   ├── notifications/ # Provider abstraction, templates, delivery
+│       │   ├── notifications/ # Provider abstraction, templates, delivery,
+│       │   │              #   and the drain that recovers stranded sends
 │       │   ├── ai/        # Provider abstraction, prompts, tools, interpreter
 │       │   ├── activity/  # Minimal behaviour recording for recommendations
 │       │   ├── recommendation/ # Similarity and deterministic scoring
@@ -394,23 +399,34 @@ Run from the repository root:
 | `pnpm migrate:phase12` | Create inventory-movement, audit-log and stock indexes             |
 | `pnpm migrate:phase13` | Create shipment and return indexes; initialise the new counters    |
 | `pnpm returns:verify`  | Exercise returns, shipments and races against a real replica set   |
+| `pnpm notifications:verify` | Exercise transactional email, the drain and races              |
+| `pnpm notifications:drain`  | Send deliveries a crash stranded (`--help` for options)        |
+| `pnpm payments:verify` | Exercise the Razorpay boundary against a real replica set          |
 | `pnpm seed:reviews`    | Populate development with genuine reviews (`--clean` removes them) |
 | `pnpm make-admin`      | Grant, revoke or list administrator access (see below)             |
 
 Backend checks, run from `backend/`:
 
-| Command                 | Effect                                                            |
-| ----------------------- | ----------------------------------------------------------------- |
-| `pnpm test`             | 199 unit tests — AI, discovery, inventory and operations; no DB   |
-| `pnpm ai:verify`        | 43 checks of every AI tool against a real MongoDB, then cleans up |
-| `pnpm discovery:verify` | 63 checks of search, similarity and recommendations               |
-| `pnpm inventory:verify` | 48 checks of stock adjustment, concurrency and the ledger         |
+| Command                     | Effect                                                             |
+| --------------------------- | ------------------------------------------------------------------ |
+| `pnpm test`                 | 519 unit tests — payments, email, drain, AI, discovery, inventory, operations, returns; no database |
+| `pnpm ai:verify`            | 43 checks of every AI tool against a real MongoDB                  |
+| `pnpm discovery:verify`     | 63 checks of search, similarity and recommendations                |
+| `pnpm inventory:verify`     | 48 checks of stock adjustment, concurrency and the ledger          |
+| `pnpm returns:verify`       | 61 checks of returns, shipments, refunds and races                 |
+| `pnpm notifications:verify` | 152 checks of email, idempotency, the drain and concurrency        |
+| `pnpm payments:verify`      | 98 checks of signatures, deduplication, finalisation and refunds   |
 
-All three verify scripts create their own records under a reserved prefix
-(`ZYCART-AI-TEST-`, `ZYCART-P11-`, `ZYCART-P12-`), never touch a record they
-did not create,
-and remove exactly those at the end — so both are safe to point at a real
-database.
+Every verify script creates its own records under a reserved prefix
+(`ZYCART-AI-TEST-`, `ZYCART-P11-`, `ZYCART-P12-`, `ZYCART-P13-`, `ZYCART-P14-`,
+`ZYCART-P15-`), never touches a record it did not create, and removes exactly
+those in a `finally` — so all of them are safe to point at a real database. The
+two newest additionally refuse to start unless `EMAIL_PROVIDER=mock`, because
+they drive real domain transitions and those raise customer email.
+
+`payments:verify` makes **no live gateway call**: it signs its own webhook
+payloads with a secret generated in-process, and hands payment finalisation a
+stubbed gateway. No money moves and nothing leaves the machine.
 
 Per application:
 
@@ -422,7 +438,9 @@ Per application:
 | `backend/`  | `pnpm seed`           | Load the development catalogue       |
 | `backend/`  | `pnpm migrate:phase7` | One-off Phase 7 data migration       |
 | `backend/`  | `pnpm test`           | Unit suite — no database required    |
-| `backend/`  | `pnpm notifications:verify` | Phase 14 checks against a real replica set |
+| `backend/`  | `pnpm notifications:drain` | Send deliveries a crash stranded (`--help` for options) |
+| `backend/`  | `pnpm notifications:verify` | Phase 14/15 checks against a real replica set |
+| `backend/`  | `pnpm payments:verify` | Payment and webhook checks against a real replica set |
 | `backend/`  | `pnpm returns:verify` | Phase 13 checks against a real replica set |
 | `frontend/` | `pnpm dev`            | Next.js dev server                   |
 | `frontend/` | `pnpm build`          | Production build                     |
@@ -952,14 +970,20 @@ the send happens after the commit and is allowed to fail, and a unique
 idempotency key means a duplicate webhook or a double-clicked button can never
 produce a second copy in anybody's inbox. Failed messages are visible in the
 console and retryable, and email delivery cannot change an order, a payment, a
-return or stock.
+return or stock. Phase 15 hardened what those phases built rather than adding to
+it: `pnpm notifications:drain` recovers deliveries a crash stranded, using the
+same atomic claim the retry button already relied on, so two drains cannot send
+the same message twice and a `FAILED` message is never quietly retried forever;
+the Razorpay boundary — signature verification, envelope parsing, event-id
+deduplication, payment finalisation and refund settlement — gained direct tests,
+including concurrent duplicates against a real replica set; and a delivery
+abandoned mid-send is now reported everywhere rather than sitting unnoticed,
+with recovery left to a person because whether it was sent is genuinely unknown.
 
 Later phases can build on that foundation: a shipping-provider integration behind
-the shipment domain Phase 13 modelled, a scheduled sweep for the deliveries a
-crash can strand (the one gap Phase 14 left open, and documented rather than
-hidden), SMS and in-app notification beside the email layer, more events through
-the template registry that already carries four, exchanges and store credit,
-semantic and vector search, review summaries, image search, saved conversations,
-and a granular permission model for staff who should see stock without being
-able to move it. None of them require reopening the boundaries these phases
-established.
+the shipment domain Phase 13 modelled, SMS and in-app notification beside the
+email layer, more events through the template registry that already carries
+four, exchanges and store credit, semantic and vector search, review summaries,
+image search, saved conversations, and a granular permission model for staff who
+should see stock without being able to move it. None of them require reopening
+the boundaries these phases established.

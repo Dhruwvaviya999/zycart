@@ -72,8 +72,11 @@ export default async function AdminNotificationPage({
         description={`${delivery.entityLabel} · ${delivery.customer.email || 'no address on file'}`}
         back={{ href: '/admin/notifications', label: 'Emails' }}
         action={
-          <StatusBadge tone={deliveryTone(delivery.status)} className="self-center">
-            {DELIVERY_STATUS_LABEL[delivery.status]}
+          <StatusBadge
+            tone={delivery.staleSending ? 'danger' : deliveryTone(delivery.status)}
+            className="self-center"
+          >
+            {delivery.staleSending ? 'Abandoned' : DELIVERY_STATUS_LABEL[delivery.status]}
           </StatusBadge>
         }
       />
@@ -81,10 +84,42 @@ export default async function AdminNotificationPage({
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-4">
           {/*
-            The failure comes first when there is one, because it is the reason
-            somebody opened this page. Not a stack trace and not the provider's
-            own error object — one sentence ZyCart wrote, plus the facts needed
-            to judge it.
+            Whatever is wrong comes first, because it is the reason somebody
+            opened this page. An abandoned send said plainly: the point is not
+            that it is old, it is that nobody knows whether the message went
+            out and that nothing automatic will decide for the operator.
+          */}
+          {delivery.staleSending && (
+            <section
+              role="alert"
+              className="rounded-xl border border-destructive/30 bg-destructive/5 p-5"
+            >
+              <h2 className="text-small flex items-center gap-2 font-semibold text-destructive">
+                <AlertTriangle className="size-4" aria-hidden />
+                Delivery was abandoned mid-send
+              </h2>
+              <p className="text-small mt-2 text-pretty">
+                A process handed this message to the provider and stopped before hearing back, so
+                whether it was accepted is unknown.
+              </p>
+              <dl className="mt-3 space-y-1">
+                <Row label="Last attempt">
+                  {delivery.lastAttemptAt ? formatDateTime(delivery.lastAttemptAt) : '—'}
+                </Row>
+                <Row label="Recovery">
+                  <span className="font-normal">Retry here, or run the drain with --include-stale</span>
+                </Row>
+              </dl>
+              <p className="text-caption mt-3 text-pretty text-muted-foreground">
+                Either way it may send a second copy. The scheduled drain leaves this alone on
+                purpose, because that is a decision for a person.
+              </p>
+            </section>
+          )}
+
+          {/*
+            Not a stack trace and not the provider's own error object — one
+            sentence ZyCart wrote, plus the facts needed to judge it.
           */}
           {delivery.status === 'FAILED' && delivery.failureReason && (
             <section
@@ -150,8 +185,11 @@ export default async function AdminNotificationPage({
           <Panel title="Delivery" icon={Server}>
             <dl className="space-y-2">
               <Row label="Status">
-                <StatusBadge tone={deliveryTone(delivery.status)}>
+                <StatusBadge tone={delivery.staleSending ? 'danger' : deliveryTone(delivery.status)}>
+                  {/* The underlying status is still SENDING; the word beside it
+                      is what makes the distinction, never the colour alone. */}
                   {DELIVERY_STATUS_LABEL[delivery.status]}
+                  {delivery.staleSending ? ' · abandoned' : ''}
                 </StatusBadge>
               </Row>
               <Row label="Attempts">{delivery.attempts}</Row>

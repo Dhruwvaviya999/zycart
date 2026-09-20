@@ -861,6 +861,14 @@ export interface NotificationRow {
   sentAt: string | null;
   /** ZyCart's own sentence about the last failure. Never a raw provider error. */
   failureReason: string;
+  /**
+   * A SENDING delivery abandoned longer ago than any transport would take.
+   *
+   * Computed on the server from the status and the last attempt time, and
+   * deliberately not a fifth status — there is nothing to keep a stored flag
+   * true. It is the one genuinely stuck state this subsystem has.
+   */
+  stale: boolean;
 }
 
 export interface NotificationDetail extends NotificationRow {
@@ -878,7 +886,16 @@ export interface NotificationDetail extends NotificationRow {
 
 export interface NotificationRetryResult {
   delivery: NotificationDetail;
+  /** Whether the message is now sent — not whether this request sent it. */
   sent: boolean;
+  /**
+   * Whether this request performed the attempt.
+   *
+   * Exactly one of two concurrent retries can be true. The console uses `sent`
+   * for tone and this for wording, so two administrators clicking at once are
+   * never both told they sent it.
+   */
+  claimed: boolean;
   message: string;
 }
 
@@ -886,6 +903,8 @@ export interface CommunicationSummary {
   pending: number;
   failed: number;
   sentToday: number;
+  /** Abandoned mid-send. Needs a person, not the drain. */
+  stale: number;
   /** The transport in use, so "124 sent today" can be read correctly. */
   provider: string;
   checkedAt: string;
