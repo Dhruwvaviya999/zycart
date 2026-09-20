@@ -2,13 +2,69 @@ import axios, { AxiosError } from 'axios';
 import type { ApiListResponse, ApiResponse, HealthResponse } from '@/types/api';
 import type { Pagination } from '@/types/product';
 
-const baseURL = process.env.NEXT_PUBLIC_API_URL ?? '';
+/**
+ * Where the API is, answered from wherever this module happens to be running.
+ *
+ * Three callers, and they are genuinely asking different questions.
+ *
+ * **The browser** is asking for an origin it can reach. On Vercel the
+ * storefront and the API are two services behind one domain, so the honest
+ * answer is "right here": an empty base makes every call same-origin, which
+ * costs no preflight and keeps the session cookie first-party.
+ * `NEXT_PUBLIC_API_URL` exists for local development, where Next and Express
+ * really do sit on different ports and the call really is cross-origin. It
+ * must therefore be left unset in the Vercel project.
+ *
+ * **A server component inside the deployment** cannot use that answer. Node
+ * has no current origin to be relative to, and Axios rejects a relative URL
+ * rather than guessing — which is precisely how a page that renders fine in
+ * the browser ends up with every server-side rail empty. `BACKEND_URL` is
+ * injected by the service binding declared in `vercel.json`: it points at
+ * *this* deployment's backend, so a preview talks to its own API instead of
+ * production's, and the request crosses the internal network rather than
+ * going back out through the CDN and the firewall.
+ *
+ * **A server anywhere else** — `next dev`, `next start`, a container — has
+ * only the configured URL, and that is what it gets.
+ */
+function resolveBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim() ?? '';
+
+  if (typeof window !== 'undefined') return configured;
+
+  const bound = process.env.BACKEND_URL?.trim();
+  if (bound) return bound.replace(/\/+$/, '');
+
+  if (configured) return configured;
+
+  /**
+   * No binding and nothing configured, on Vercel.
+   *
+   * The deployment's own public URL is a worse answer than the binding — it
+   * leaves the internal network, and on a protected preview it is answered by
+   * the authentication page rather than by the API — but it is a far better
+   * answer than the empty string, which cannot work at all.
+   */
+  const host = process.env.VERCEL_URL;
+  return host ? `https://${host}` : '';
+}
 
 export const api = axios.create({
-  baseURL,
   timeout: 10_000,
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
+});
+
+/**
+ * Resolved per request rather than once at import.
+ *
+ * `BACKEND_URL` is a runtime value — Vercel does not resolve service bindings
+ * during the build — so a base captured while this module was first evaluated
+ * would be the build's answer, not the request's.
+ */
+api.interceptors.request.use((config) => {
+  config.baseURL ??= resolveBaseUrl();
+  return config;
 });
 
 /**
@@ -56,7 +112,10 @@ export function toErrorMessage(error: unknown): string {
     const message = (error.response?.data as { message?: string } | undefined)?.message;
     if (message) return message;
     if (error.code === 'ECONNABORTED') return 'Request timed out';
-    if (!error.response) return `Cannot reach the API at ${baseURL}`;
+    if (!error.response) {
+      const target = error.config?.baseURL || resolveBaseUrl() || 'this origin';
+      return `Cannot reach the API at ${target}`;
+    }
     return error.message;
   }
 

@@ -81,6 +81,11 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 13](docs/phase-13.md), [phase 14](docs/phase-14.md),
 [phase 15](docs/phase-15.md).
 
+Deploying it is covered separately, in
+[docs/deployment.md](docs/deployment.md): the two-service Vercel layout, every
+environment variable the production build needs, and the configuration mistakes
+that stop the API booting.
+
 ---
 
 ## Stack

@@ -55,6 +55,20 @@ async function ensureDatabase(): Promise<void> {
 }
 
 /**
+ * Said once per cold start, and only once.
+ *
+ * On a server the startup record is written by the `listen` callback. Vercel
+ * never reaches that callback — there is no listener — so without this flag a
+ * Vercel deployment would log nothing about itself at all: not the version, not
+ * the mail provider, and not the readiness findings, which are the records an
+ * operator wants first when the API is answering 500 and nobody knows why.
+ *
+ * It is deliberately after `ensureDatabase`, because `mongoose.connection.name`
+ * is one of the fields and it is not known before the connection is open.
+ */
+let announced = false;
+
+/**
  * Vercel entrypoint.
  *
  * The database is connected before Express handles the request.
@@ -65,6 +79,12 @@ async function handler(
 ): Promise<void> {
   try {
     await ensureDatabase();
+
+    if (!announced) {
+      announced = true;
+      logStartup();
+    }
+
     app(req, res);
   } catch (error) {
     logger.error('database_connection_failed', {
@@ -102,13 +122,15 @@ async function handler(
  * with the redactor by this point, so even a mistake here would be caught —
  * but the field list is chosen so there is no mistake to catch.
  */
-function logStartup(port: number): void {
+function logStartup(port?: number): void {
   const razorpay = razorpayConfig(env);
   const ai = aiConfig(env);
   const email = emailConfig(env);
 
   logger.info('server_started', {
-    port,
+    // Absent under Vercel, where nothing listens on a port and a number here
+    // would describe a socket that does not exist.
+    ...(port === undefined ? {} : { port }),
     environment: env.NODE_ENV,
     version: SERVICE_VERSION,
     storefront: appOrigin(env),
