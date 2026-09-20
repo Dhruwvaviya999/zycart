@@ -2,7 +2,7 @@ import axios, { AxiosError } from 'axios';
 import type { ApiListResponse, ApiResponse, HealthResponse } from '@/types/api';
 import type { Pagination } from '@/types/product';
 
-const baseURL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
+const baseURL = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 export const api = axios.create({
   baseURL,

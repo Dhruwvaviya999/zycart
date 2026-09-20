@@ -18,7 +18,7 @@ export function createApp(env: Env): Express {
   app.set('trust proxy', 1);
 
   app.use(helmet());
-  app.use(cors({ origin: [env.CLIENT_URL, 'http://localhost:3001'], credentials: true }));
+  app.use(cors({ origin: [env.CLIENT_URL], credentials: true }));
 
   /**
    * The Razorpay webhook body, kept as raw bytes.
