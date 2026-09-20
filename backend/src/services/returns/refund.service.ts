@@ -3,6 +3,7 @@ import type { Env } from '../../config/env';
 import { Order } from '../../models/order.model';
 import { ReturnRequest } from '../../models/return.model';
 import { AppError } from '../../utils/AppError';
+import { logger, serializeError } from '../../utils/logger';
 import { recordAudit, type AuditActor } from '../admin/audit.service';
 import {
   NotificationOutbox,
@@ -118,11 +119,14 @@ export async function issueReturnRefund(
       },
     );
 
-    console.error(
-      `[returns] REFUND FAILED for ${request.returnNumber} (order ${order.orderNumber}, ` +
-        `payment ${order.payment.razorpayPaymentId}) - needs another attempt`,
-      error instanceof Error ? error.message : error,
-    );
+    logger.error('refund_failed', {
+      reason: 'gateway_refused',
+      returnNumber: request.returnNumber,
+      orderNumber: order.orderNumber,
+      razorpayPaymentId: order.payment.razorpayPaymentId,
+      needsManualAction: true,
+      error: serializeError(error, { stack: true }),
+    });
 
     throw error;
   }
@@ -569,9 +573,11 @@ export async function applyRefundOutcome(params: {
           );
         }
 
-        console.error(
-          `[returns] refund for ${updated.returnNumber} reported FAILED by Razorpay - back to received`,
-        );
+        logger.error('refund_failed', {
+          reason: 'gateway_reported_failed',
+          returnNumber: updated.returnNumber,
+          needsManualAction: true,
+        });
 
         outcome = 'FAILED';
       });

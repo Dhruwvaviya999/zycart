@@ -1,5 +1,6 @@
 import { AI_LIMITS, AI_UNAVAILABLE_MESSAGE } from '../../config/ai';
 import { AppError } from '../../utils/AppError';
+import { logger, serializeError } from '../../utils/logger';
 import * as productService from '../product.service';
 import { productQuerySchema } from '../../validators/product.validator';
 import type { AiChatInput, ClientMessage } from '../../validators/ai.validator';
@@ -254,7 +255,7 @@ async function runToolCalls(
 
 /** Maps a provider failure onto a calm, sanitised HTTP error. */
 function toHttpError(error: AiProviderError): AppError {
-  console.error(`[ai] provider failure (${error.kind}): ${error.message}`);
+  logger.error('ai_provider_failed', { kind: error.kind, detail: error.message });
   return new AppError(error.kind === 'rate_limit' ? AI_BUSY_MESSAGE : AI_UNAVAILABLE_MESSAGE, 503);
 }
 
@@ -302,7 +303,7 @@ export async function chat(input: AiChatInput, options: AiChatOptions): Promise<
        * explanation would only be a longer way of saying the same thing.
        */
       if (response.stopReason === 'refusal') {
-        console.warn('[ai] provider declined the request');
+        logger.warn('ai_request_failed', { reason: 'provider_declined' });
         throw new AppError(AI_UNAVAILABLE_MESSAGE, 503);
       }
 
@@ -331,16 +332,24 @@ export async function chat(input: AiChatInput, options: AiChatOptions): Promise<
     // A tool threw something that was not a business refusal — a database
     // outage, a bug. The customer is told the assistant is unavailable; the
     // detail stays in the log.
-    console.error('[ai] request failed:', error);
+    logger.error('ai_request_failed', {
+      reason: 'unexpected',
+      error: serializeError(error, { stack: true }),
+    });
     throw new AppError(AI_UNAVAILABLE_MESSAGE, 503);
   }
 
   const products = [...collected.shown.values()].slice(0, MAX_PRODUCT_CARDS);
 
-  console.info(
-    `[ai] ok session=${options.userId ? 'account' : 'guest'} rounds=${String(toolRoundsUsed)} ` +
-      `tools=${String(AI_LIMITS.maxToolCalls - budget.remaining)} products=${String(products.length)}`,
-  );
+  logger.info('ai_request_completed', {
+    // Which kind of session, never which session. `account` versus `guest` is
+    // the fact that explains a rate-limit decision; the account id would make
+    // every assistant conversation attributable to a person in a log file.
+    session: options.userId ? 'account' : 'guest',
+    rounds: toolRoundsUsed,
+    toolCalls: AI_LIMITS.maxToolCalls - budget.remaining,
+    products: products.length,
+  });
 
   return {
     message: message || AI_NO_ANSWER_MESSAGE,

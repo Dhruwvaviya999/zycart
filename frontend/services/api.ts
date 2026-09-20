@@ -21,6 +21,16 @@ export class ApiError extends Error {
     public readonly status?: number,
     /** Zod field messages keyed by field name, when the API sent any. */
     public readonly fields: Record<string, string> = {},
+    /**
+     * The API's correlation id for the request that failed (Phase 16).
+     *
+     * Present only on server faults, which is exactly when it is worth
+     * anything: a customer looking at "Something went wrong" has a reference
+     * to quote, and an operator can find the one log record that explains it.
+     * Never shown for a validation error — the message already says what to
+     * fix, and an incident reference beside it would only be alarming.
+     */
+    public readonly requestId?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -53,6 +63,12 @@ export function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unexpected error';
 }
 
+/** The correlation header, which the API exposes to the browser through CORS. */
+function readRequestIdHeader(error: AxiosError): string | undefined {
+  const value: unknown = error.response?.headers['x-request-id'];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
 function toApiError(error: unknown): ApiError {
   if (!(error instanceof AxiosError)) return new ApiError(toErrorMessage(error));
 
@@ -63,7 +79,15 @@ function toApiError(error: unknown): ApiError {
       .map((issue) => [issue.path, issue.message] as const),
   );
 
-  return new ApiError(toErrorMessage(error), error.response?.status, fields);
+  return new ApiError(
+    toErrorMessage(error),
+    error.response?.status,
+    fields,
+    // Preferred from the body, which the API only sets on 5xx. The header is
+    // the fallback, since it is set on every response including ones that
+    // never reached the error middleware.
+    payload?.requestId ?? readRequestIdHeader(error),
+  );
 }
 
 /**
@@ -190,7 +214,22 @@ export async function requestList<TItem>(
   }
 }
 
+/**
+ * The health endpoint, raw.
+ *
+ * Deliberately not routed through `request`: that helper throws on a
+ * non-success envelope, and health answers **503 with a perfectly valid body**
+ * when the API cannot reach its database. That body is the most interesting
+ * one there is, and a client that threw it away would be unable to tell "the
+ * API is not ready" from "the API is not there".
+ *
+ * `validateStatus` is widened for the same reason. Anything other than 200 or
+ * 503 is still a failure, and still throws.
+ */
 export async function fetchHealth(): Promise<HealthResponse> {
-  const { data } = await api.get<HealthResponse>('/api/health');
+  const { data } = await api.get<HealthResponse>('/api/health', {
+    validateStatus: (status) => status === 200 || status === 503,
+  });
+
   return data;
 }

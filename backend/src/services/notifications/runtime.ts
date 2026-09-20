@@ -3,6 +3,7 @@ import type { Env } from '../../config/env';
 import { createMockProvider } from './mock.provider';
 import { createSmtpProvider } from './smtp.provider';
 import type { EmailProvider } from './provider';
+import { logger, serializeError } from '../../utils/logger';
 
 /**
  * Builds the configured transport, once per process.
@@ -53,10 +54,11 @@ export function getEmailProvider(env: Env): EmailProvider {
   } catch (error) {
     cached = null;
     // The configuration object is never logged: it holds the SMTP password.
-    console.error(
-      `[notifications] the ${config.provider} email provider could not be created:`,
-      error instanceof Error ? error.message : error,
-    );
+    // Only the provider's name, and the error reduced to four named fields.
+    logger.error('notification_provider_failed', {
+      provider: config.provider,
+      error: serializeError(error, { stack: true }),
+    });
     throw error;
   }
 }

@@ -1,4 +1,6 @@
 import { request, requestList, send, sendMessage, type RequestOptions } from '@/services/api';
+import { fetchHealth } from '@/services/api';
+import type { HealthData } from '@/types/api';
 import type {
   Shipment,
   ShipmentInput,
@@ -636,4 +638,31 @@ export function retryNotification(id: string): Promise<NotificationRetryResult> 
     'post',
     `/api/admin/notifications/${encodeURIComponent(id)}/retry`,
   );
+}
+
+/* ---------------------------------------------------------------- */
+/* System health                                                     */
+/* ---------------------------------------------------------------- */
+
+/**
+ * The API's own view of whether it can do its job.
+ *
+ * ## Why this reuses the public endpoint
+ *
+ * There is deliberately no admin-only configuration endpoint. One would be the
+ * obvious place to put "a bit more detail for an operator" — the SMTP host,
+ * the key id, which variables are set — and that is precisely the endpoint
+ * that turns an admin session into a configuration disclosure. `/api/health`
+ * returns four enum values and is safe for anyone to read, so it is what the
+ * console reads too. See `docs/phase-16.md`.
+ *
+ * ## Why it does not throw on a 503
+ *
+ * A 503 from health is the most useful answer it gives, and `fetchHealth`
+ * preserves the body. The caller decides how to render "the API says it is not
+ * ready", which is a different thing from "the API did not answer".
+ */
+export async function getSystemHealth(): Promise<HealthData | null> {
+  const response = await fetchHealth();
+  return response.data ?? null;
 }

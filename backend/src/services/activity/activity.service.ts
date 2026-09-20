@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { UserActivity, type ActivityEvent } from '../../models/user-activity.model';
+import { logger, serializeError } from '../../utils/logger';
 
 /**
  * Records what a signed-in customer did, so recommendations have something to
@@ -92,11 +93,10 @@ export function record(input: RecordInput): void {
   void write(input).catch((error: unknown) => {
     // Logged once, for an operator. The customer never learns that the store
     // keeps activity at all, let alone that a write failed.
-    console.warn(
-      `[activity] could not record ${input.event}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+    logger.warn('activity_record_failed', {
+      eventType: input.event,
+      error: serializeError(error),
+    });
   });
 }
 

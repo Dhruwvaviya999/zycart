@@ -18,6 +18,7 @@ import {
 } from '../../models/notification-delivery.model';
 import { User } from '../../models/user.model';
 import { AppError } from '../../utils/AppError';
+import { logger, serializeError } from '../../utils/logger';
 import { escapeRegex } from '../../validators/common';
 import type { AdminNotificationQuery } from '../../validators/notification.validator';
 import { startOfDaysAgo } from '../admin/audit.service';
@@ -135,10 +136,11 @@ export class NotificationOutbox {
       try {
         await deliverAutomatically(env, id);
       } catch (error) {
-        console.error(
-          `[notifications] delivery ${String(id)} failed unexpectedly:`,
-          error instanceof Error ? error.message : error,
-        );
+        logger.error('notification_failed', {
+          reason: 'unexpected',
+          notificationId: String(id),
+          error: serializeError(error, { stack: true }),
+        });
       }
     }
 
@@ -475,6 +477,27 @@ async function attemptDelivery(
 
   if (!claimed) return { result: 'NOT_ELIGIBLE' };
 
+  /**
+   * DEBUG, not INFO.
+   *
+   * A claim is one half of a pair — every claim is followed by a `sent` or a
+   * `failed` within the same call, and the outcome carries the same fields. At
+   * INFO it would double the volume of the notification log to say nothing the
+   * next line does not. It earns its place during an incident, where a claim
+   * with no outcome after it is the signature of a process that died mid-send
+   * and the one thing that identifies which message it was.
+   *
+   * The recipient is not here, and is not anywhere: the id and the event say
+   * which message this is, and the delivery row holds the address for anyone
+   * with a reason to look.
+   */
+  logger.debug('notification_claimed', {
+    notificationId: String(id),
+    eventType: claimed.event,
+    attempt: claimed.attempts,
+    mode: options.mode,
+  });
+
   if (!claimed.recipientEmail) {
     const reason = 'There is no address on this delivery to send to.';
     await recordFailure(id, reason, { terminal: true, permanent: true }, '');
@@ -538,6 +561,16 @@ async function attemptDelivery(
       },
     );
 
+    logger.info('notification_sent', {
+      notificationId: String(id),
+      eventType: claimed.event,
+      attempt: claimed.attempts,
+      provider: provider.name,
+      // Says out loud that the mock provider delivered nothing, on the line
+      // that would otherwise read as a successful send.
+      delivered: provider.name !== 'mock',
+    });
+
     return { result: 'SENT' };
   } catch (error) {
     const permanent = error instanceof EmailDeliveryError ? error.permanent : false;
@@ -557,11 +590,17 @@ async function attemptDelivery(
     await recordFailure(id, reason, { terminal, permanent }, provider.name);
 
     // The reason is ZyCart's own sentence, never the provider's raw error. See
-    // `classifySmtpError` for why that distinction is a security control.
-    console.error(
-      `[notifications] delivery failed event=${claimed.event} id=${String(id)} ` +
-        `attempt=${String(claimed.attempts)} reason=${reason}`,
-    );
+    // `classifySmtpError` for why that distinction is a security control — an
+    // SMTP rejection frequently quotes the credentials it refused.
+    logger.error('notification_failed', {
+      notificationId: String(id),
+      eventType: claimed.event,
+      attempt: claimed.attempts,
+      provider: provider.name,
+      reason,
+      permanent,
+      terminal,
+    });
 
     return terminal
       ? { result: 'FAILED', reason, permanent }

@@ -402,6 +402,8 @@ Run from the repository root:
 | `pnpm notifications:verify` | Exercise transactional email, the drain and races              |
 | `pnpm notifications:drain`  | Send deliveries a crash stranded (`--help` for options)        |
 | `pnpm payments:verify` | Exercise the Razorpay boundary against a real replica set          |
+| `pnpm health:verify`   | Exercise the health surface against a real MongoDB (read-only)     |
+| `pnpm smoke:deploy`    | Pre-deploy check: production builds, real startup, health, read-only API (`--help`) |
 | `pnpm seed:reviews`    | Populate development with genuine reviews (`--clean` removes them) |
 | `pnpm make-admin`      | Grant, revoke or list administrator access (see below)             |
 
@@ -409,13 +411,15 @@ Backend checks, run from `backend/`:
 
 | Command                     | Effect                                                             |
 | --------------------------- | ------------------------------------------------------------------ |
-| `pnpm test`                 | 519 unit tests — payments, email, drain, AI, discovery, inventory, operations, returns; no database |
+| `pnpm test`                 | 656 unit tests — logging, health, smoke, payments, email, drain, AI, discovery, inventory, operations, returns; no database |
 | `pnpm ai:verify`            | 43 checks of every AI tool against a real MongoDB                  |
 | `pnpm discovery:verify`     | 63 checks of search, similarity and recommendations                |
 | `pnpm inventory:verify`     | 48 checks of stock adjustment, concurrency and the ledger          |
 | `pnpm returns:verify`       | 61 checks of returns, shipments, refunds and races                 |
 | `pnpm notifications:verify` | 152 checks of email, idempotency, the drain and concurrency        |
 | `pnpm payments:verify`      | 98 checks of signatures, deduplication, finalisation and refunds   |
+| `pnpm health:verify`        | 20 checks of readiness, disclosure and the database probe          |
+| `pnpm smoke:deploy`         | Ten deployment stages against real production builds               |
 
 Every verify script creates its own records under a reserved prefix
 (`ZYCART-AI-TEST-`, `ZYCART-P11-`, `ZYCART-P12-`, `ZYCART-P13-`, `ZYCART-P14-`,
@@ -427,6 +431,35 @@ they drive real domain transitions and those raise customer email.
 `payments:verify` makes **no live gateway call**: it signs its own webhook
 payloads with a secret generated in-process, and hands payment finalisation a
 stubbed gateway. No money moves and nothing leaves the machine.
+
+`health:verify` is the only one that creates nothing at all. It issues a single
+`ping`, reads no documents and writes nothing, so it is safe to point at any
+database including production.
+
+### Before deploying
+
+```bash
+pnpm smoke:deploy
+```
+
+Ten stages: configuration, typecheck, lint, clean, backend build, frontend
+build, server startup, health, and the read-only catalogue endpoints. It builds
+both applications the way a deployment builds them and starts the compiled
+`dist/server.js` on port 5055 — not the configured `PORT`, so a running
+`pnpm dev` is neither disturbed nor mistaken for the build under test.
+
+It answers one question: **can this exact production build start, reach its
+database and serve the catalogue?** It does not place an order, move stock,
+send an email, drain a notification, take a payment, issue a refund or write
+anything to the database, and it never terminates a process it did not start.
+A busy port is a clear failure, not an obstacle to clear.
+
+`--dry-run` validates configuration alone and says so; `--skip-frontend` skips
+`next build` and the summary names what it did not check. Exit code 0 means
+every stage that ran passed, 1 means one did not. `pnpm smoke:deploy --help`
+documents all of it, including what it deliberately does not do.
+
+See [docs/phase-16.md](docs/phase-16.md).
 
 Per application:
 
@@ -441,6 +474,8 @@ Per application:
 | `backend/`  | `pnpm notifications:drain` | Send deliveries a crash stranded (`--help` for options) |
 | `backend/`  | `pnpm notifications:verify` | Phase 14/15 checks against a real replica set |
 | `backend/`  | `pnpm payments:verify` | Payment and webhook checks against a real replica set |
+| `backend/`  | `pnpm health:verify`  | Health and readiness checks against a real MongoDB |
+| `backend/`  | `pnpm smoke:deploy`   | Pre-deploy check against real production builds |
 | `backend/`  | `pnpm returns:verify` | Phase 13 checks against a real replica set |
 | `frontend/` | `pnpm dev`            | Next.js dev server                   |
 | `frontend/` | `pnpm build`          | Production build                     |
@@ -457,7 +492,10 @@ Per application:
 | `PORT`                    | No       | `5000`                  | API port                                                                    |
 | `NODE_ENV`                | No       | `development`           | development, test, or production                                            |
 | `MONGODB_URI`             | **Yes**  | none                    | Mongoose connection string                                                  |
-| `CLIENT_URL`              | No       | `http://localhost:3000` | Origin allowed by CORS                                                      |
+| `CLIENT_URL`              | No       | `http://localhost:3000` | Origin allowed by CORS, and the origin every email link is built from       |
+| `LOG_LEVEL`               | No       | `info`                  | `debug`, `info`, `warn` or `error`. Redaction is identical at every level   |
+| `LOG_FORMAT`              | No       | JSON in production, text elsewhere | `json` or `text`. Identical fields; only the punctuation differs |
+| `SLOW_REQUEST_MS`         | No       | `1000`                  | Above this, a completed request is logged at WARN rather than INFO          |
 | `JWT_SECRET`              | **Yes**  | none                    | Signing key for session tokens; 32+ characters                              |
 | `JWT_EXPIRES_IN`          | No       | `7d`                    | Session lifetime, e.g. `12h` or `7d`                                        |
 | `RAZORPAY_KEY_ID`         | Group\*  | none                    | Razorpay key id, `rzp_test_…` or `rzp_live_…`                               |
@@ -534,25 +572,66 @@ Base path: `/api`
 
 ### `GET /api/health`
 
-Liveness check. Reports non-sensitive runtime information only.
+Readiness check. Unauthenticated, and safe to be: every field is a fixed enum
+value or a fact a customer can already observe. It carries no connection
+string, host, credential, key id, file path or stack trace.
 
-**Response `200`**
+**Response `200` — the API can serve**
 
 ```json
 {
   "success": true,
   "message": "API is healthy",
   "data": {
-    "environment": "development",
-    "uptimeSeconds": 12,
-    "database": "connected",
-    "timestamp": "2026-09-18T10:00:00.000Z"
+    "status": "ok",
+    "service": "zycart-api",
+    "version": "1.0.0",
+    "environment": "production",
+    "uptimeSeconds": 4821,
+    "timestamp": "2026-09-20T17:17:12.836Z",
+    "checks": {
+      "database": "ok",
+      "email": "configured",
+      "payments": "configured",
+      "ai": "configured"
+    }
   }
 }
 ```
 
-`data.database` is one of `connected`, `connecting`, `disconnecting`,
-`disconnected`, or `unknown`.
+**Response `503` — the API is running and cannot serve**
+
+Identical shape, with `status: "unavailable"` and `checks.database:
+"unavailable"`. `uptimeSeconds` is still present, because it is how a reader
+tells a restart loop from an outage.
+
+| Field | Values |
+| ----- | ------ |
+| `status` | `ok` (HTTP 200), `unavailable` (HTTP 503) |
+| `checks.database` | `ok`, `unavailable` — a real `ping`, bounded at 2 seconds |
+| `checks.email` | `configured`, `mock` — `mock` records messages and delivers nothing. No SMTP connection is opened |
+| `checks.payments` | `configured`, `not_configured` — no request reaches Razorpay |
+| `checks.ai` | `configured`, `disabled`, `not_configured` |
+| `version` | From the API's manifest, or `null`. Never invented |
+
+**Only the database decides `status`.** The other three report configuration,
+which `loadEnv` validated at boot and which cannot break at run time — and
+"not configured" is frequently correct. A cash-on-delivery store has no gateway
+and is not degraded; a development machine runs mock mail and is not broken. A
+readiness endpoint that returned 503 for either would be removed from the load
+balancer within a week.
+
+Whether a deployment is *permitted* to run that way is a different question,
+asked by `pnpm smoke:deploy` before the deploy happens.
+
+Every response, on every endpoint, carries a correlation header:
+
+```
+X-Request-Id: z_zCVF3AbJ03r-9o
+```
+
+Send one and it is echoed back if it matches `^[A-Za-z0-9_.:-]{8,64}$`;
+anything else is replaced with a generated id rather than rejected.
 
 ### Authentication and accounts
 
@@ -919,11 +998,19 @@ Every error returns the same shape.
 ```json
 {
   "success": false,
-  "message": "Internal server error"
+  "message": "Internal server error",
+  "requestId": "z_zCVF3AbJ03r-9o"
 }
 ```
 
-Internal details are logged server-side and never returned to the client.
+Internal details are logged server-side and never returned to the client. The
+`requestId` is an opaque reference to this one request — it appears in the
+`X-Request-Id` header of every response and in every log line the request
+produced, so a customer can quote it and an operator can find the record that
+explains it.
+
+It is sent on `5xx` only. A validation failure already says what to fix, and an
+incident reference beside it would only be alarming.
 
 ---
 
@@ -979,6 +1066,23 @@ deduplication, payment finalisation and refund settlement — gained direct test
 including concurrent duplicates against a real replica set; and a delivery
 abandoned mid-send is now reported everywhere rather than sitting unnoticed,
 with recovery left to a person because whether it was sent is genuinely unknown.
+Phase 16 made the whole of it observable and deployable. Every log line is now a
+JSON record with a name from a closed list, written to stdout and nowhere else —
+no file, no database and no remote sink, so diagnostics do not share a failure
+domain with the thing being diagnosed — and everything written passes through a
+redactor that removes credentials by field name, by registered value and by
+shape, so a connection string quoted back by a driver or an `Authorization`
+header hidden inside somebody else's error object cannot reach a log. Every
+request carries an opaque correlation id, returned in a header, quoted in a 5xx
+response and stamped on every line the request caused, including the ones
+written four calls deep in a service. `GET /api/health` answers readiness rather
+than liveness: it makes a real bounded round trip to MongoDB and answers 503
+when it cannot, while reporting mail, payment and assistant configuration as
+states without judging them, because a cash-only store is not a degraded one.
+And `pnpm smoke:deploy` answers the question asked immediately before every
+deployment — it builds both applications the way a deployment does, starts the
+compiled entrypoint, and checks health and the public catalogue, while placing
+no order, sending no email, taking no payment and writing nothing at all.
 
 Later phases can build on that foundation: a shipping-provider integration behind
 the shipment domain Phase 13 modelled, SMS and in-app notification beside the

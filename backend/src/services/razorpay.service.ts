@@ -2,6 +2,7 @@ import Razorpay from 'razorpay';
 import type { Env, RazorpayConfig } from '../config/env';
 import { razorpayConfig } from '../config/env';
 import { AppError } from '../utils/AppError';
+import { logger } from '../utils/logger';
 import { rupeesToPaise } from '../utils/money';
 import {
   verifyCheckoutSignature,
@@ -75,7 +76,9 @@ function gatewayFailure(operation: string, error: unknown, customerMessage: stri
         (error as { message?: string }).message)
       : undefined;
 
-  console.error(`[payment] razorpay ${operation} failed${description ? `: ${description}` : ''}`);
+  // The gateway's own description, never its response object: that carries
+  // the request it echoes back, key id included.
+  logger.error('payment_gateway_failed', { operation, detail: description ?? undefined });
 
   return new AppError(customerMessage, 502);
 }
@@ -117,7 +120,11 @@ export async function createOrder(
       notes: params.notes,
     });
 
-    console.info(`[payment] razorpay order created ${order.id} for receipt ${params.receipt}`);
+    logger.info('payment_gateway_order_created', {
+      razorpayOrderId: order.id,
+      receipt: params.receipt,
+      amountInPaise: Number(order.amount),
+    });
 
     return {
       id: order.id,
@@ -305,9 +312,13 @@ export async function refundPayment(
       notes: { reason: params.reason, receipt: params.receipt, ...(params.notes ?? {}) },
     });
 
-    console.info(
-      `[payment] refund ${refund.id} initiated for payment ${params.razorpayPaymentId} (${refund.status})`,
-    );
+    logger.info('refund_initiated', {
+      reason: 'requested',
+      refundId: refund.id,
+      razorpayPaymentId: params.razorpayPaymentId,
+      status: refund.status,
+      amountInPaise: Number(refund.amount),
+    });
 
     return { id: refund.id, status: refund.status, amountInPaise: Number(refund.amount) };
   } catch (error) {

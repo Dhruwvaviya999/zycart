@@ -11,6 +11,7 @@ import {
 } from '../ai/search/query-interpreter';
 import type { AiProvider } from '../ai/provider';
 import { classifyQuery } from './query-classifier';
+import { logger } from '../../utils/logger';
 
 /**
  * Smart search: read the sentence, then let the store do the searching.
@@ -242,10 +243,25 @@ export async function smartSearch(
   // number reported here and the number on the results page cannot disagree.
   const total = await countProducts(toProductQuery(filters));
 
-  console.info(
-    `[search] "${query.slice(0, 60)}" kind=${classification.kind} (${classification.reason}) ` +
-      `source=${source} interpreted=[${interpreted.join(',')}] total=${String(total)}`,
-  );
+  /**
+   * DEBUG, because the query is the customer's own words.
+   *
+   * What a shopper typed is theirs, and a store that writes every search into
+   * an operational log at INFO has built a browsing history it never said it
+   * was keeping. The *shape* of the search — how it was classified, which
+   * filters came out, how many results — is ZyCart's own and stays at INFO.
+   * The text itself is behind DEBUG, bounded in length, and scrubbed by the
+   * logger before it is written.
+   */
+  logger.info('search_completed', {
+    kind: classification.kind,
+    classifiedBy: classification.reason,
+    source,
+    interpreted,
+    total,
+  });
+
+  logger.debug('search_completed', { query: query.slice(0, 120) });
 
   return {
     query,

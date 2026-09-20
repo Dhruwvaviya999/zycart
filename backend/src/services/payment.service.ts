@@ -6,6 +6,7 @@ import { ReturnRequest } from '../models/return.model';
 import { User } from '../models/user.model';
 import { WebhookEvent } from '../models/webhook-event.model';
 import { AppError } from '../utils/AppError';
+import { logger, serializeError } from '../utils/logger';
 import { paiseMatchRupees, rupeesToPaise } from '../utils/money';
 import * as razorpay from './razorpay.service';
 import {
@@ -127,23 +128,37 @@ function assertPaymentMatchesOrder(
       order.payment.supersededRazorpayOrderIds.includes(payment.orderId));
 
   if (!belongsToThisOrder) {
-    console.warn(
-      `[payment] rejected ${payment.id}: gateway order ${payment.orderId} is not attached to order ${order.orderNumber}`,
-    );
+    logger.warn('payment_rejected', {
+      reason: 'gateway_order_mismatch',
+      razorpayPaymentId: payment.id,
+      razorpayOrderId: payment.orderId,
+      orderNumber: order.orderNumber,
+    });
     throw new AppError('We could not match this payment to your order.', 409);
   }
 
   if (payment.currency !== razorpay.CURRENCY) {
-    console.warn(
-      `[payment] rejected ${payment.id}: currency ${payment.currency} on order ${order.orderNumber}`,
-    );
+    logger.warn('payment_rejected', {
+      reason: 'currency_mismatch',
+      razorpayPaymentId: payment.id,
+      currency: payment.currency,
+      expectedCurrency: razorpay.CURRENCY,
+      orderNumber: order.orderNumber,
+    });
     throw new AppError('We could not confirm this payment. Please contact support.', 409);
   }
 
   if (!paiseMatchRupees(payment.amountInPaise, order.pricing.total)) {
-    console.warn(
-      `[payment] rejected ${payment.id}: ${payment.amountInPaise} paise against an order of ${order.pricing.total} rupees (${order.orderNumber})`,
-    );
+    // The amounts are numbers, not interpolated text, so a reader can compare
+    // them without parsing a sentence - and this is the line that proves a
+    // ₹1 payment was refused for a ₹5,300 order.
+    logger.warn('payment_rejected', {
+      reason: 'amount_mismatch',
+      razorpayPaymentId: payment.id,
+      paidPaise: payment.amountInPaise,
+      orderTotalRupees: order.pricing.total,
+      orderNumber: order.orderNumber,
+    });
     throw new AppError('We could not confirm this payment. Please contact support.', 409);
   }
 }
@@ -240,9 +255,11 @@ async function refundUnfulfillablePayment(
     return { outcome: 'REFUNDED_UNFULFILLABLE', order: current ?? order };
   }
 
-  console.warn(
-    `[payment] order ${claimed.orderNumber} paid but unfulfillable; refunding payment ${razorpayPaymentId}`,
-  );
+  logger.warn('refund_initiated', {
+    reason: 'unfulfillable',
+    orderNumber: claimed.orderNumber,
+    razorpayPaymentId,
+  });
 
   try {
     const refund = await gateway.refundPaymentInFull(env, {
@@ -280,10 +297,15 @@ async function refundUnfulfillablePayment(
   } catch (error) {
     // The order stays REFUND_PENDING, which is exactly what it is: owed a
     // refund that has not been issued. Nothing here pretends otherwise.
-    console.error(
-      `[payment] AUTOMATIC REFUND FAILED for order ${claimed.orderNumber}, payment ${razorpayPaymentId} - needs manual action`,
-      error instanceof Error ? error.message : error,
-    );
+    logger.error('refund_failed', {
+      reason: 'gateway_refused',
+      orderNumber: claimed.orderNumber,
+      razorpayPaymentId,
+      // The field an alert should fire on. The order stays REFUND_PENDING,
+      // which is a debt nobody has been told about until somebody looks.
+      needsManualAction: true,
+      error: serializeError(error, { stack: true }),
+    });
 
     return { outcome: 'REFUNDED_UNFULFILLABLE', order: claimed };
   }
@@ -438,9 +460,11 @@ export async function finalizeSuccessfulPayment(
   }
 
   if (result.outcome === 'FINALIZED') {
-    console.info(
-      `[payment] order ${result.order.orderNumber} confirmed by payment ${payment.id} (${payment.method ?? 'unknown method'})`,
-    );
+    logger.info('payment_finalized', {
+      orderNumber: result.order.orderNumber,
+      razorpayPaymentId: payment.id,
+      method: payment.method ?? 'unknown',
+    });
   }
 
   return result;
@@ -474,7 +498,7 @@ async function recordPaymentFailure(
   );
 
   if (updated) {
-    console.info(`[payment] order ${updated.orderNumber} payment marked failed`);
+    logger.info('payment_marked_failed', { orderNumber: updated.orderNumber });
   }
 
   return updated ?? order;
@@ -663,7 +687,7 @@ export async function verifyClientPayment(
   userId: string,
   input: VerificationInput,
 ): Promise<VerificationResult> {
-  console.info(`[payment] verification attempted for gateway order ${input.razorpayOrderId}`);
+  logger.info('payment_verification_attempted', { razorpayOrderId: input.razorpayOrderId });
 
   const order = await findOrderByGatewayOrderId(input.razorpayOrderId, userId);
 
@@ -678,9 +702,11 @@ export async function verifyClientPayment(
   });
 
   if (!signatureValid) {
-    console.warn(
-      `[payment] INVALID SIGNATURE on order ${order.orderNumber} for gateway order ${input.razorpayOrderId}`,
-    );
+    logger.warn('payment_rejected', {
+      reason: 'invalid_signature',
+      orderNumber: order.orderNumber,
+      razorpayOrderId: input.razorpayOrderId,
+    });
     throw new AppError('We could not verify this payment.', 400);
   }
 
@@ -775,7 +801,10 @@ export async function handleWebhookEvent(
   raw: { rawBody: Buffer; signature: string; eventId: string },
 ): Promise<WebhookResult> {
   if (!razorpay.verifyWebhook(env, { rawBody: raw.rawBody, signature: raw.signature })) {
-    console.warn('[payment] webhook rejected: signature mismatch');
+    // No event id, no event type and no body: nothing in an unverified
+    // request has been established as true, and logging any of it would let a
+    // stranger write chosen fields into ZyCart's log by POSTing to a public URL.
+    logger.warn('payment_webhook_rejected', { reason: 'invalid_signature' });
     throw new AppError('Invalid webhook signature', 400);
   }
 
@@ -783,11 +812,16 @@ export async function handleWebhookEvent(
   try {
     envelope = webhookEnvelopeSchema.parse(JSON.parse(raw.rawBody.toString('utf8')));
   } catch {
-    console.warn('[payment] webhook rejected: unexpected payload shape');
+    logger.warn('payment_webhook_rejected', { reason: 'unsupported_payload' });
     throw new AppError('Unsupported webhook payload', 400);
   }
 
-  console.info(`[payment] webhook received ${envelope.event} (event ${raw.eventId})`);
+  // Past the signature check, so the event id and type are Razorpay's words
+  // rather than a stranger's, and safe to record.
+  logger.info('payment_webhook_received', {
+    eventType: envelope.event,
+    eventId: raw.eventId,
+  });
 
   let claim: InstanceType<typeof WebhookEvent>;
   try {
@@ -798,7 +832,10 @@ export async function handleWebhookEvent(
 
     if (!duplicate) throw error;
 
-    console.info(`[payment] webhook ${raw.eventId} already handled, ignoring duplicate`);
+    logger.info('payment_webhook_duplicate', {
+      eventType: envelope.event,
+      eventId: raw.eventId,
+    });
     return { duplicate: true, event: envelope.event, outcome: 'DUPLICATE' };
   }
 
@@ -868,7 +905,10 @@ async function dispatchWebhook(env: Env, envelope: WebhookEnvelope): Promise<Dis
   if (!order) {
     // Another application sharing the same Razorpay account, or a test event
     // fired from the dashboard. Acknowledged, not an error.
-    console.info(`[payment] webhook for unknown gateway order ${gatewayOrderId}, ignoring`);
+    logger.info('payment_webhook_ignored', {
+      reason: 'unknown_order',
+      razorpayOrderId: gatewayOrderId,
+    });
     return { handled: false, outcome: 'UNKNOWN_ORDER', razorpayOrderId: gatewayOrderId };
   }
 
@@ -897,9 +937,12 @@ async function dispatchWebhook(env: Env, envelope: WebhookEnvelope): Promise<Dis
          * transient and is rethrown, so Razorpay does retry it.
          */
         if (error instanceof AppError && error.statusCode >= 400 && error.statusCode < 500) {
-          console.warn(
-            `[payment] webhook for order ${order.orderNumber} rejected permanently: ${error.message}`,
-          );
+          logger.warn('payment_webhook_rejected', {
+            reason: 'permanent',
+            orderNumber: order.orderNumber,
+            statusCode: error.statusCode,
+            detail: error.message,
+          });
           return { handled: false, outcome: 'REJECTED', ...base };
         }
 
@@ -977,7 +1020,11 @@ async function dispatchRefundWebhook(env: Env, envelope: WebhookEnvelope): Promi
       actor: null,
     });
 
-    console.info(`[payment] refund ${refund.id} for return ${request.returnNumber}: ${outcome}`);
+    logger.info('refund_processed', {
+      refundId: refund.id,
+      returnNumber: request.returnNumber,
+      outcome,
+    });
 
     return { handled: true, outcome: `RETURN_REFUND_${outcome}`, razorpayPaymentId: refund.payment_id ?? null };
   }
@@ -985,7 +1032,7 @@ async function dispatchRefundWebhook(env: Env, envelope: WebhookEnvelope): Promi
   const order = await Order.findOne({ 'payment.refundId': refund.id });
 
   if (!order) {
-    console.info(`[payment] refund webhook for unknown refund ${refund.id}, ignoring`);
+    logger.info('payment_webhook_ignored', { reason: 'unknown_refund', refundId: refund.id });
     return { handled: false, outcome: 'UNKNOWN_REFUND' };
   }
 
@@ -1002,9 +1049,12 @@ async function dispatchRefundWebhook(env: Env, envelope: WebhookEnvelope): Promi
   // is the truthful description of an order that is owed money it has not been
   // sent. The operations panel already surfaces that, and marking it anything
   // else would hide a debt.
-  console.error(
-    `[payment] AUTOMATIC REFUND ${refund.id} FAILED for order ${order.orderNumber} - needs manual action`,
-  );
+  logger.error('refund_failed', {
+    reason: 'gateway_reported_failed',
+    refundId: refund.id,
+    orderNumber: order.orderNumber,
+    needsManualAction: true,
+  });
 
   return { handled: true, outcome: 'ORDER_REFUND_FAILED', orderId: order._id };
 }

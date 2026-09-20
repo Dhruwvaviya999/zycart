@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AI_LIMITS } from '../../../config/ai';
 import { SORT_KEYS } from '../../../validators/product.validator';
 import { AiProviderError, type AiProvider, type AiToolSchema } from '../provider';
+import { logger, serializeError } from '../../../utils/logger';
 
 /**
  * Turns a sentence into catalogue filters.
@@ -293,11 +294,12 @@ export async function interpretSearchQuery(
     const parsed = interpretationSchema.safeParse(raw);
 
     if (!parsed.success) {
-      console.warn(
-        `[search] interpretation rejected: ${parsed.error.issues
-          .map((issue) => `${issue.path.join('.') || 'root'} ${issue.message}`)
-          .join('; ')}`,
-      );
+      logger.warn('search_interpretation_failed', {
+        reason: 'schema_rejected',
+        // Paths only. The issues carry the values the model produced, and
+        // those are derived from a customer's own sentence.
+        paths: parsed.error.issues.map((issue) => issue.path.join('.') || 'root'),
+      });
       return null;
     }
 
@@ -305,9 +307,16 @@ export async function interpretSearchQuery(
     return isEmpty(normalised) ? null : normalised;
   } catch (error) {
     if (error instanceof AiProviderError) {
-      console.warn(`[search] interpretation unavailable (${error.kind}): ${error.message}`);
+      logger.warn('search_interpretation_failed', {
+        reason: 'provider_unavailable',
+        kind: error.kind,
+        detail: error.message,
+      });
     } else {
-      console.error('[search] interpretation failed:', error);
+      logger.error('search_interpretation_failed', {
+        reason: 'unexpected',
+        error: serializeError(error, { stack: true }),
+      });
     }
     return null;
   }

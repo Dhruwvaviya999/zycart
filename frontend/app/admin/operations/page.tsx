@@ -1,13 +1,25 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight, CheckCircle2, Mail, Siren } from 'lucide-react';
-import { AdminEmpty, AdminError, AdminPageHeader, StatusBadge } from '@/components/admin/admin-ui';
+import {
+  AdminEmpty,
+  AdminError,
+  AdminPageHeader,
+  StatusBadge,
+  type BadgeTone,
+} from '@/components/admin/admin-ui';
 import { attentionTone, humanise, orderStatusTone } from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
-import { getCommunicationSummary, getOperations, getOrders } from '@/services/admin.service';
+import {
+  getCommunicationSummary,
+  getOperations,
+  getOrders,
+  getSystemHealth,
+} from '@/services/admin.service';
 import { getSessionCookie } from '@/lib/server-auth';
 import { formatDateTime, formatPrice } from '@/lib/format';
 import type { AdminOrderRow, CommunicationSummary, OperationsSummary } from '@/types/admin';
+import type { HealthData } from '@/types/api';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,13 +44,18 @@ export const metadata: Metadata = { title: 'Needs attention' };
 export default async function AdminOperationsPage() {
   const cookie = await getSessionCookie();
 
-  const [summary, queue, communication] = await Promise.all([
+  const [summary, queue, communication, health] = await Promise.all([
     getOperations({ cookie }).catch((error: unknown) => ({ error })),
     // Independent: the list renders even if the counts fail, and vice versa.
     getOrders({ attention: true, limit: 20, sort: 'oldest' }, { cookie }).catch(() => null),
     // Three indexed counts. Independent again, so a failure here costs the
     // communication line and nothing else on the page.
     getCommunicationSummary({ cookie }).catch(() => null),
+    // Independent for a reason that is not symmetry: if the API cannot reach
+    // its database then every call above has already failed, and this is the
+    // one that would explain why. It must not be able to take the page down
+    // with it.
+    getSystemHealth().catch(() => null),
   ]);
 
   const header = (
@@ -91,6 +108,8 @@ export default async function AdminOperationsPage() {
           ))}
         </section>
       )}
+
+      <SystemHealth health={health} />
 
       <PostPurchase exceptions={summary.postPurchase} />
 
@@ -145,6 +164,139 @@ export default async function AdminOperationsPage() {
         </section>
       )}
     </>
+  );
+}
+
+/**
+ * What the API says about itself.
+ *
+ * ## Why this is four rows and not a dashboard
+ *
+ * Because four rows is all the truth there is. `GET /api/health` reports one
+ * runtime fact - whether the database answers - and three configuration states
+ * that were decided at boot and cannot change while the process runs. Charting
+ * them, polling them or giving them a page would imply a resolution this data
+ * does not have. ZyCart has no metrics store, and a monitoring console built on
+ * four enum values would be one that lies by implication.
+ *
+ * ## Why it is always shown
+ *
+ * Unlike the communication line below, which appears only when something is
+ * wrong. The difference is that a *missing* health section is
+ * indistinguishable from a healthy one, and the question an operator brings to
+ * this page during an incident is "is it me, or is it the system?". That
+ * question needs an answer even when the answer is "everything is fine".
+ *
+ * ## Refreshing
+ *
+ * By reloading the page. There is no polling, no interval and no socket: these
+ * values change at the speed of a deployment, and a connection held open to
+ * watch four enum values would cost more than it could ever report.
+ *
+ * ## Safety
+ *
+ * Every value here comes from the public health endpoint, which carries no
+ * host, no credential, no path and no stack. There is deliberately no
+ * admin-only configuration endpoint behind this section; see `getSystemHealth`.
+ */
+function SystemHealth({ health }: { health: HealthData | null }) {
+  if (!health) {
+    return (
+      <section aria-label="System health" className="mt-4">
+        <h2 className="text-small mb-3 font-semibold">System</h2>
+        <AdminError message="The API did not answer its own health check. The figures above may be stale." />
+      </section>
+    );
+  }
+
+  /**
+   * Words first, colour second.
+   *
+   * Every row reads correctly with no colour at all - "Healthy", "Mock" with
+   * the sentence beneath it - because a status conveyed only by a green or
+   * amber badge is one a colour-blind operator cannot read, and one that
+   * disappears entirely in a printed incident report.
+   */
+  const rows: { label: string; value: string; tone: BadgeTone; note?: string }[] = [
+    {
+      label: 'Database',
+      value: health.checks.database === 'ok' ? 'Healthy' : 'Unreachable',
+      tone: health.checks.database === 'ok' ? 'success' : 'danger',
+      note:
+        health.checks.database === 'ok'
+          ? undefined
+          : 'The API cannot reach MongoDB. Nothing on this page can be trusted until it can.',
+    },
+    {
+      label: 'Email',
+      value: health.checks.email === 'configured' ? 'Configured' : 'Mock',
+      tone: health.checks.email === 'configured' ? 'success' : 'warning',
+      note:
+        health.checks.email === 'configured'
+          ? undefined
+          : 'Messages are recorded and nothing is delivered to a customer.',
+    },
+    {
+      label: 'Payments',
+      value: health.checks.payments === 'configured' ? 'Configured' : 'Not configured',
+      tone: health.checks.payments === 'configured' ? 'success' : 'neutral',
+      note:
+        health.checks.payments === 'configured'
+          ? undefined
+          : 'Checkout offers cash on delivery only.',
+    },
+    {
+      label: 'Assistant',
+      value:
+        health.checks.ai === 'configured'
+          ? 'Configured'
+          : health.checks.ai === 'disabled'
+            ? 'Turned off'
+            : 'Not configured',
+      tone: health.checks.ai === 'not_configured' ? 'warning' : 'neutral',
+      note:
+        health.checks.ai === 'not_configured'
+          ? 'The assistant is enabled but has no provider key, so it answers every request as unavailable.'
+          : undefined,
+    },
+  ];
+
+  return (
+    <section aria-label="System health" className="mt-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h2 className="text-small font-semibold">System</h2>
+        <p className="text-caption text-muted-foreground">
+          {health.service}
+          {health.version ? ` ${health.version}` : ''} · {health.environment} · checked{' '}
+          {formatDateTime(health.timestamp)}
+        </p>
+      </div>
+
+      {health.status !== 'ok' && (
+        <p
+          role="status"
+          className="text-caption mb-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-pretty text-destructive"
+        >
+          The API is running but reports that it is not ready to serve requests.
+        </p>
+      )}
+
+      <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-xl border border-border bg-surface/40 p-4">
+            <div className="flex items-start justify-between gap-2">
+              <dt className="text-small font-semibold">{row.label}</dt>
+              <dd>
+                <StatusBadge tone={row.tone}>{row.value}</StatusBadge>
+              </dd>
+            </div>
+            {row.note && (
+              <p className="text-caption mt-1.5 text-pretty text-muted-foreground">{row.note}</p>
+            )}
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 

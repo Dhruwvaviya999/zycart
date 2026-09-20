@@ -2,6 +2,7 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 import { connectDatabase } from '../config/database';
 import { loadEnv } from '../config/env';
+import { configureObservability } from '../config/logging';
 import { emailConfig } from '../config/notifications';
 import { drainNotifications } from '../services/notifications/drain';
 import {
@@ -69,6 +70,16 @@ async function main(): Promise<void> {
   }
 
   const env = loadEnv();
+
+  /**
+   * So the records this run's dependencies emit — `database_connected`, and
+   * `notification_stale` when there is something stuck — are formatted for
+   * whoever is reading the cron log, rather than appearing as JSON in the
+   * middle of a report. It also registers this process's credentials with the
+   * redactor, which matters more here than anywhere: a drain talks to an SMTP
+   * server, and an SMTP rejection frequently quotes the credentials back.
+   */
+  configureObservability(env);
 
   await connectDatabase(env.MONGODB_URI);
 

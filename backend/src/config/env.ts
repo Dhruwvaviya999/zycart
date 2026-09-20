@@ -36,6 +36,40 @@ const envSchema = z
       }, 'must be an absolute http:// or https:// address, for example https://zycart.example')
       .default('http://localhost:3000'),
 
+    /**
+     * Observability (Phase 16). None of it is a credential, and none of it
+     * changes what ZyCart does — only what it says about what it did.
+     *
+     * `LOG_LEVEL` is the one an operator reaches for during an incident.
+     * `debug` adds per-request health checks and provider detail; it is not a
+     * secret-revealing mode, because there is no such mode: redaction runs
+     * identically at every level.
+     */
+    LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+
+    /**
+     * Left undefined on purpose, exactly as `AI_MODEL` is. The right default
+     * differs by environment — JSON where something parses it, aligned text
+     * where a person reads it — and a single literal here would force one of
+     * those two to be wrong. `resolveLogFormat` decides it.
+     */
+    LOG_FORMAT: z.enum(['json', 'text']).optional(),
+
+    /**
+     * When a request stops being ordinary.
+     *
+     * One threshold, in one place, read by the request logger and by nothing
+     * else. Above it a completed request is logged at WARN rather than INFO —
+     * the request still succeeded, and the log still says so; it is the
+     * duration that is being reported, not a failure.
+     *
+     * A second below the default is already slow for this catalogue. The floor
+     * of 50ms exists because a threshold lower than that would mark every cold
+     * database round-trip as an anomaly and train an operator to ignore the
+     * warning.
+     */
+    SLOW_REQUEST_MS: z.coerce.number().int().min(50).max(60_000).default(1_000),
+
     // Authentication is always on from Phase 4, so the secret is required. A short
     // one is worse than no auth at all, hence the length floor rather than min(1).
     JWT_SECRET: z

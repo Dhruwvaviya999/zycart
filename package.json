@@ -20,6 +20,8 @@
     "notifications:verify": "pnpm --filter zycart-backend notifications:verify",
     "notifications:drain": "pnpm --filter zycart-backend notifications:drain",
     "payments:verify": "pnpm --filter zycart-backend payments:verify",
+    "health:verify": "pnpm --filter zycart-backend health:verify",
+    "smoke:deploy": "pnpm --filter zycart-backend smoke:deploy",
     "seed:reviews": "pnpm --filter zycart-backend seed:reviews",
     "make-admin": "pnpm --filter zycart-backend make-admin",
     "lint": "pnpm -r lint",

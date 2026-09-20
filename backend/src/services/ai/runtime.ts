@@ -1,6 +1,7 @@
 import { aiConfig, type AiConfig } from '../../config/ai';
 import type { Env } from '../../config/env';
 import { AppError } from '../../utils/AppError';
+import { logger, serializeError } from '../../utils/logger';
 import { createAnthropicProvider } from './anthropic.provider';
 import { createGeminiProvider } from './gemini.provider';
 import { createMockProvider } from './mock.provider';
@@ -54,7 +55,10 @@ export function getAiProvider(env: Env): AiProvider {
     // A failed construction is not cached, or the process would answer every
     // later request from the same broken attempt.
     cached = null;
-    console.error('[ai] provider could not be created:', error);
+    logger.error('ai_provider_failed', {
+      kind: 'construction',
+      error: serializeError(error, { stack: true }),
+    });
     throw new AppError('The shopping assistant is not available right now.', 503);
   }
 }

@@ -20,6 +20,7 @@ import {
 import { AppError } from '../../utils/AppError';
 import { escapeRegex } from '../../validators/common';
 import type { AdjustStockInput, AdminInventoryQuery } from '../../validators/inventory.validator';
+import { logger } from '../../utils/logger';
 import { recordAudit, startOfDaysAgo, type AuditActor } from '../admin/audit.service';
 
 /**
@@ -326,6 +327,30 @@ export async function adjustStock(
     });
 
     if (!result) throw new AppError('Could not adjust stock', 500);
+
+    /**
+     * Logged **after** the transaction commits, not inside it.
+     *
+     * A line written inside the transaction would claim a movement that a
+     * later abort then undid — and a log that reports stock changes which did
+     * not happen is worse than no log, because it is the record somebody
+     * reconciles against.
+     *
+     * This is a diagnostic, not the record. The record is the audit row and
+     * the inventory movement written above, both of which survive a restart
+     * and neither of which this replaces. See `docs/phase-16.md`.
+     */
+    logger.info('inventory_adjusted', {
+      productId: result.productId,
+      sku: result.sku,
+      actorId: actor.id,
+      delta: result.quantityChange,
+      quantityBefore: result.quantityBefore,
+      quantityAfter: result.quantityAfter,
+      reason,
+      stockState: result.stockState,
+    });
+
     return result;
   } finally {
     await session.endSession();
@@ -487,6 +512,13 @@ export async function restockFromReturn(
     restocked += line.quantity;
   }
 
+  logger.info('inventory_restocked', {
+    reference: params.reference.label,
+    actorId: params.actor.id,
+    lines: params.lines.length,
+    units: restocked,
+  });
+
   return restocked;
 }
 
@@ -533,6 +565,13 @@ export async function setThreshold(
         to: describe(lowStockThreshold),
       },
     ],
+  });
+
+  logger.info('inventory_threshold_changed', {
+    productId: String(before._id),
+    actorId: actor.id,
+    from: before.lowStockThreshold ?? null,
+    to: lowStockThreshold,
   });
 
   return {

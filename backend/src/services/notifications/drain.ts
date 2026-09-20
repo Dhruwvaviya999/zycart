@@ -1,5 +1,6 @@
 import type { Types } from 'mongoose';
-import { emailConfig } from '../../config/notifications';
+import { emailConfig, STALE_SENDING_MS } from '../../config/notifications';
+import { logger } from '../../utils/logger';
 import type { Env } from '../../config/env';
 import { NotificationDelivery } from '../../models/notification-delivery.model';
 import { deliverForDrain, eligibleForDrain, staleSendingBefore } from './notification.service';
@@ -121,10 +122,44 @@ const emptySummary = (options: DrainOptions, provider: string): DrainSummary => 
  * with no way to find out.
  */
 async function countStale(now: Date): Promise<number> {
-  return NotificationDelivery.countDocuments({
+  const before = staleSendingBefore(now);
+
+  const count = await NotificationDelivery.countDocuments({
     status: 'SENDING',
-    lastAttemptAt: { $lt: staleSendingBefore(now) },
+    lastAttemptAt: { $lt: before },
   });
+
+  /**
+   * Logged only when there is something to say.
+   *
+   * A `notification_stale` line every five minutes reporting zero is how an
+   * operator learns to filter the event out, and then misses the one run that
+   * reports four. The oldest age is included because "three stale" and "three
+   * stale, the oldest from six days ago" call for different responses.
+   *
+   * No recipient, no subject, no address — an id is enough to open the row in
+   * the admin console, which is where the decision is actually made.
+   */
+  if (count > 0) {
+    const oldest = await NotificationDelivery.findOne({
+      status: 'SENDING',
+      lastAttemptAt: { $lt: before },
+    })
+      .sort({ lastAttemptAt: 1 })
+      .select('_id lastAttemptAt')
+      .lean<{ _id: Types.ObjectId; lastAttemptAt?: Date }>();
+
+    logger.warn('notification_stale', {
+      count,
+      staleAfterMs: STALE_SENDING_MS,
+      oldestId: oldest ? String(oldest._id) : undefined,
+      oldestAgeMs: oldest?.lastAttemptAt
+        ? now.getTime() - oldest.lastAttemptAt.getTime()
+        : undefined,
+    });
+  }
+
+  return count;
 }
 
 /**
