@@ -38,7 +38,8 @@ pair a cross-site API would force on it.
     "backend": {
       "root": "backend/",
       "framework": "express",
-      "entrypoint": "src/server.ts"
+      "entrypoint": "src/server.ts",
+      "buildCommand": "echo 'No tsc build: the Express runtime compiles src/server.ts itself.'"
     }
   },
   "rewrites": [
@@ -81,6 +82,32 @@ depend on `BACKEND_URL` during `next build`; every page that reads the API is
 already `force-dynamic`, so nothing does. And bindings are **not available in
 middleware**, which is why `frontend/proxy.ts` only inspects a cookie and never
 calls the API.
+
+### Why the backend's build command does nothing
+
+`backend/package.json` has a `build` script — `tsc -p tsconfig.json` — and a
+`main` of `dist/server.js`. Both are correct for running the API on an ordinary
+server, and both are actively harmful here.
+
+Left alone, Vercel runs that script, finds `dist/`, and roots the function
+there. The result is a bundle whose top level is the compiled `app.js` and
+`server.js` and nothing else: `backend/node_modules` is one directory *above*
+the root, so it is not in the bundle, and the first line of the first request
+fails with
+
+```
+Cannot find module 'cookie-parser'
+Require stack:
+- /var/task/app.js
+```
+
+which names one dependency but means all of them.
+
+The Express runtime compiles TypeScript itself, from `entrypoint`, with the
+service rooted at `backend/` where `node_modules` actually is. The no-op
+`buildCommand` is what keeps `tsc` out of the way so it can. `pnpm build` is
+still the right thing to run locally and on any non-Vercel host — it is only
+this deployment target that must not use it.
 
 ## Before you start
 
@@ -198,6 +225,7 @@ Work down this list; it is ordered by how often each one is the answer.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `Cannot find module '<any dependency>'`, require stack `/var/task/app.js` | The function was rooted at `backend/dist/`, which has no `node_modules` | Keep the no-op `buildCommand` on the backend service. See [Why the backend's build command does nothing](#why-the-backends-build-command-does-nothing). |
 | Every `/api/*` route returns 500 | `loadEnv()` threw at import | Vercel → Logs, filtered to the backend service. The thrown message names each offending variable. |
 | Every `/api/*` route times out | Atlas is refusing Vercel's IP | Allow `0.0.0.0/0` in Atlas Network Access. |
 | `/api/*` returns Vercel's 404 page | The rewrite never matched, or the service did not build | Check the build log lists **both** services. Confirm Services Beta is enabled on the account. |

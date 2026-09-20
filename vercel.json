@@ -16,7 +16,8 @@
     "backend": {
       "root": "backend/",
       "framework": "express",
-      "entrypoint": "src/server.ts"
+      "entrypoint": "src/server.ts",
+      "buildCommand": "echo 'No tsc build: the Express runtime compiles src/server.ts itself.'"
     }
   },
   "rewrites": [
