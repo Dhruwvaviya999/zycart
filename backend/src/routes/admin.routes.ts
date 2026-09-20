@@ -2,7 +2,9 @@ import { Router } from 'express';
 import * as controller from '../controllers/admin.controller';
 import * as fulfillment from '../controllers/fulfillment.controller';
 import * as operations from '../controllers/inventory.controller';
+import * as notifications from '../controllers/notification.controller';
 import { requireAuth } from '../middleware/auth.middleware';
+import { rateLimit } from '../middleware/rateLimit.middleware';
 import { requireRole } from '../middleware/role.middleware';
 import { asyncHandler } from '../utils/asyncHandler';
 
@@ -155,6 +157,55 @@ adminRouter.get('/admin/inventory/:id', asyncHandler(operations.getInventoryItem
 adminRouter.get('/admin/inventory/:id/movements', asyncHandler(operations.listProductMovements));
 adminRouter.post('/admin/inventory/:id/adjust', asyncHandler(operations.adjustStock));
 adminRouter.patch('/admin/inventory/:id/threshold', asyncHandler(operations.setThreshold));
+
+/* Communication --------------------------------------------------- */
+
+/**
+ * The transactional email console.
+ *
+ * Read-only, apart from the retry. There is deliberately no endpoint here that
+ * takes a recipient, a subject or a template — a transactional system that
+ * exposes one stops being a transactional system and becomes a mail relay with
+ * an admin login on it.
+ */
+adminRouter.get('/admin/notifications', asyncHandler(notifications.listNotifications));
+
+// Declared before `:id`, which would otherwise match "summary" as an id — the
+// same trap `/admin/returns/summary` and `/admin/inventory/summary` had to
+// avoid.
+adminRouter.get(
+  '/admin/notifications/summary',
+  asyncHandler(notifications.getCommunicationSummary),
+);
+
+adminRouter.get('/admin/notifications/:id', asyncHandler(notifications.getNotification));
+
+/**
+ * Attempts one message again.
+ *
+ * ## Why this one route carries a rate limit when no other admin route does
+ *
+ * Every other admin endpoint writes to ZyCart's own database, where the damage
+ * a loop could do is bounded by the schema. This one causes traffic to somebody
+ * else's mail server, under the store's sending reputation — and a held-down
+ * key, a stuck retry in a browser tab or a script would be indistinguishable
+ * from a store deciding to hammer its provider. Thirty attempts a minute is far
+ * more than an operator working a queue by hand will ever need and far less
+ * than enough to get a sending domain rate-limited.
+ *
+ * Counted per administrator rather than per IP, so two people in one office are
+ * two allowances.
+ */
+adminRouter.post(
+  '/admin/notifications/:id/retry',
+  rateLimit({
+    windowMs: 60_000,
+    max: 30,
+    keyBy: (req) => `notification-retry:${req.user?.id ?? req.ip ?? 'unknown'}`,
+    message: 'Too many retry attempts. Wait a moment before trying again.',
+  }),
+  asyncHandler(notifications.retryNotification),
+);
 
 /* Operations ------------------------------------------------------ */
 

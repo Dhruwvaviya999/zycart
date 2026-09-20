@@ -742,6 +742,7 @@ export const AUDIT_ACTIONS = [
   'RETURN_RECEIVED',
   'RETURN_REFUND_INITIATED',
   'RETURN_REFUND_COMPLETED',
+  'NOTIFICATION_RETRIED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -762,6 +763,7 @@ export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   RETURN_RECEIVED: 'Return received',
   RETURN_REFUND_INITIATED: 'Refund started',
   RETURN_REFUND_COMPLETED: 'Refund completed',
+  NOTIFICATION_RETRIED: 'Email retried',
 };
 
 /** Must match `AUDIT_ENTITIES` in the backend's audit-log model. */
@@ -772,6 +774,7 @@ export const AUDIT_ENTITIES = [
   'CUSTOMER',
   'SHIPMENT',
   'RETURN',
+  'NOTIFICATION',
 ] as const;
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number];
 
@@ -801,5 +804,98 @@ export interface AuditQuery {
   action?: AuditAction;
   entityType?: AuditEntity;
   actor?: string;
+  period?: 'today' | '7d' | '30d' | 'all';
+}
+
+/* ---------------------------------------------------------------- */
+/* Transactional communication (Phase 14)                            */
+/* ---------------------------------------------------------------- */
+
+/** Must match `NOTIFICATION_EVENTS` in the backend's delivery model. */
+export const NOTIFICATION_EVENTS = [
+  'ORDER_SHIPPED',
+  'ORDER_DELIVERED',
+  'RETURN_APPROVED',
+  'REFUND_COMPLETED',
+] as const;
+export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
+
+/**
+ * How each event reads to a person.
+ *
+ * `REFUND_COMPLETED` rather than "Refund completed email" — the column is
+ * already headed Event, and repeating the word in every cell is noise.
+ */
+export const NOTIFICATION_EVENT_LABEL: Record<NotificationEvent, string> = {
+  ORDER_SHIPPED: 'Order shipped',
+  ORDER_DELIVERED: 'Order delivered',
+  RETURN_APPROVED: 'Return approved',
+  REFUND_COMPLETED: 'Refund completed',
+};
+
+/** Must match `DELIVERY_STATUSES`. There is deliberately no DELIVERED. */
+export const DELIVERY_STATUSES = ['PENDING', 'SENDING', 'SENT', 'FAILED'] as const;
+export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+export const DELIVERY_STATUS_LABEL: Record<DeliveryStatus, string> = {
+  PENDING: 'Pending',
+  SENDING: 'Sending',
+  // "Sent" means the provider accepted it, and the detail page says so in
+  // words. It is not a claim that the message arrived.
+  SENT: 'Sent',
+  FAILED: 'Failed',
+};
+
+export interface NotificationRow {
+  id: string;
+  event: NotificationEvent;
+  entityType: 'ORDER' | 'RETURN';
+  entityLabel: string;
+  orderNumber: string;
+  customer: { name: string; email: string };
+  subject: string;
+  status: DeliveryStatus;
+  attempts: number;
+  createdAt: string;
+  lastAttemptAt: string | null;
+  sentAt: string | null;
+  /** ZyCart's own sentence about the last failure. Never a raw provider error. */
+  failureReason: string;
+}
+
+export interface NotificationDetail extends NotificationRow {
+  template: string;
+  templateVersion: number;
+  /** `mock` or `smtp`, as recorded at send time. Empty before the first attempt. */
+  provider: string;
+  providerMessageId: string | null;
+  failureKind: 'TEMPORARY' | 'PERMANENT' | null;
+  /** Decided on the server, so the button is only offered when it would work. */
+  canRetry: boolean;
+  retryBlockedReason: string;
+  staleSending: boolean;
+}
+
+export interface NotificationRetryResult {
+  delivery: NotificationDetail;
+  sent: boolean;
+  message: string;
+}
+
+export interface CommunicationSummary {
+  pending: number;
+  failed: number;
+  sentToday: number;
+  /** The transport in use, so "124 sent today" can be read correctly. */
+  provider: string;
+  checkedAt: string;
+}
+
+export interface NotificationQuery {
+  page?: number;
+  limit?: number;
+  status?: DeliveryStatus;
+  event?: NotificationEvent;
+  search?: string;
   period?: 'today' | '7d' | '30d' | 'all';
 }

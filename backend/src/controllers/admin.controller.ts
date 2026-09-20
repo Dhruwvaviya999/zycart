@@ -191,7 +191,13 @@ export async function updateOrderStatus(req: Request, res: Response): Promise<vo
 
   res.json({
     success: true,
-    data: await adminOrderService.updateStatus(orderRef(req), status, requireActor(req), note),
+    data: await adminOrderService.updateStatus(
+      req.env,
+      orderRef(req),
+      status,
+      requireActor(req),
+      note,
+    ),
   });
 }
 

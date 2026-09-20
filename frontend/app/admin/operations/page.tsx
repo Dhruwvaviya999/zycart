@@ -1,13 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowRight, CheckCircle2, Siren } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Mail, Siren } from 'lucide-react';
 import { AdminEmpty, AdminError, AdminPageHeader, StatusBadge } from '@/components/admin/admin-ui';
 import { attentionTone, humanise, orderStatusTone } from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
-import { getOperations, getOrders } from '@/services/admin.service';
+import { getCommunicationSummary, getOperations, getOrders } from '@/services/admin.service';
 import { getSessionCookie } from '@/lib/server-auth';
 import { formatDateTime, formatPrice } from '@/lib/format';
-import type { AdminOrderRow, OperationsSummary } from '@/types/admin';
+import type { AdminOrderRow, CommunicationSummary, OperationsSummary } from '@/types/admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,10 +32,13 @@ export const metadata: Metadata = { title: 'Needs attention' };
 export default async function AdminOperationsPage() {
   const cookie = await getSessionCookie();
 
-  const [summary, queue] = await Promise.all([
+  const [summary, queue, communication] = await Promise.all([
     getOperations({ cookie }).catch((error: unknown) => ({ error })),
     // Independent: the list renders even if the counts fail, and vice versa.
     getOrders({ attention: true, limit: 20, sort: 'oldest' }, { cookie }).catch(() => null),
+    // Three indexed counts. Independent again, so a failure here costs the
+    // communication line and nothing else on the page.
+    getCommunicationSummary({ cookie }).catch(() => null),
   ]);
 
   const header = (
@@ -91,6 +94,8 @@ export default async function AdminOperationsPage() {
 
       <PostPurchase exceptions={summary.postPurchase} />
 
+      <Communication summary={communication} />
+
       <QueueDepth queue={summary.queue} />
 
       {!clear && (
@@ -140,6 +145,59 @@ export default async function AdminOperationsPage() {
         </section>
       )}
     </>
+  );
+}
+
+/**
+ * Transactional email that needs a person.
+ *
+ * ## Why this is one restrained line and not a dashboard
+ *
+ * Email is infrastructure. An operator opening "Needs attention" is asking
+ * about orders, returns and money; communication belongs here only when it has
+ * gone wrong, which is why this renders **nothing at all** when nothing is
+ * failing or waiting. A permanent row reading "0 failed" would be one more
+ * thing to scroll past on the screen that exists to remove things to scroll
+ * past — and the notifications page carries the full picture for anyone who
+ * wants it.
+ *
+ * "Sent today" is deliberately absent. It is a statistic, not a task, and this
+ * page is a task list.
+ */
+function Communication({ summary }: { summary: CommunicationSummary | null }) {
+  if (!summary) return null;
+  if (summary.failed === 0 && summary.pending === 0) return null;
+
+  const parts: string[] = [];
+  if (summary.failed > 0) parts.push(`${summary.failed.toLocaleString('en-IN')} failed`);
+  if (summary.pending > 0) parts.push(`${summary.pending.toLocaleString('en-IN')} waiting to send`);
+
+  return (
+    <section aria-label="Communication" className="mt-4">
+      <h2 className="text-small mb-3 font-semibold">Communication</h2>
+
+      <Link
+        href={
+          summary.failed > 0 ? '/admin/notifications?status=FAILED' : '/admin/notifications'
+        }
+        className="focus-ring flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface/40 p-4 transition-colors hover:border-foreground/25"
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <Mail className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <div className="min-w-0">
+            <p className="text-small font-semibold">
+              {parts.join(' · ')}
+            </p>
+            <p className="text-caption mt-1 text-pretty text-muted-foreground">
+              {summary.failed > 0
+                ? 'Customers have not been told about these. Nothing will retry them on its own.'
+                : 'Recorded and not yet accepted by the provider.'}
+            </p>
+          </div>
+        </div>
+        <ArrowRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      </Link>
+    </section>
   );
 }
 

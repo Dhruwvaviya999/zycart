@@ -1,3 +1,4 @@
+import type { Env } from '../../config/env';
 import { Order, type OrderStatus, type PaymentStatus } from '../../models/order.model';
 import { ReturnRequest } from '../../models/return.model';
 import { Shipment } from '../../models/shipment.model';
@@ -533,6 +534,7 @@ export interface BulkResult {
  * operator's single click.
  */
 export async function bulkUpdateOrderStatus(
+  env: Env,
   orderNumbers: string[],
   status: OrderStatus,
   actor: AuditActor,
@@ -552,7 +554,7 @@ export async function bulkUpdateOrderStatus(
   // attempted twice, and the second attempt would fail confusingly anyway.
   for (const orderNumber of new Set(orderNumbers)) {
     try {
-      await setOrderStatus(orderNumber, status, note, actor);
+      await setOrderStatus(env, orderNumber, status, note, actor);
       outcomes.push({ orderNumber, ok: true, message: '' });
     } catch (error) {
       outcomes.push({

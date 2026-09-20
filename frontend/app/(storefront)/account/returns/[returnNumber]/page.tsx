@@ -5,6 +5,7 @@ import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft, MessageSquare, Package, Undo2 } from 'lucide-react';
 import { CancelReturnButton } from '@/components/order/cancel-return-button';
 import { ReturnStatusBadge } from '@/components/order/return-status-badge';
+import { EmailedUpdate } from '@/components/order/emailed-update';
 import { ReturnTimeline } from '@/components/order/return-timeline';
 import { ApiError } from '@/services/api';
 import { getReturnByRef } from '@/services/return.service';
@@ -164,6 +165,9 @@ export default async function ReturnDetailPage({
             <div className="mt-4">
               <ReturnTimeline request={request} />
             </div>
+
+            {/* Only when a message was actually accepted by the mail provider. */}
+            <EmailedUpdate at={request.lastUpdateEmailedAt} />
           </section>
         </div>
 

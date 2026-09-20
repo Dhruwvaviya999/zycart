@@ -1,4 +1,5 @@
 import mongoose, { Types } from 'mongoose';
+import type { Env } from '../../config/env';
 import { Order } from '../../models/order.model';
 import {
   DAMAGE_REASONS,
@@ -20,6 +21,12 @@ import type {
 } from '../../validators/return.validator';
 import { recordAudit, type AuditActor } from '../admin/audit.service';
 import { restockFromReturn } from '../inventory/inventory.service';
+import {
+  lastNotifiedAt,
+  NotificationOutbox,
+  queueNotification,
+} from '../notifications/notification.service';
+import { buildReturnApprovedPayload } from '../notifications/payloads';
 import { findOwnedOrder } from '../order.service';
 import {
   humanReturnReason,
@@ -384,8 +391,30 @@ export async function listReturns(userId: string, query: ReturnQuery) {
   };
 }
 
-export async function getReturn(userId: string, returnRef: string): Promise<ReturnView> {
-  return toReturnView((await findOwnedReturn(userId, returnRef)) as never);
+/**
+ * The customer's own view of one return, plus whether we have emailed them.
+ *
+ * `lastUpdateEmailedAt` is on the detail and not on the list rows: one extra
+ * indexed lookup for a page a customer opened deliberately is reasonable, and
+ * twenty of them to render a list is not. Null means nothing has been
+ * successfully sent — including the case where a message failed — because the
+ * page says nothing in all of those, rather than claiming an email is on its
+ * way that a mail server has already refused.
+ */
+export interface ReturnDetailView extends ReturnView {
+  lastUpdateEmailedAt: string | null;
+}
+
+export async function getReturn(
+  userId: string,
+  returnRef: string,
+): Promise<ReturnDetailView> {
+  const request = await findOwnedReturn(userId, returnRef);
+
+  return {
+    ...toReturnView(request as never),
+    lastUpdateEmailedAt: await lastNotifiedAt(request._id),
+  };
 }
 
 /**
@@ -685,11 +714,13 @@ export async function listAdminReturns(query: AdminReturnQuery) {
  * and refuses. Exactly one approval, one audit row, one quantity release.
  */
 export async function approveReturn(
+  env: Env,
   returnRef: string,
   input: ReturnDecisionInput,
   actor: AuditActor,
 ): Promise<AdminReturnDetail> {
   const session = await mongoose.startSession();
+  const outbox = new NotificationOutbox();
 
   try {
     let approvedNumber = '';
@@ -763,8 +794,36 @@ export async function approveReturn(
         session,
       );
 
+      /**
+       * The customer is told, in the same transaction as the decision.
+       *
+       * Raised here rather than in a generic status hook because only *this*
+       * decision is communicated. A rejection is a different message with a
+       * different tone and a different set of things a customer can do next,
+       * and Phase 14 does not send one — so `rejectReturn` raises nothing, and
+       * a rejected return produces no "your return has been approved" mail by
+       * construction rather than by a condition somebody could invert.
+       */
+      await queueNotification(
+        {
+          event: 'RETURN_APPROVED',
+          entityType: 'RETURN',
+          entityId: request._id,
+          entityLabel: request.returnNumber,
+          orderNumber: request.orderNumber,
+          userId: request.user as Types.ObjectId,
+          // Approved quantities, and `resolutionNote` — never `adminNote`.
+          buildPayload: (recipient) =>
+            buildReturnApprovedPayload(recipient.firstName, request),
+        },
+        session,
+        outbox,
+      );
+
       approvedNumber = request.returnNumber;
     });
+
+    await outbox.flush(env);
 
     return getAdminReturn(approvedNumber);
   } finally {

@@ -9,6 +9,7 @@ import {
   Tag,
   Users,
   Layers,
+  Mail,
   RotateCcw,
   type LucideIcon,
 } from 'lucide-react';
@@ -88,6 +89,16 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     label: 'Operations',
     items: [
       { href: '/admin/operations', label: 'Needs attention', icon: Siren },
+      /**
+       * Under Operations rather than beside Orders.
+       *
+       * A delivery record is not a commercial object — nobody works a queue of
+       * emails the way they work a queue of returns. It is infrastructure that
+       * occasionally needs a person, which is exactly what this group is for,
+       * and it sits next to the activity log because both answer "what has the
+       * system been doing?".
+       */
+      { href: '/admin/notifications', label: 'Emails', icon: Mail, nested: true },
       { href: '/admin/activity', label: 'Activity log', icon: Activity },
     ],
   },

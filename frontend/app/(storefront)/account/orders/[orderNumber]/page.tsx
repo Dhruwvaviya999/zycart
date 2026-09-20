@@ -5,6 +5,7 @@ import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft, ArrowRight, MapPin, RotateCcw, Wallet } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { CancelOrderDialog } from '@/components/order/cancel-order-dialog';
+import { EmailedUpdate } from '@/components/order/emailed-update';
 import { ReturnRequestDialog } from '@/components/order/return-request-dialog';
 import { ReturnStatusBadge } from '@/components/order/return-status-badge';
 import { ShipmentCard } from '@/components/order/shipment-card';
@@ -180,6 +181,10 @@ export default async function OrderDetailPage({
             <div className="mt-4">
               <OrderTimeline order={order} />
             </div>
+
+            {/* Only when a message was actually accepted by the mail provider.
+                See `EmailedUpdate` for why that distinction is the point. */}
+            <EmailedUpdate at={order.lastUpdateEmailedAt} />
           </section>
 
           {order.returns.length > 0 && (
@@ -380,7 +385,13 @@ function ReturnsPanel({ order }: { order: Order }) {
   if (!returnability.returnable && order.status !== 'DELIVERED') return null;
 
   return (
-    <div className="rounded-2xl border border-border p-5">
+    /**
+     * The `returns` id is a real anchor with a real user: the "Start a return"
+     * button in the delivered-order email links straight here, so a customer
+     * arrives at the control rather than at the top of the page having to find
+     * it. Renaming it means changing `order-delivered.ts` too.
+     */
+    <div id="returns" className="scroll-mt-24 rounded-2xl border border-border p-5">
       <h3 className="text-small flex items-center gap-2 font-semibold">
         <RotateCcw className="size-4 text-muted-foreground" aria-hidden />
         Returns

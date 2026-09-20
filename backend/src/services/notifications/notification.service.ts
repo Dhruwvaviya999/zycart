@@ -1,0 +1,857 @@
+import mongoose, { Types, type QueryFilter } from 'mongoose';
+import type { Env } from '../../config/env';
+import {
+  appOrigin,
+  appUrl,
+  AUTOMATIC_RETRY_DEADLINE_MS,
+  AUTOMATIC_RETRY_DELAYS_MS,
+  emailConfig,
+  MAX_AUTOMATIC_ATTEMPTS,
+  STALE_SENDING_MS,
+} from '../../config/notifications';
+import {
+  NotificationDelivery,
+  type DeliveryStatus,
+  type NotificationDeliveryDocument,
+  type NotificationEntity,
+  type NotificationEvent,
+} from '../../models/notification-delivery.model';
+import { User } from '../../models/user.model';
+import { AppError } from '../../utils/AppError';
+import { escapeRegex } from '../../validators/common';
+import type { AdminNotificationQuery } from '../../validators/notification.validator';
+import { startOfDaysAgo } from '../admin/audit.service';
+import { EmailDeliveryError, type EmailProvider } from './provider';
+import type { EmailBrand } from './render';
+import { getEmailProvider } from './runtime';
+import { renderNotification, templateFor } from './templates';
+
+/**
+ * What ZyCart tells customers, and whether it managed to.
+ *
+ * ## The one rule everything here serves
+ *
+ * **Email is never the source of truth.** A shipment is shipped because the
+ * shipment document says so, not because a message left the building. So the
+ * shape of every integration in this phase is the same:
+ *
+ *     begin transaction
+ *       change the domain state
+ *       record the intent to communicate      <- this file, `queueNotification`
+ *       write the audit row
+ *     commit
+ *     attempt delivery                        <- this file, `NotificationOutbox.flush`
+ *
+ * The send happens *after* the commit and can fail freely. What it cannot do is
+ * hold a transaction open across a network call to a mail server, and what it
+ * cannot do is take a committed business fact back.
+ *
+ * ## What this guarantees, precisely
+ *
+ * - **One intent per event, exactly once.** The unique index on `key` is the
+ *   whole mechanism. A duplicate webhook, a double-clicked button, a retried
+ *   request and a `withTransaction` retry all resolve to one row.
+ * - **Delivery is idempotent, bounded and retryable.** A send is claimed
+ *   atomically, attempted a bounded number of times, and left in a state an
+ *   operator can see and act on.
+ *
+ * It does **not** guarantee exactly-once delivery of an email, and this phase
+ * does not claim it. SMTP can accept a message and have the acknowledgement
+ * lost on the way back, at which point ZyCart genuinely does not know whether
+ * the message was sent. That is a property of talking to a remote mail system
+ * without provider-side idempotency, not something a better design here would
+ * fix — see `docs/phase-14.md`.
+ */
+
+/** The customer a message is addressed to, resolved from the account. */
+export interface Recipient {
+  email: string;
+  /** For the greeting. Empty when the account has no usable first name. */
+  firstName: string;
+  /** For the To header's display name. */
+  fullName: string;
+}
+
+export interface NotificationIntent {
+  event: NotificationEvent;
+  entityType: NotificationEntity;
+  entityId: Types.ObjectId;
+  /** The reference a customer would quote. Forms half of the idempotency key. */
+  entityLabel: string;
+  /** The order behind a return, so one search finds everything about a sale. */
+  orderNumber: string;
+  userId: Types.ObjectId;
+  /**
+   * How to shape the message, given the recipient this service resolved.
+   *
+   * A function rather than a ready-made payload, because resolving *who* gets a
+   * message is this service's job and not the caller's. There is no parameter
+   * anywhere in this file through which a caller — let alone a browser — can
+   * nominate an address.
+   */
+  buildPayload: (recipient: Recipient) => unknown;
+}
+
+/**
+ * The deliveries created by one business operation, to be attempted after it
+ * commits.
+ *
+ * ## Why a collector rather than sending inline
+ *
+ * `transitionOrderStatus` runs inside somebody else's transaction and has no
+ * business performing network I/O. It drops an id in here instead, and the
+ * entry point that owns the transaction flushes after committing.
+ *
+ * ## Why retries and rollbacks need no special handling
+ *
+ * `withTransaction` may run its callback several times, so the same id can
+ * arrive twice and ids from an aborted attempt can arrive for rows that no
+ * longer exist. Neither matters: ids are de-duplicated by the map, and delivery
+ * begins with an atomic claim that matches nothing for a row that was rolled
+ * back or already claimed. Correctness comes from the claim, not from the
+ * collector being tidy.
+ */
+export class NotificationOutbox {
+  private readonly ids = new Map<string, Types.ObjectId>();
+
+  collect(id: Types.ObjectId | null): void {
+    if (id) this.ids.set(String(id), id);
+  }
+
+  get size(): number {
+    return this.ids.size;
+  }
+
+  /**
+   * Attempts every collected delivery. Never throws.
+   *
+   * A customer must not be told their order could not be marked shipped because
+   * a mail server was unreachable, and an administrator must not see a 500 for
+   * a business operation that succeeded. Failures are recorded on the delivery
+   * rows and logged; the caller's response is unaffected.
+   */
+  async flush(env: Env): Promise<void> {
+    for (const id of this.ids.values()) {
+      try {
+        await deliverAutomatically(env, id);
+      } catch (error) {
+        console.error(
+          `[notifications] delivery ${String(id)} failed unexpectedly:`,
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+
+    this.ids.clear();
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Creating the intent                                               */
+/* ---------------------------------------------------------------- */
+
+/** `ORDER_SHIPPED:ZY10482`. Both halves are server-generated. */
+export function notificationKey(event: NotificationEvent, entityLabel: string): string {
+  return `${event}:${entityLabel}`;
+}
+
+const isDuplicateKey = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && (error as { code?: number }).code === 11000;
+
+/**
+ * The account's address, or nothing.
+ *
+ * Read from `User` and from nowhere else, inside the caller's transaction, at
+ * the moment the intent is created. Three consequences, all deliberate: the
+ * browser cannot choose a recipient, a customer who changes their email
+ * tomorrow does not retroactively change where today's message went, and the
+ * address recorded on the row is the one the message was actually addressed to.
+ *
+ * A deactivated account still receives these. Deactivation stops somebody
+ * signing in; it does not cancel the store's obligation to tell them their
+ * refund has completed.
+ */
+async function resolveRecipient(
+  userId: Types.ObjectId,
+  session: mongoose.ClientSession,
+): Promise<Recipient | null> {
+  const user = await User.findById(userId).select('email firstName lastName').session(session);
+
+  if (!user?.email) return null;
+
+  return {
+    email: user.email,
+    firstName: user.firstName.trim(),
+    fullName: `${user.firstName} ${user.lastName}`.trim(),
+  };
+}
+
+/**
+ * Records that ZyCart owes this customer this message.
+ *
+ * Runs **inside** the caller's transaction, so the intent and the business
+ * change it describes commit together or not at all. Nothing here touches the
+ * network.
+ *
+ * Returns the id of a newly created delivery, or null when one already existed
+ * — which is the ordinary outcome of a duplicate webhook or a re-run of an
+ * operation, and is not an error.
+ */
+export async function queueNotification(
+  intent: NotificationIntent,
+  session: mongoose.ClientSession,
+  outbox?: NotificationOutbox,
+): Promise<Types.ObjectId | null> {
+  const key = notificationKey(intent.event, intent.entityLabel);
+
+  /**
+   * The cheap check first, so the ordinary duplicate — the same event
+   * processed twice in sequence — costs one indexed read and does not disturb
+   * the transaction.
+   *
+   * It is not the guarantee. Two genuinely concurrent transactions can both
+   * find nothing here; the unique index below is what decides between them.
+   */
+  const existing = await NotificationDelivery.findOne({ key }).select('_id').session(session);
+
+  if (existing) return null;
+
+  const recipient = await resolveRecipient(intent.userId, session);
+  const template = templateFor(intent.event);
+
+  /**
+   * Built even when there is no recipient, so the row still says what would
+   * have been sent. A delivery record with no payload would be an operational
+   * dead end: an operator could see that something failed and not what.
+   */
+  const payload = intent.buildPayload(
+    recipient ?? { email: '', firstName: '', fullName: '' },
+  );
+
+  /**
+   * The payload is validated here as well as at send time.
+   *
+   * Catching a malformed payload now means the failure is attached to the
+   * operation that caused it, while the stack still points at the builder that
+   * produced it — rather than surfacing minutes later as a mysterious permanent
+   * failure on the notifications screen.
+   */
+  const subject = template.subject(payload);
+
+  const now = new Date();
+
+  const base = {
+    key,
+    event: intent.event,
+    entityType: intent.entityType,
+    entityId: intent.entityId,
+    entityLabel: intent.entityLabel,
+    orderNumber: intent.orderNumber,
+    user: intent.userId,
+    template: template.name,
+    templateVersion: template.version,
+    payload,
+    subject,
+  };
+
+  /**
+   * An account with no usable address is a permanent failure recorded honestly,
+   * not a thrown error.
+   *
+   * Aborting the transaction would mean a shipment could not be dispatched
+   * because of a problem with a mailbox, which is exactly the coupling this
+   * phase exists to prevent. The row says what happened and the console shows
+   * it.
+   */
+  const document = recipient
+    ? { ...base, recipientEmail: recipient.email, recipientName: recipient.fullName }
+    : {
+        ...base,
+        recipientEmail: '',
+        recipientName: '',
+        status: 'FAILED' as DeliveryStatus,
+        failure: {
+          kind: 'PERMANENT' as const,
+          reason: 'This account has no email address on file, so there is nowhere to send this.',
+          at: now,
+        },
+      };
+
+  try {
+    const [created] = await NotificationDelivery.create([document], { session });
+    if (!created) return null;
+
+    // A row with no recipient is never handed to the outbox: there is nothing
+    // to attempt, and a claim on it would only burn an attempt to fail again.
+    if (recipient) outbox?.collect(created._id);
+
+    return created._id;
+  } catch (error) {
+    /**
+     * Two concurrent transactions reached the insert with the same key and the
+     * unique index refused the second. MongoDB aborts a transaction on a failed
+     * write, so this cannot be swallowed and carried on from — and it should
+     * not be: the business operation that raced is the duplicate, and refusing
+     * it is correct. Reported as the conflict it is rather than as a 500.
+     */
+    if (isDuplicateKey(error)) {
+      throw new AppError(
+        'This update was just recorded by another request. Refresh to see the latest state.',
+        409,
+      );
+    }
+
+    throw error;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Delivery                                                          */
+/* ---------------------------------------------------------------- */
+
+/** The deployment's identity as an email sees it. Configuration only. */
+export function emailBrand(env: Env): EmailBrand {
+  const config = emailConfig(env);
+
+  return {
+    appOrigin: appOrigin(env),
+    // Null unless a real support address is configured; never invented.
+    supportEmail: config.replyTo,
+    accountUrl: appUrl(env, '/account/orders'),
+  };
+}
+
+export type AttemptOutcome =
+  /** The provider accepted the message. */
+  | { result: 'SENT' }
+  /** It failed, and another attempt could still help. */
+  | { result: 'RETRYABLE'; reason: string }
+  /** It failed and will not be retried automatically. */
+  | { result: 'FAILED'; reason: string; permanent: boolean }
+  /** Nothing to do: already sent, already claimed, out of budget, or gone. */
+  | { result: 'NOT_ELIGIBLE' };
+
+/**
+ * One attempt at one message.
+ *
+ * ## The claim is the concurrency control
+ *
+ * Two administrators pressing Retry at the same moment, or a retry racing the
+ * automatic dispatch, both run this. The `findOneAndUpdate` below is atomic:
+ * exactly one caller moves the row into SENDING and gets the document back, and
+ * everybody else is told NOT_ELIGIBLE before a message can be composed, let
+ * alone sent. The attempt counter is incremented by the same update, so it
+ * counts sends actually begun.
+ *
+ * ## Why every subsequent write is conditional on SENDING
+ *
+ * The row is only this caller's while it holds the claim. Writing the outcome
+ * with `status: 'SENDING'` still in the filter means a caller that somehow lost
+ * the claim — a stale reclaim by an operator, say — cannot overwrite the state
+ * the current holder has since written.
+ */
+async function attemptDelivery(
+  env: Env,
+  id: Types.ObjectId,
+  options: { automatic: boolean },
+): Promise<AttemptOutcome> {
+  const now = new Date();
+
+  /**
+   * What may be claimed.
+   *
+   * Automatic dispatch takes PENDING and FAILED rows that still have attempts
+   * left in the budget. A manual retry additionally takes a row stuck in
+   * SENDING long enough that the process holding it must have died — and it is
+   * not bounded by the automatic budget, because a person pressing a button is
+   * not a loop.
+   *
+   * SENT is in neither. A message the provider has accepted is never re-sent by
+   * any path in this file.
+   */
+  const claimable: QueryFilter<NotificationDeliveryDocument> = options.automatic
+    ? {
+        _id: id,
+        status: { $in: ['PENDING', 'FAILED'] },
+        attempts: { $lt: MAX_AUTOMATIC_ATTEMPTS },
+      }
+    : {
+        _id: id,
+        $or: [
+          { status: { $in: ['PENDING', 'FAILED'] } },
+          { status: 'SENDING', lastAttemptAt: { $lt: new Date(now.getTime() - STALE_SENDING_MS) } },
+        ],
+      };
+
+  const claimed = await NotificationDelivery.findOneAndUpdate(
+    claimable,
+    { $set: { status: 'SENDING', lastAttemptAt: now }, $inc: { attempts: 1 } },
+    { returnDocument: 'after' },
+  );
+
+  if (!claimed) return { result: 'NOT_ELIGIBLE' };
+
+  if (!claimed.recipientEmail) {
+    const reason = 'There is no address on this delivery to send to.';
+    await recordFailure(id, reason, { terminal: true, permanent: true }, '');
+    return { result: 'FAILED', reason, permanent: true };
+  }
+
+  let provider: EmailProvider;
+
+  try {
+    provider = getEmailProvider(env);
+  } catch {
+    const reason = 'The email provider is not configured correctly on the server.';
+    await recordFailure(id, reason, { terminal: true, permanent: true }, '');
+    return { result: 'FAILED', reason, permanent: true };
+  }
+
+  let message;
+
+  try {
+    const rendered = renderNotification(claimed.event, claimed.payload, emailBrand(env));
+
+    message = {
+      to: claimed.recipientEmail,
+      toName: claimed.recipientName,
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+      meta: {
+        notificationId: String(claimed._id),
+        event: claimed.event,
+        template: rendered.template,
+      },
+    };
+  } catch {
+    /**
+     * The stored snapshot no longer satisfies its template's schema. Permanent
+     * by definition: retrying re-reads the same snapshot. The message names the
+     * template rather than echoing the validation error, which could otherwise
+     * print payload values into a row an operator's browser will render.
+     */
+    const reason =
+      `The saved message data no longer matches the "${claimed.template}" template ` +
+      `(version ${String(claimed.templateVersion)}), so it cannot be rendered.`;
+
+    await recordFailure(id, reason, { terminal: true, permanent: true }, provider.name);
+    return { result: 'FAILED', reason, permanent: true };
+  }
+
+  try {
+    const { messageId } = await provider.send(message);
+
+    await NotificationDelivery.updateOne(
+      { _id: id, status: 'SENDING' },
+      {
+        $set: {
+          status: 'SENT',
+          sentAt: new Date(),
+          provider: provider.name,
+          providerMessageId: messageId,
+        },
+      },
+    );
+
+    return { result: 'SENT' };
+  } catch (error) {
+    const permanent = error instanceof EmailDeliveryError ? error.permanent : false;
+    const reason =
+      error instanceof EmailDeliveryError
+        ? error.reason
+        : 'The message could not be handed to the email provider.';
+
+    /**
+     * Out of automatic budget counts as failed even for a temporary cause: the
+     * distinction the status carries is "will anything try this again by
+     * itself", and at this point nothing will.
+     */
+    const exhausted = claimed.attempts >= MAX_AUTOMATIC_ATTEMPTS;
+    const terminal = permanent || exhausted;
+
+    await recordFailure(id, reason, { terminal, permanent }, provider.name);
+
+    // The reason is ZyCart's own sentence, never the provider's raw error. See
+    // `classifySmtpError` for why that distinction is a security control.
+    console.error(
+      `[notifications] delivery failed event=${claimed.event} id=${String(id)} ` +
+        `attempt=${String(claimed.attempts)} reason=${reason}`,
+    );
+
+    return terminal
+      ? { result: 'FAILED', reason, permanent }
+      : { result: 'RETRYABLE', reason };
+  }
+}
+
+/**
+ * Writes the outcome of a failed attempt.
+ *
+ * ## Two independent facts, deliberately two parameters
+ *
+ * `terminal` answers "will anything try this again by itself?" and decides the
+ * status: FAILED means nothing will, PENDING means the budget has attempts
+ * left. `permanent` answers "could a further attempt ever succeed?" and decides
+ * the classification.
+ *
+ * They are not the same question, and collapsing them was a real bug: three
+ * connection timeouts exhaust the budget, which is terminal, but the cause is
+ * as temporary as it was on the first attempt. Recording that as PERMANENT made
+ * the console tell an operator a retry was unlikely to help — about a message
+ * that would go out on the next attempt.
+ *
+ * The reason is kept either way, because a delivery that eventually succeeded
+ * after two timeouts is worth knowing about.
+ */
+async function recordFailure(
+  id: Types.ObjectId,
+  reason: string,
+  options: { terminal: boolean; permanent: boolean },
+  provider: string,
+): Promise<void> {
+  await NotificationDelivery.updateOne(
+    { _id: id, status: 'SENDING' },
+    {
+      $set: {
+        status: options.terminal ? 'FAILED' : 'PENDING',
+        failure: {
+          kind: options.permanent ? 'PERMANENT' : 'TEMPORARY',
+          reason: reason.slice(0, 300),
+          at: new Date(),
+        },
+        ...(provider ? { provider } : {}),
+      },
+    },
+  );
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The automatic attempt loop for one message.
+ *
+ * Bounded twice over: by `MAX_AUTOMATIC_ATTEMPTS`, and by a wall-clock deadline
+ * measured from the first attempt. The deadline exists because this runs
+ * between a committed transaction and the HTTP response an administrator is
+ * waiting for — so a mail server that has gone away must cost a few seconds,
+ * not a few minutes.
+ *
+ * Stopping early is not a failure of the design; it is the design. The delivery
+ * is left PENDING with its attempts recorded, visible on the notifications
+ * screen, and retryable by hand. What it must never do is loop.
+ */
+async function deliverAutomatically(env: Env, id: Types.ObjectId): Promise<AttemptOutcome> {
+  const startedAt = Date.now();
+
+  for (let round = 0; round < MAX_AUTOMATIC_ATTEMPTS; round += 1) {
+    const outcome = await attemptDelivery(env, id, { automatic: true });
+
+    if (outcome.result !== 'RETRYABLE') return outcome;
+
+    const delay = AUTOMATIC_RETRY_DELAYS_MS[round];
+    if (delay === undefined) return outcome;
+    if (Date.now() - startedAt + delay > AUTOMATIC_RETRY_DEADLINE_MS) return outcome;
+
+    await sleep(delay);
+  }
+
+  return { result: 'NOT_ELIGIBLE' };
+}
+
+/* ---------------------------------------------------------------- */
+/* Reading, for the console                                          */
+/* ---------------------------------------------------------------- */
+
+export interface NotificationRow {
+  id: string;
+  event: NotificationEvent;
+  entityType: NotificationEntity;
+  entityLabel: string;
+  orderNumber: string;
+  customer: { name: string; email: string };
+  subject: string;
+  status: DeliveryStatus;
+  attempts: number;
+  createdAt: string;
+  lastAttemptAt: string | null;
+  sentAt: string | null;
+  /** Empty until an attempt has been made. Never a credential or a raw error. */
+  failureReason: string;
+}
+
+export interface NotificationDetail extends NotificationRow {
+  template: string;
+  templateVersion: number;
+  /** `mock` or `smtp`, as recorded at send time. Empty before the first attempt. */
+  provider: string;
+  providerMessageId: string | null;
+  failureKind: 'TEMPORARY' | 'PERMANENT' | null;
+  canRetry: boolean;
+  /** Why not, for the operator. Empty when it can. */
+  retryBlockedReason: string;
+  /** True when the claim looks abandoned rather than active. */
+  staleSending: boolean;
+}
+
+type DeliveryLean = {
+  _id: Types.ObjectId;
+  event: NotificationEvent;
+  entityType: NotificationEntity;
+  entityLabel: string;
+  orderNumber?: string;
+  recipientEmail: string;
+  recipientName?: string;
+  subject: string;
+  status: DeliveryStatus;
+  attempts: number;
+  createdAt: Date;
+  lastAttemptAt?: Date | null;
+  sentAt?: Date | null;
+  template: string;
+  templateVersion: number;
+  provider?: string;
+  providerMessageId?: string | null;
+  failure?: { kind: 'TEMPORARY' | 'PERMANENT'; reason: string; at: Date } | null;
+};
+
+function toRow(entry: DeliveryLean): NotificationRow {
+  return {
+    id: String(entry._id),
+    event: entry.event,
+    entityType: entry.entityType,
+    entityLabel: entry.entityLabel,
+    orderNumber: entry.orderNumber ?? '',
+    customer: { name: entry.recipientName ?? '', email: entry.recipientEmail },
+    subject: entry.subject,
+    status: entry.status,
+    attempts: entry.attempts,
+    createdAt: entry.createdAt.toISOString(),
+    lastAttemptAt: entry.lastAttemptAt?.toISOString() ?? null,
+    sentAt: entry.sentAt?.toISOString() ?? null,
+    failureReason: entry.failure?.reason ?? '',
+  };
+}
+
+/**
+ * Whether Retry would do anything, decided on the server.
+ *
+ * The console renders this rather than working it out, exactly as the return
+ * actions render `allowedStatuses` — so the button is offered only when it
+ * would succeed, and the reason is shown when it would not.
+ */
+function retryability(
+  entry: DeliveryLean,
+  now: Date,
+): { canRetry: boolean; reason: string; stale: boolean } {
+  const stale =
+    entry.status === 'SENDING' &&
+    (entry.lastAttemptAt?.getTime() ?? 0) < now.getTime() - STALE_SENDING_MS;
+
+  if (entry.status === 'SENT') {
+    return { canRetry: false, reason: 'This message was already accepted by the provider.', stale };
+  }
+
+  if (entry.status === 'SENDING' && !stale) {
+    return { canRetry: false, reason: 'A send is in progress. Refresh in a moment.', stale };
+  }
+
+  if (!entry.recipientEmail) {
+    return {
+      canRetry: false,
+      reason: 'There is no address on this delivery, so there is nothing to retry.',
+      stale,
+    };
+  }
+
+  return { canRetry: true, reason: '', stale };
+}
+
+function toDetail(entry: DeliveryLean, now: Date = new Date()): NotificationDetail {
+  const { canRetry, reason, stale } = retryability(entry, now);
+
+  return {
+    ...toRow(entry),
+    template: entry.template,
+    templateVersion: entry.templateVersion,
+    provider: entry.provider ?? '',
+    providerMessageId: entry.providerMessageId ?? null,
+    failureKind: entry.failure?.kind ?? null,
+    canRetry,
+    retryBlockedReason: reason,
+    staleSending: stale,
+  };
+}
+
+export async function listNotifications(query: AdminNotificationQuery) {
+  const filter: Record<string, unknown> = {};
+
+  if (query.status) filter.status = query.status;
+  if (query.event) filter.event = query.event;
+
+  if (query.search) {
+    const pattern = new RegExp(escapeRegex(query.search), 'i');
+    // The three things an operator has in front of them when they come looking:
+    // a customer's email, an order number, or a return number.
+    filter.$or = [
+      { entityLabel: pattern },
+      { orderNumber: pattern },
+      { recipientEmail: pattern },
+    ];
+  }
+
+  // Shares `startOfDaysAgo` with the audit and dashboard queries, so "last 7
+  // days" cannot mean two different spans on two admin screens.
+  if (query.period !== 'all') {
+    filter.createdAt = { $gte: startOfDaysAgo(query.period === 'today' ? 1 : query.period === '7d' ? 7 : 30) };
+  }
+
+  const [entries, total] = await Promise.all([
+    NotificationDelivery.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((query.page - 1) * query.limit)
+      .limit(query.limit)
+      .lean<DeliveryLean[]>(),
+    NotificationDelivery.countDocuments(filter),
+  ]);
+
+  return {
+    items: entries.map(toRow),
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / query.limit)),
+    },
+  };
+}
+
+export async function getNotification(id: string): Promise<NotificationDetail> {
+  const entry = await NotificationDelivery.findById(id).lean<DeliveryLean | null>();
+
+  if (!entry) throw new AppError('Notification not found', 404);
+
+  return toDetail(entry);
+}
+
+export interface RetryResult {
+  delivery: NotificationDetail;
+  /** Whether this attempt got the message accepted. */
+  sent: boolean;
+  message: string;
+}
+
+/**
+ * One further attempt, on an administrator's instruction.
+ *
+ * ## What it is not allowed to do
+ *
+ * It sends a message. It does not move an order, a shipment, a return, a
+ * payment or a unit of stock, and it does not create a second delivery record.
+ * The only writes it performs are to this one row's status, attempt count,
+ * provider fields and failure — which is why retrying is a safe thing to leave
+ * in a console.
+ *
+ * ## Two administrators, one send
+ *
+ * Both calls reach `attemptDelivery`, and its atomic claim admits exactly one.
+ * The loser is told the delivery is not in a state that can be retried, which
+ * is the truth, and no second message is composed.
+ */
+export async function retryNotification(env: Env, id: string): Promise<RetryResult> {
+  const before = await NotificationDelivery.findById(id).lean<DeliveryLean | null>();
+
+  if (!before) throw new AppError('Notification not found', 404);
+
+  const { canRetry, reason } = retryability(before, new Date());
+
+  if (!canRetry) throw new AppError(reason, 409);
+
+  const outcome = await attemptDelivery(env, before._id, { automatic: false });
+  const delivery = await getNotification(id);
+
+  if (outcome.result === 'SENT') {
+    return { delivery, sent: true, message: 'Email sent successfully.' };
+  }
+
+  if (outcome.result === 'NOT_ELIGIBLE') {
+    /**
+     * Something changed between the read above and the claim — almost always
+     * another administrator's retry landing first. Not an error: the operator
+     * is shown the current state, which may well now be SENT.
+     */
+    return {
+      delivery,
+      sent: delivery.status === 'SENT',
+      message:
+        delivery.status === 'SENT'
+          ? 'This message has been sent.'
+          : 'This delivery was being handled elsewhere. Refresh to see where it got to.',
+    };
+  }
+
+  return {
+    delivery,
+    sent: false,
+    message:
+      'The email could not be sent. The delivery remains failed and can be retried later.',
+  };
+}
+
+/* ---------------------------------------------------------------- */
+/* Operational summary                                               */
+/* ---------------------------------------------------------------- */
+
+export interface CommunicationSummary {
+  pending: number;
+  failed: number;
+  sentToday: number;
+  /**
+   * The transport this deployment is currently configured with.
+   *
+   * Reported because "124 sent today" means something very different on `mock`
+   * than on `smtp`, and an operator reading the number is entitled to know
+   * which. It is a provider name, never a host, a username or a credential.
+   */
+  provider: string;
+  checkedAt: string;
+}
+
+export async function getCommunicationSummary(env: Env): Promise<CommunicationSummary> {
+  const now = new Date();
+
+  const [pending, failed, sentToday] = await Promise.all([
+    // SENDING is counted with PENDING: from an operator's point of view both
+    // mean "not yet sent", and separating them would put a transient state on
+    // a summary card where it would mostly read zero.
+    NotificationDelivery.countDocuments({ status: { $in: ['PENDING', 'SENDING'] } }),
+    NotificationDelivery.countDocuments({ status: 'FAILED' }),
+    NotificationDelivery.countDocuments({ status: 'SENT', sentAt: { $gte: startOfDaysAgo(1) } }),
+  ]);
+
+  return {
+    pending,
+    failed,
+    sentToday,
+    provider: emailConfig(env).provider,
+    checkedAt: now.toISOString(),
+  };
+}
+
+/**
+ * When ZyCart last successfully emailed this customer about this entity.
+ *
+ * One indexed lookup returning one field, used by the customer's own order and
+ * return pages to say "we emailed you an update" — and only when that is true.
+ * Deliberately not a list: a customer page has no use for delivery history, and
+ * loading one would put an operational subsystem on the critical path of an
+ * ordinary page view.
+ */
+export async function lastNotifiedAt(entityId: Types.ObjectId): Promise<string | null> {
+  const entry = await NotificationDelivery.findOne({ entityId, status: 'SENT' })
+    .sort({ sentAt: -1 })
+    .select('sentAt')
+    .lean<{ sentAt?: Date | null } | null>();
+
+  return entry?.sentAt?.toISOString() ?? null;
+}

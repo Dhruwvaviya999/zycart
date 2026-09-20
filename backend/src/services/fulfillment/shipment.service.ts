@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import type { Env } from '../../config/env';
 import { AuditLog } from '../../models/audit-log.model';
 import type { OrderStatus } from '../../models/order.model';
 import {
@@ -14,6 +15,7 @@ import type {
   UpdateShipmentInput,
 } from '../../validators/shipment.validator';
 import { changed, recordAudit, type AuditActor, type AuditChange } from '../admin/audit.service';
+import { NotificationOutbox } from '../notifications/notification.service';
 import { findOrderByRef, transitionOrderStatus } from '../order.service';
 import { toShipmentView, type ShipmentDoc, type ShipmentView } from './shipment-view';
 
@@ -352,11 +354,19 @@ export async function updateShipment(
  * never gain a `shippedAt` it did not earn.
  */
 export async function advanceShipment(
+  env: Env,
   orderRef: string,
   input: ShipmentStatusInput,
   actor: AuditActor,
 ): Promise<ShipmentView> {
   const session = await mongoose.startSession();
+  /**
+   * Any customer notification this move raises is collected here and attempted
+   * after the commit. Nothing in this transaction talks to a mail server: the
+   * parcel has moved whether or not a message goes out, and holding a
+   * transaction open across SMTP would make the reverse true.
+   */
+  const outbox = new NotificationOutbox();
 
   try {
     let updated: HydratedShipment | undefined;
@@ -411,6 +421,7 @@ export async function advanceShipment(
         await transitionOrderStatus(order, implied as OrderStatus, session, {
           note: input.note,
           actor,
+          outbox,
         });
       }
 
@@ -434,6 +445,9 @@ export async function advanceShipment(
     });
 
     if (!updated) throw new AppError('Could not update the shipment', 500);
+
+    await outbox.flush(env);
+
     return toShipmentView(updated as unknown as ShipmentDoc);
   } finally {
     await session.endSession();

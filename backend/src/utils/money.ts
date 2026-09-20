@@ -102,3 +102,21 @@ export function paiseMatchRupees(paise: unknown, rupees: number): boolean {
     return false;
   }
 }
+
+/**
+ * Rupees as a person reads them: `1299` → `₹1,299`.
+ *
+ * One function, so the server never produces `Rs. 1299` on one screen and
+ * `₹1,299` on another — a difference small enough to pass review and large
+ * enough to make a customer wonder whether two numbers are the same number.
+ * The Indian grouping (`₹1,14,900`, not `₹114,900`) comes from the locale and
+ * matches what the storefront's own `formatPrice` renders.
+ *
+ * Whole rupees only, like every other amount in ZyCart. Anything that is not a
+ * whole, finite, non-negative number would be a bug upstream, and it throws
+ * rather than printing `₹NaN` into an email nobody can recall.
+ */
+export function formatRupees(rupees: number, label = 'amount'): string {
+  assertWholeRupees(rupees, label);
+  return `₹${rupees.toLocaleString('en-IN')}`;
+}

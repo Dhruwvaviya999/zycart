@@ -815,7 +815,7 @@ async function dispatchWebhook(env: Env, envelope: WebhookEnvelope): Promise<Dis
    * close its own loop.
    */
   if (envelope.event === 'refund.processed' || envelope.event === 'refund.failed') {
-    return dispatchRefundWebhook(envelope);
+    return dispatchRefundWebhook(env, envelope);
   }
 
   const gatewayOrderId = payment?.order_id ?? envelope.payload.order?.entity.id ?? null;
@@ -916,7 +916,7 @@ async function dispatchWebhook(env: Env, envelope: WebhookEnvelope): Promise<Dis
  * from the Razorpay dashboard by hand is a real possibility, and 500-ing on it
  * would have Razorpay retry it for days.
  */
-async function dispatchRefundWebhook(envelope: WebhookEnvelope): Promise<DispatchResult> {
+async function dispatchRefundWebhook(env: Env, envelope: WebhookEnvelope): Promise<DispatchResult> {
   const refund = envelope.payload.refund?.entity ?? null;
 
   if (!refund?.id) return { handled: false, outcome: 'NO_REFUND_ID' };
@@ -929,6 +929,7 @@ async function dispatchRefundWebhook(envelope: WebhookEnvelope): Promise<Dispatc
 
   if (request) {
     const outcome = await applyRefundOutcome({
+      env,
       returnId: request._id,
       refundId: refund.id,
       status,

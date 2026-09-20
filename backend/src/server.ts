@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { connectDatabase } from './config/database';
 import { aiConfig, aiUnavailableReason } from './config/ai';
 import { loadEnv, razorpayConfig } from './config/env';
+import { appOrigin, emailConfig } from './config/notifications';
 import { createApp } from './app';
 
 async function bootstrap(): Promise<void> {
@@ -55,6 +56,45 @@ async function bootstrap(): Promise<void> {
       );
       console.warn('  The storefront is unaffected. Set AI_API_KEY in backend/.env to enable it.');
     }
+
+    /**
+     * The mail transport, stated plainly at startup.
+     *
+     * Same rule as Razorpay and the assistant: whether a customer-facing
+     * feature is real must be something an operator reads here, not something
+     * they infer from a support ticket. The provider name, the sender address
+     * and the SMTP host are printed because they are configuration choices an
+     * operator needs to confirm; SMTP_USER and SMTP_PASSWORD are not printed,
+     * here or anywhere else.
+     *
+     * The mock provider is a warning rather than a refusal. A store with no
+     * mail server is a legitimate deployment — post-purchase events are still
+     * recorded, and every delivery row and every admin screen says the
+     * transport was `mock` — whereas refusing to boot the whole shop over an
+     * unconfigured mailbox would take the store down for a subsidiary feature.
+     */
+    const email = emailConfig(env);
+
+    if (email.provider === 'smtp') {
+      console.log(
+        `Transactional email: SMTP via ${email.smtp?.host ?? 'unknown host'}:` +
+          `${String(email.smtp?.port ?? '')} as ${email.fromName} <${email.fromAddress}>`,
+      );
+    } else {
+      console.warn(
+        'Transactional email: mock provider - messages are rendered and recorded, and nothing ' +
+          'is delivered.',
+      );
+      console.warn(
+        '  Set EMAIL_PROVIDER=smtp with SMTP_HOST, SMTP_USER, SMTP_PASSWORD and ' +
+          'EMAIL_FROM_ADDRESS in backend/.env to send real mail.',
+      );
+    }
+
+    // The origin every link in an email is built from. Printed because an email
+    // pointing at localhost is a mistake that is invisible until it is in an
+    // inbox, and printing it is the cheapest possible way to catch it.
+    console.log(`Email links point at: ${appOrigin(env)}`);
   });
 }
 

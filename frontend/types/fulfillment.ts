@@ -246,6 +246,28 @@ export interface ReturnRequest {
   updatedAt: string;
 }
 
+/**
+ * One return, as its own page loads it.
+ *
+ * Separate from `ReturnRequest` because the extra field costs an indexed
+ * lookup, and the server only pays it on the detail endpoint. Creating or
+ * withdrawing a return answers with the plain shape, and this type says so
+ * rather than promising a field those responses do not carry.
+ */
+export interface ReturnRequestDetail extends ReturnRequest {
+  /**
+   * When ZyCart last successfully emailed this customer about this return, or
+   * null.
+   *
+   * Null covers three situations and the page says the same thing in all of
+   * them — nothing: there was nothing worth emailing about, a message is still
+   * waiting to go out, or one failed. Claiming "we've emailed you" for a
+   * message a mail server refused is the one thing this field exists to make
+   * impossible.
+   */
+  lastUpdateEmailedAt: string | null;
+}
+
 export interface ReturnSummary {
   id: string;
   returnNumber: string;

@@ -1,4 +1,5 @@
 import mongoose, { Types } from 'mongoose';
+import type { Env } from '../config/env';
 import { Cart } from '../models/cart.model';
 import {
   CANCELLABLE_STATUSES,
@@ -9,6 +10,7 @@ import {
   type PaymentMethod,
 } from '../models/order.model';
 import { Product } from '../models/product.model';
+import { Shipment } from '../models/shipment.model';
 import { AppError } from '../utils/AppError';
 import { generateOrderNumber } from '../utils/orderNumber';
 import { isObjectId } from '../validators/common';
@@ -19,6 +21,15 @@ import { recordAudit, type AuditActor } from './admin/audit.service';
 import { syncShipmentToOrderStatus } from './fulfillment/shipment-sync';
 import { findOrderShipment, type ShipmentView } from './fulfillment/shipment-view';
 import { recordMovement } from './inventory/inventory.service';
+import {
+  lastNotifiedAt,
+  NotificationOutbox,
+  queueNotification,
+} from './notifications/notification.service';
+import {
+  buildOrderDeliveredPayload,
+  buildOrderShippedPayload,
+} from './notifications/payloads';
 import { returnability, type Returnability } from './returns/return-policy';
 import { listOrderReturns, type ReturnSummary } from './returns/return-view';
 
@@ -539,6 +550,21 @@ export interface OrderDetailWithFulfillment extends OrderDetail {
   shipment: ShipmentView | null;
   returns: ReturnSummary[];
   returnability: Returnability;
+  /**
+   * When ZyCart last successfully emailed this customer about this order, or
+   * null.
+   *
+   * Null covers three different situations on purpose — nothing has happened
+   * worth emailing about, a message is still waiting to go out, and a message
+   * failed — because the page says the same thing in all three: nothing. The
+   * alternative would be telling a customer an email is on its way when a mail
+   * server has already refused it.
+   *
+   * Deliberately one timestamp and not a list. A customer has no use for
+   * delivery history, and loading one would put an operational subsystem on the
+   * critical path of an ordinary page view.
+   */
+  lastUpdateEmailedAt: string | null;
 }
 
 export async function getOrder(
@@ -561,9 +587,12 @@ export async function withFulfillment(
   order: OrderDoc,
   detail: OrderDetail,
 ): Promise<OrderDetailWithFulfillment> {
-  const [shipment, returns] = await Promise.all([
+  const [shipment, returns, lastUpdateEmailedAt] = await Promise.all([
     findOrderShipment(order._id),
     listOrderReturns(order._id),
+    // One indexed lookup returning one field. See the field's own note for why
+    // this is a single timestamp rather than a delivery history.
+    lastNotifiedAt(order._id),
   ]);
 
   return {
@@ -571,6 +600,7 @@ export async function withFulfillment(
     shipment,
     returns,
     returnability: returnability(order),
+    lastUpdateEmailedAt,
   };
 }
 
@@ -750,7 +780,21 @@ export async function transitionOrderStatus(
   order: OrderDoc,
   next: OrderStatus,
   session: mongoose.ClientSession,
-  options: { note?: string; actor?: AuditActor | null } = {},
+  options: {
+    note?: string;
+    actor?: AuditActor | null;
+    /**
+     * Where to put any customer notification this transition raises.
+     *
+     * Optional, and its absence is not a silent loss: the delivery record is
+     * created either way, inside this transaction, and shows up on the
+     * notifications screen as PENDING. What the outbox adds is an attempt
+     * immediately after the caller commits. Callers that hold an `Env` pass
+     * one; the handful that do not leave the message for a deliberate retry
+     * rather than pretending they can send it.
+     */
+    outbox?: NotificationOutbox;
+  } = {},
 ): Promise<void> {
   const { note, actor } = options;
 
@@ -814,6 +858,81 @@ export async function transitionOrderStatus(
       session,
     );
   }
+
+  /**
+   * The customer is told, in the same transaction.
+   *
+   * See `notifyCustomerOfTransition` for why this one place covers both routes
+   * into "this order has shipped", and why an EXCEPTION on a parcel cannot
+   * produce a shipping notice.
+   */
+  await notifyCustomerOfTransition(order, next, session, options.outbox);
+}
+
+/**
+ * Raises the customer notification a status change implies, if any.
+ *
+ * ## Why it hangs off the transition and not off the shipment
+ *
+ * There are two doors into "this order has shipped": advancing the parcel, and
+ * using the order's own fulfilment control. Both end up in
+ * `transitionOrderStatus`, and only there — `syncShipmentToOrderStatus` moves
+ * the parcel when the order leads, and `advanceShipment` calls this function's
+ * caller when the parcel leads. Hooking the transition therefore covers both
+ * doors with one piece of code, including the bulk action, and cannot be
+ * bypassed by a route somebody adds later without also bypassing the order
+ * lifecycle itself.
+ *
+ * ## Why an exception does not send "your order has shipped"
+ *
+ * Every in-transit shipment status implies the order is SHIPPED, so by the time
+ * a parcel can reach EXCEPTION the order already is — and a transition to a
+ * status the order already holds never happens. The notification follows the
+ * business transition, not the parcel's mood.
+ *
+ * ## Why historical orders are silent
+ *
+ * Only a transition happening *now* reaches this code. Nothing scans for orders
+ * that reached SHIPPED last March, and Phase 14 ships no backfill, so no
+ * customer receives mail about a sale they had long since forgotten.
+ */
+async function notifyCustomerOfTransition(
+  order: OrderDoc,
+  next: OrderStatus,
+  session: mongoose.ClientSession,
+  outbox: NotificationOutbox | undefined,
+): Promise<void> {
+  if (next !== 'SHIPPED' && next !== 'DELIVERED') return;
+
+  /**
+   * Read after the parcel has been brought into line, so a carrier and
+   * tracking number attached in this very transaction are in the message.
+   * Null is ordinary — an order can be marked shipped with no parcel record —
+   * and the template then says less rather than inventing a carrier.
+   */
+  const shipment =
+    next === 'SHIPPED'
+      ? await Shipment.findOne({ order: order._id })
+          .select('carrier trackingNumber trackingUrl estimatedDeliveryAt')
+          .session(session)
+      : null;
+
+  await queueNotification(
+    {
+      event: next === 'SHIPPED' ? 'ORDER_SHIPPED' : 'ORDER_DELIVERED',
+      entityType: 'ORDER',
+      entityId: order._id,
+      entityLabel: order.orderNumber,
+      orderNumber: order.orderNumber,
+      userId: order.user as Types.ObjectId,
+      buildPayload: (recipient) =>
+        next === 'SHIPPED'
+          ? buildOrderShippedPayload(recipient.firstName, order, shipment)
+          : buildOrderDeliveredPayload(recipient.firstName, order),
+    },
+    session,
+    outbox,
+  );
 }
 
 /**
@@ -825,23 +944,35 @@ export async function transitionOrderStatus(
  * same rules.
  */
 export async function setOrderStatus(
+  env: Env,
   orderRef: string,
   next: OrderStatus,
   note?: string,
   actor?: AuditActor,
 ): Promise<OrderDetail> {
   const session = await mongoose.startSession();
+  const outbox = new NotificationOutbox();
 
   try {
     let updated: OrderDoc | undefined;
 
     await session.withTransaction(async () => {
       const order = await findOrderByRef(orderRef, session);
-      await transitionOrderStatus(order, next, session, { note, actor });
+      await transitionOrderStatus(order, next, session, { note, actor, outbox });
       updated = order;
     });
 
     if (!updated) throw new AppError('Could not update the order', 500);
+
+    /**
+     * After the commit, never before, and never inside the transaction.
+     *
+     * The order is SHIPPED whatever a mail server does next, and `flush` cannot
+     * throw — an administrator does not get an error for an operation that
+     * succeeded because a message did not.
+     */
+    await outbox.flush(env);
+
     return toDetail(updated);
   } finally {
     await session.endSession();

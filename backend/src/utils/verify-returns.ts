@@ -1,10 +1,12 @@
 import 'dotenv/config';
 import mongoose, { Types } from 'mongoose';
 import { connectDatabase } from '../config/database';
+import { loadEnv } from '../config/env';
 import { AuditLog } from '../models/audit-log.model';
 import { Brand } from '../models/brand.model';
 import { Category } from '../models/category.model';
 import { InventoryMovement } from '../models/inventory-movement.model';
+import { NotificationDelivery } from '../models/notification-delivery.model';
 import { Order } from '../models/order.model';
 import { Product } from '../models/product.model';
 import { ReturnRequest } from '../models/return.model';
@@ -58,6 +60,15 @@ import { AppError } from './AppError';
  *    the gateway-facing half of the refund path is exercised by its unit tests
  *    and by the manual walkthrough recorded in `docs/phase-13.md`, not here.
  */
+
+/**
+ * Phase 14 gave the service entry points an `Env`, because a domain transition
+ * that notifies a customer has to know which mail provider to hand the message
+ * to. Loaded once here; `EMAIL_PROVIDER` defaults to `mock`, so this script
+ * exercises the notification path end to end without a message leaving the
+ * machine.
+ */
+const env = loadEnv();
 
 const SKU_PREFIX = 'ZYCART-P13';
 const SLUG_PREFIX = 'zycart-p13';
@@ -291,6 +302,15 @@ async function removeFixtures(fixtures: Fixtures): Promise<void> {
     ],
   });
   await AuditLog.deleteMany({ actor: { $in: [fixtures.actorId, fixtures.otherActorId] } });
+  /**
+   * Phase 14: the transitions above raise customer notifications, so this
+   * script now creates delivery rows too. Removed by the entities they belong
+   * to — orders this run created, and returns against them — so nothing
+   * belonging to a real customer is matched.
+   */
+  await NotificationDelivery.deleteMany({
+    entityId: { $in: [...fixtures.orderIds, ...returnIds] },
+  });
   await Shipment.deleteMany({ order: { $in: fixtures.orderIds } });
   await ReturnRequest.deleteMany({ order: { $in: fixtures.orderIds } });
   await Order.deleteMany({ _id: { $in: fixtures.orderIds } });
@@ -469,6 +489,7 @@ async function verifyQuantities(fixtures: Fixtures): Promise<void> {
   });
 
   await returns.approveReturn(
+    env,
     third.returnNumber,
     { items: [{ orderItemId: lineId, approvedQuantity: 1 }] },
     fixtures.actor,
@@ -487,6 +508,7 @@ async function verifyQuantities(fixtures: Fixtures): Promise<void> {
         items: [{ orderItemId: lineId, quantity: 1, reason: 'OTHER' }],
       });
       return returns.approveReturn(
+        env,
         another.returnNumber,
         { items: [{ orderItemId: lineId, approvedQuantity: 9 }] },
         fixtures.actor,
@@ -554,8 +576,8 @@ async function verifyConcurrency(fixtures: Fixtures): Promise<void> {
   });
 
   const approvals = await Promise.allSettled([
-    returns.approveReturn(request.returnNumber, {}, fixtures.actor),
-    returns.approveReturn(request.returnNumber, {}, fixtures.otherActor),
+    returns.approveReturn(env, request.returnNumber, {}, fixtures.actor),
+    returns.approveReturn(env, request.returnNumber, {}, fixtures.otherActor),
   ]);
 
   const approved = approvals.filter((result) => result.status === 'fulfilled').length;
@@ -620,7 +642,7 @@ async function verifyInventoryInteraction(fixtures: Fixtures): Promise<void> {
     items: [{ orderItemId: String(damagedOrder.items[0]?._id), quantity: 2, reason: 'DAMAGED' }],
   });
 
-  await returns.approveReturn(damagedReturn.returnNumber, {}, fixtures.actor);
+  await returns.approveReturn(env, damagedReturn.returnNumber, {}, fixtures.actor);
   await returns.receiveReturn(
     damagedReturn.returnNumber,
     { resellable: false, adminNote: 'Both pairs scuffed.' },
@@ -644,7 +666,7 @@ async function verifyInventoryInteraction(fixtures: Fixtures): Promise<void> {
     items: [{ orderItemId: String(goodOrder.items[0]?._id), quantity: 3, reason: 'SIZE_ISSUE' }],
   });
 
-  await returns.approveReturn(goodReturn.returnNumber, {}, fixtures.actor);
+  await returns.approveReturn(env, goodReturn.returnNumber, {}, fixtures.actor);
   const received = await returns.receiveReturn(
     goodReturn.returnNumber,
     { resellable: true },
@@ -723,11 +745,12 @@ async function verifyShipments(fixtures: Fixtures): Promise<void> {
   await refuses(
     'refuses an illegal shipment transition',
     () =>
-      shipments.advanceShipment(order.orderNumber, { status: 'OUT_FOR_DELIVERY' }, fixtures.actor),
+      shipments.advanceShipment(env, order.orderNumber, { status: 'OUT_FOR_DELIVERY' }, fixtures.actor),
     { status: 409, match: /cannot be moved/i },
   );
 
   const shipped = await shipments.advanceShipment(
+    env,
     order.orderNumber,
     { status: 'SHIPPED' },
     fixtures.actor,
@@ -739,13 +762,14 @@ async function verifyShipments(fixtures: Fixtures): Promise<void> {
     (await Order.findById(order._id))?.status === 'SHIPPED',
   );
 
-  await shipments.advanceShipment(order.orderNumber, { status: 'IN_TRANSIT' }, fixtures.actor);
+  await shipments.advanceShipment(env, order.orderNumber, { status: 'IN_TRANSIT' }, fixtures.actor);
   check(
     'in transit leaves the order shipped',
     (await Order.findById(order._id))?.status === 'SHIPPED',
   );
 
   await shipments.advanceShipment(
+    env,
     order.orderNumber,
     { status: 'EXCEPTION', note: 'Nobody home.' },
     fixtures.actor,
@@ -756,6 +780,7 @@ async function verifyShipments(fixtures: Fixtures): Promise<void> {
   );
 
   const delivered = await shipments.advanceShipment(
+    env,
     order.orderNumber,
     { status: 'DELIVERED' },
     fixtures.actor,
@@ -769,7 +794,7 @@ async function verifyShipments(fixtures: Fixtures): Promise<void> {
 
   await refuses(
     'refuses to move a delivered parcel backwards',
-    () => shipments.advanceShipment(order.orderNumber, { status: 'IN_TRANSIT' }, fixtures.actor),
+    () => shipments.advanceShipment(env, order.orderNumber, { status: 'IN_TRANSIT' }, fixtures.actor),
     { status: 409, match: /cannot be moved/i },
   );
 
@@ -781,7 +806,7 @@ async function verifyShipments(fixtures: Fixtures): Promise<void> {
 
   await shipments.createShipment(viaOrder.orderNumber, { carrier: 'Other' }, fixtures.actor);
 
-  await setOrderStatus(viaOrder.orderNumber, 'SHIPPED', undefined, fixtures.actor);
+  await setOrderStatus(env, viaOrder.orderNumber, 'SHIPPED', undefined, fixtures.actor);
 
   const followed = await Shipment.findOne({ order: viaOrder._id });
 
@@ -795,7 +820,7 @@ async function verifyShipments(fixtures: Fixtures): Promise<void> {
   });
 
   await shipments.createShipment(cancelled.orderNumber, {}, fixtures.actor);
-  await setOrderStatus(cancelled.orderNumber, 'CANCELLED', 'Verification', fixtures.actor);
+  await setOrderStatus(env, cancelled.orderNumber, 'CANCELLED', 'Verification', fixtures.actor);
 
   const cancelledParcel = await Shipment.findOne({ order: cancelled._id });
   check('cancelling an order cancels its parcel', cancelledParcel?.status === 'CANCELLED');
@@ -817,7 +842,7 @@ async function verifyRefundGuards(fixtures: Fixtures): Promise<void> {
     items: [{ orderItemId: String(cod.items[0]?._id), quantity: 1, reason: 'CHANGED_MIND' }],
   });
 
-  await returns.approveReturn(codReturn.returnNumber, {}, fixtures.actor);
+  await returns.approveReturn(env, codReturn.returnNumber, {}, fixtures.actor);
   await returns.receiveReturn(codReturn.returnNumber, { resellable: true }, fixtures.actor);
 
   const codDetail = await returns.getAdminReturn(codReturn.returnNumber);
@@ -842,7 +867,7 @@ async function verifyRefundGuards(fixtures: Fixtures): Promise<void> {
     { status: 409, match: /received/i },
   );
 
-  await returns.approveReturn(paidReturn.returnNumber, {}, fixtures.actor);
+  await returns.approveReturn(env, paidReturn.returnNumber, {}, fixtures.actor);
 
   const plan = await returns.getAdminReturn(paidReturn.returnNumber);
   check('a paid order prices the refund from the order snapshot', plan.refundPlan.amount === 1000);

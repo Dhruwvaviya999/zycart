@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import {
+  Mail,
   MessageSquare,
   Package,
   RotateCcw,
@@ -99,6 +100,7 @@ const ENTITY_ICON: Record<AuditEntity, LucideIcon> = {
   CUSTOMER: UserCog,
   SHIPMENT: Truck,
   RETURN: RotateCcw,
+  NOTIFICATION: Mail,
 };
 
 /** Where an entity can still be opened. A deleted product has nowhere to go. */
@@ -123,6 +125,13 @@ function entityHref(entry: AuditLogRow): string | null {
       return entry.entityLabel ? `/admin/orders/${entry.entityLabel}` : null;
     case 'RETURN':
       return `/admin/returns/${entry.entityLabel || entry.entityId}`;
+    /**
+     * A delivery record does have a page of its own, and `entityId` is its id.
+     * `entityLabel` here is the order or return the message was about, so it
+     * cannot stand in for the id the way a shipment's does.
+     */
+    case 'NOTIFICATION':
+      return `/admin/notifications/${entry.entityId}`;
   }
 }
 

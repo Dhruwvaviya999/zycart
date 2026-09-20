@@ -9,15 +9,17 @@ UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
 & wishlist)**, **Phase 6 (checkout & orders)**, **Phase 7 (Razorpay payments)**,
 **Phase 8 (reviews & ratings)**, **Phase 9 (admin console)**, **Phase 10 (AI
 shopping assistant)**, **Phase 11 (AI discovery, smart search &
-recommendations)**, **Phase 12 (admin operations, inventory & fulfilment)** and
-**Phase 13 (shipping, returns & refunds)** — a Next.js storefront backed by a
+recommendations)**, **Phase 12 (admin operations, inventory & fulfilment)**,
+**Phase 13 (shipping, returns & refunds)** and
+**Phase 14 (transactional email)** — a Next.js storefront backed by a
 real MongoDB catalogue, customer accounts, a persistent cart, ordering paid
 either online or on delivery, ratings written only by customers who received what
 they are rating, a console to run the store, a shopping assistant that answers
 from the live catalogue, natural-language search with behaviour-based
 recommendations, an operations console with a full inventory ledger and audit
-trail, and a post-purchase system covering shipment tracking, item-level returns
-and partial refunds, served over an Express + TypeScript API.
+trail, a post-purchase system covering shipment tracking, item-level returns
+and partial refunds, and transactional email that tells customers when those
+things happen, served over an Express + TypeScript API.
 
 Orders can be paid online through Razorpay or settled in cash on delivery, and
 every rating on the site comes from a verified purchase.
@@ -49,6 +51,17 @@ order's prices and issued through the same Razorpay integration Phase 7 built.
 Returned goods do **not** rejoin sellable stock automatically — an operator has
 to say they are resellable, and only then does the Phase 12 ledger record it.
 
+**Customers are told, and email never decides what is true.** From Phase 14 a
+shipped order, a delivered order, an approved return and a completed refund each
+produce a message. The intent to send it is written in the same database
+transaction as the business change that caused it; the send happens afterwards
+and is allowed to fail. So an order is shipped whether or not the mail server
+was reachable, a failed message is visible in the console and retryable with one
+click, and duplicate webhooks, double-clicked buttons and retried requests
+cannot produce a second copy in anybody's inbox. Leave `EMAIL_PROVIDER` at its
+default and messages are composed and recorded but never delivered — everything
+else in the store works exactly as before.
+
 **ZyCart discovers as well as it answers.** Typing a sentence into the shop's
 search box — "black shoes under ₹15,000", "highly rated headphones" — resolves
 to ordinary catalogue filters and an ordinary shareable URL, so paging, sorting,
@@ -62,7 +75,7 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 7](docs/phase-7.md), [phase 8](docs/phase-8.md),
 [phase 9](docs/phase-9.md), [phase 10](docs/phase-10.md),
 [phase 11](docs/phase-11.md), [phase 12](docs/phase-12.md),
-[phase 13](docs/phase-13.md).
+[phase 13](docs/phase-13.md), [phase 14](docs/phase-14.md).
 
 ---
 
@@ -139,17 +152,23 @@ zycart/
 │
 ├── backend/
 │   └── src/
-│       ├── config/        # env.ts, ai.ts (AI config + limits), database.ts
+│       ├── config/        # env.ts, ai.ts (AI config + limits),
+│       │                  #   notifications.ts (mail config + retry bounds),
+│       │                  #   database.ts
 │       ├── controllers/   # Request handlers
 │       ├── middleware/    # Error handling, 404, auth, role, adminOnly
 │       ├── models/        # product, category, brand, cart, order,
 │       │                  #   webhook-event, review, user-activity,
-│       │                  #   inventory-movement, audit-log
+│       │                  #   inventory-movement, audit-log, shipment,
+│       │                  #   return, notification-delivery
 │       ├── routes/        # Route definitions only
 │       ├── services/      # Database and business logic (incl. payment, razorpay)
 │       │   ├── admin/     # Dashboard, catalogue, orders, customers, reviews,
 │       │   │              #   audit trail, operations (attention rules, bulk)
 │       │   ├── inventory/ # Stock ledger, atomic adjustment, thresholds
+│       │   ├── fulfillment/   # Shipment lifecycle and order/parcel sync
+│       │   ├── returns/       # Return policy, workflow and partial refunds
+│       │   ├── notifications/ # Provider abstraction, templates, delivery
 │       │   ├── ai/        # Provider abstraction, prompts, tools, interpreter
 │       │   ├── activity/  # Minimal behaviour recording for recommendations
 │       │   ├── recommendation/ # Similarity and deterministic scoring
@@ -341,6 +360,7 @@ Open <http://localhost:3000>. The storefront reads its catalogue from the API, s
 | `/account/returns`  | Return requests — status, refund state and what happens next |
 | `/admin/returns`    | The return queue — approve, reject, receive, refund          |
 | `/admin/operations` | Orders that need a person, and fulfilment queue depth       |
+| `/admin/notifications` | Every transactional email, its state and a safe retry    |
 | `/admin/activity`   | Audit trail — who changed what, and when                    |
 
 Shopper-facing routes live in the `(storefront)` route group, which gives them
@@ -401,6 +421,9 @@ Per application:
 | `backend/`  | `pnpm start`          | Run the compiled server from `dist/` |
 | `backend/`  | `pnpm seed`           | Load the development catalogue       |
 | `backend/`  | `pnpm migrate:phase7` | One-off Phase 7 data migration       |
+| `backend/`  | `pnpm test`           | Unit suite — no database required    |
+| `backend/`  | `pnpm notifications:verify` | Phase 14 checks against a real replica set |
+| `backend/`  | `pnpm returns:verify` | Phase 13 checks against a real replica set |
 | `frontend/` | `pnpm dev`            | Next.js dev server                   |
 | `frontend/` | `pnpm build`          | Production build                     |
 | `frontend/` | `pnpm start`          | Serve the production build           |
@@ -429,6 +452,30 @@ Per application:
 | `AI_TIMEOUT_MS`           | No       | `30000`                 | Per model call; the whole request has its own 55 s deadline                 |
 | `AI_RATE_LIMIT_GUEST`     | No       | `10`                    | Chat requests per minute, per IP                                            |
 | `AI_RATE_LIMIT_USER`      | No       | `30`                    | Chat requests per minute, per account                                       |
+| `EMAIL_PROVIDER`          | No       | `mock`                  | `mock` records messages without delivering them; `smtp` sends them          |
+| `EMAIL_FROM_NAME`         | No       | `ZyCart`                | Display name on the From header                                             |
+| `EMAIL_FROM_ADDRESS`      | Group‡   | none                    | Sender address. No default — a hardcoded one ends up in production mail     |
+| `EMAIL_REPLY_TO`          | No       | none                    | Only if the store has a real, monitored support mailbox                     |
+| `SMTP_HOST`               | Group‡   | none                    | Mail server hostname                                                        |
+| `SMTP_PORT`               | No       | `587`                   | `587` for STARTTLS, `465` with `SMTP_SECURE=true`                           |
+| `SMTP_USER`               | Group‡   | none                    | SMTP username — **server-only**                                             |
+| `SMTP_PASSWORD`           | Group‡   | none                    | SMTP password — **server-only**                                             |
+| `SMTP_SECURE`             | No       | `false`                 | `true` for implicit TLS on connect                                          |
+
+‡ Required as a set once `EMAIL_PROVIDER=smtp`, and refused at startup if any is
+missing — a deployment that promises delivery and has no mail server would
+record every message as failed until somebody noticed. The default `mock`
+provider renders and records each message and delivers nothing, which is what
+the test suite requires and what lets the admin console be used without a mail
+server. Unlike `AI_PROVIDER=mock` it is *allowed* in production, but the server
+warns loudly at startup and every delivery record names the transport, so
+nothing can be mistaken for a real send.
+
+There is deliberately no `APP_URL`. Links in transactional email are built from
+`CLIENT_URL`, which is the same fact about a deployment — and which is validated
+as an absolute `http(s)` address at startup, because a malformed value produces
+broken links in mail nobody can recall. Email links are never built from a
+request's `Host` or `X-Forwarded-Host` header.
 
 † Optional. Without it the assistant is unavailable and smart search falls back
 to keyword search — the storefront, cart, checkout, orders, account,
@@ -450,7 +497,10 @@ in production is refused.
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | No       | none                    | Razorpay key id; public by design — Checkout needs it in the browser |
 
 The Razorpay **key secret** and **webhook secret** must never appear in a
-`NEXT_PUBLIC_` variable, or anywhere the browser can reach. The same holds for
+`NEXT_PUBLIC_` variable, or anywhere the browser can reach. So must
+`SMTP_USER` and `SMTP_PASSWORD`: mail leaves from Express and nowhere else, and
+neither value is ever written to a delivery record, returned from an API,
+printed at startup or included in an error message. The same holds for
 `AI_API_KEY`: the browser talks to Express, Express talks to the AI provider, and
 there is no `NEXT_PUBLIC_` counterpart to the AI key — nor should one ever be
 added. No AI provider SDK is shipped in the client bundle.
@@ -714,6 +764,10 @@ the router, so a route added later cannot be unprotected by omission.
 | `POST`   | `/api/admin/inventory/:id/adjust`     | **Signed change + reason**, applied atomically |
 | `PATCH`  | `/api/admin/inventory/:id/threshold`  | Per-product low-stock threshold                |
 | `GET`    | `/api/admin/operations`               | Attention counts and fulfilment queue depth    |
+| `GET`    | `/api/admin/notifications`            | Every transactional email, filterable          |
+| `GET`    | `/api/admin/notifications/summary`    | Pending, failed, accepted today, provider      |
+| `GET`    | `/api/admin/notifications/:id`        | One delivery record                            |
+| `POST`   | `/api/admin/notifications/:id/retry`  | **One further send attempt**, rate limited     |
 | `GET`    | `/api/admin/audit-logs`               | Every administrative change, filterable        |
 | `GET`    | `/api/admin/audit-logs/actors`        | Options for the actor filter                   |
 | `GET`    | `/api/admin/customers`                | Customers with lifetime spend                  |
@@ -723,7 +777,7 @@ the router, so a route added later cannot be unprotected by omission.
 | `GET`    | `/api/admin/reviews/:reviewId`        | One review + its order evidence                |
 | `PATCH`  | `/api/admin/reviews/:reviewId/status` | Approve / reject                               |
 
-Four things are deliberately absent:
+Five things are deliberately absent:
 
 - **No `mark-paid`.** Payment state is grounded in what Razorpay reports. An
   administrative shortcut that asserted it would make every **Paid** badge in
@@ -740,6 +794,13 @@ Four things are deliberately absent:
 - **No bulk cancellation.** Cancelling restores stock and may owe a refund, so
   it stays a single-order, confirmed decision. `bulk-status` accepts only
   forward moves, and the schema is what enforces that.
+- **No way to send an email.** There is no endpoint anywhere in ZyCart that
+  takes a recipient, a subject, a template or an event name. Messages exist
+  because a business transition happened on the server, and the only thing an
+  administrator can do to one is ask for it to be attempted again — `retry`
+  takes an id and refuses a request body, so a caller who believes they can
+  nominate a recipient is told plainly that they cannot. A console that could
+  compose mail would be a relay behind an admin login.
 
 Adjusting stock:
 
@@ -884,11 +945,21 @@ atomic quantity accounting, partial refunds through the existing Razorpay
 integration with the same idempotent claim Phase 7 used, and post-purchase
 exception rules in the operations queue. Returned goods rejoin sellable stock
 only when an operator says they can, and when they do it goes through Phase 12's
-ledger as a RETURN movement.
+ledger as a RETURN movement. Phase 14 made those four post-purchase transitions
+reach the customer: a provider-independent transactional email layer in which
+the intent to send is written in the same transaction as the business change,
+the send happens after the commit and is allowed to fail, and a unique
+idempotency key means a duplicate webhook or a double-clicked button can never
+produce a second copy in anybody's inbox. Failed messages are visible in the
+console and retryable, and email delivery cannot change an order, a payment, a
+return or stock.
 
 Later phases can build on that foundation: a shipping-provider integration behind
-the shipment domain this phase modelled, email and SMS notification for the
-transitions that already exist, exchanges and store credit, semantic and vector
-search, review summaries, image search, saved conversations, and a granular
-permission model for staff who should see stock without being able to move it.
-None of them require reopening the boundaries these phases established.
+the shipment domain Phase 13 modelled, a scheduled sweep for the deliveries a
+crash can strand (the one gap Phase 14 left open, and documented rather than
+hidden), SMS and in-app notification beside the email layer, more events through
+the template registry that already carries four, exchanges and store credit,
+semantic and vector search, review summaries, image search, saved conversations,
+and a granular permission model for staff who should see stock without being
+able to move it. None of them require reopening the boundaries these phases
+established.

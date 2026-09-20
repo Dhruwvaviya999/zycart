@@ -7,7 +7,34 @@ const envSchema = z
     MONGODB_URI: z
       .string({ error: 'is required - set it in backend/.env (no default is assumed)' })
       .min(1),
-    CLIENT_URL: z.string().min(1).default('http://localhost:3000'),
+    /**
+     * The storefront's own origin.
+     *
+     * Two jobs, deliberately one variable. It is the origin CORS admits, and
+     * from Phase 14 it is also the origin every link in a transactional email
+     * is built from. Those are the same fact about a deployment, and splitting
+     * them into `CLIENT_URL` and a second `APP_URL` would create a pair that
+     * can disagree - at which point an email would link somewhere CORS refuses,
+     * or the reverse, and neither failure would show up until a customer hit
+     * it.
+     *
+     * Validated as an absolute http(s) URL rather than merely non-empty,
+     * because a malformed value here now produces broken links in mail nobody
+     * can un-send. Email links are never built from a request's `Host` or
+     * `X-Forwarded-Host`: see `appOrigin` in `config/notifications.ts`.
+     */
+    CLIENT_URL: z
+      .string()
+      .min(1)
+      .refine((value) => {
+        try {
+          const url = new URL(value);
+          return url.protocol === 'http:' || url.protocol === 'https:';
+        } catch {
+          return false;
+        }
+      }, 'must be an absolute http:// or https:// address, for example https://zycart.example')
+      .default('http://localhost:3000'),
 
     // Authentication is always on from Phase 4, so the secret is required. A short
     // one is worse than no auth at all, hence the length floor rather than min(1).
@@ -62,6 +89,47 @@ const envSchema = z
     /** Requests per minute, counted per IP for guests and per account otherwise. */
     AI_RATE_LIMIT_GUEST: z.coerce.number().int().min(1).max(1_000).default(10),
     AI_RATE_LIMIT_USER: z.coerce.number().int().min(1).max(1_000).default(30),
+
+    /**
+     * Transactional email (Phase 14). Server-only, every one of them.
+     *
+     * `SMTP_PASSWORD` in particular must never be published to the browser:
+     * mail leaves from Express and nowhere else, so there is no NEXT_PUBLIC_
+     * counterpart to anything below and there never should be. Nothing here is
+     * printed at startup except the provider name and the sender address - the
+     * two values a customer would see anyway.
+     */
+    EMAIL_PROVIDER: z.enum(['mock', 'smtp']).default('mock'),
+
+    /** The display name on the From header. Never a person's name. */
+    EMAIL_FROM_NAME: z.string().trim().min(1).max(60).default('ZyCart'),
+
+    /**
+     * Optional for the mock provider, required for SMTP - see the refinement
+     * below. There is deliberately no default address: a hardcoded fallback is
+     * how a developer's own mailbox ends up in the From header of production
+     * mail.
+     */
+    EMAIL_FROM_ADDRESS: z.email('must be a valid email address').max(254).optional(),
+
+    /**
+     * Where replies go, when the store has somewhere for them to go.
+     *
+     * Left unset unless a real, monitored support address exists. A Reply-To
+     * pointing at an unread mailbox is worse than none: it invites a customer
+     * to answer a message nobody will read.
+     */
+    EMAIL_REPLY_TO: z.email('must be a valid email address').max(254).optional(),
+
+    SMTP_HOST: z.string().trim().min(1).max(253).optional(),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+    SMTP_USER: z.string().trim().min(1).max(320).optional(),
+    SMTP_PASSWORD: z.string().min(1).optional(),
+    /** Implicit TLS on connect (port 465). Port 587 upgrades with STARTTLS. */
+    SMTP_SECURE: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
   })
   /**
    * The mock provider answers from a fixed script. It exists so tool and
@@ -134,6 +202,38 @@ const envSchema = z
         message:
           'is a test key but NODE_ENV is "production" - real payments would not be collected',
       });
+    }
+  })
+  /**
+   * Half-configured mail is the dangerous state, exactly as half-configured
+   * payments is.
+   *
+   * `EMAIL_PROVIDER=smtp` is a promise that messages will actually be
+   * delivered. A deployment that makes that promise with no host, no
+   * credentials and no sender address would build a transport that throws on
+   * every send, and every transactional email would be recorded as FAILED
+   * until somebody noticed. Refusing to boot surfaces it before a customer is
+   * owed a message nobody sent.
+   *
+   * The mock provider needs none of this, which is why the requirement is
+   * conditional rather than a blanket one: a contributor with no mail server
+   * can still run the whole of ZyCart.
+   */
+  .superRefine((env, ctx) => {
+    if (env.EMAIL_PROVIDER !== 'smtp') return;
+
+    const required = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD', 'EMAIL_FROM_ADDRESS'] as const;
+
+    for (const key of required) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message:
+            'is required when EMAIL_PROVIDER=smtp - set it, or use EMAIL_PROVIDER=mock to run ' +
+            'without a mail server',
+        });
+      }
     }
   });
 

@@ -17,6 +17,7 @@
     "migrate:phase13": "pnpm --filter zycart-backend migrate:phase13",
     "inventory:verify": "pnpm --filter zycart-backend inventory:verify",
     "returns:verify": "pnpm --filter zycart-backend returns:verify",
+    "notifications:verify": "pnpm --filter zycart-backend notifications:verify",
     "seed:reviews": "pnpm --filter zycart-backend seed:reviews",
     "make-admin": "pnpm --filter zycart-backend make-admin",
     "lint": "pnpm -r lint",

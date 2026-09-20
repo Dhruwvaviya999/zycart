@@ -3,6 +3,7 @@ import type { Pagination } from '@/types/product';
 import type {
   CreateReturnInput,
   ReturnRequest,
+  ReturnRequestDetail,
   ReturnStatus,
   ReturnSummary,
 } from '@/types/fulfillment';
@@ -60,8 +61,8 @@ export async function getReturns(
 export function getReturnByRef(
   returnRef: string,
   options?: RequestOptions,
-): Promise<ReturnRequest> {
-  return request<ReturnRequest>(
+): Promise<ReturnRequestDetail> {
+  return request<ReturnRequestDetail>(
     `/api/returns/${encodeURIComponent(returnRef)}`,
     undefined,
     options,

@@ -27,6 +27,11 @@ import type {
   AdminReviewDetail,
   AdminReviewQuery,
   AdminReviewRow,
+  CommunicationSummary,
+  NotificationDetail,
+  NotificationQuery,
+  NotificationRetryResult,
+  NotificationRow,
   ReturnsSummary,
   AdminTaxonomyRow,
   AuditLogRow,
@@ -572,5 +577,63 @@ export function checkReturnRefund(returnRef: string): Promise<AdminReturnDetail>
   return send<AdminReturnDetail>(
     'post',
     `/api/admin/returns/${encodeURIComponent(returnRef)}/refund/check`,
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Transactional communication                                       */
+/* ---------------------------------------------------------------- */
+
+/**
+ * Every call the notifications console makes — and notice what is not here.
+ *
+ * There is no `sendEmail`, no `composeMessage` and no way to name a recipient
+ * or a template. Messages exist because a business transition happened on the
+ * server, and the only write below asks for one to be attempted again. A
+ * console that could compose mail would be a mail relay behind an admin login.
+ */
+export async function getNotifications(
+  query: NotificationQuery = {},
+  options?: RequestOptions,
+): Promise<AdminList<NotificationRow>> {
+  const { items, pagination } = await requestList<NotificationRow>(
+    '/api/admin/notifications',
+    params(query),
+    options,
+  );
+
+  return { items, pagination };
+}
+
+/** Pending, failed and sent-today counts, plus which transport is configured. */
+export function getCommunicationSummary(
+  options?: RequestOptions,
+): Promise<CommunicationSummary> {
+  return request<CommunicationSummary>('/api/admin/notifications/summary', undefined, options);
+}
+
+export function getNotification(
+  id: string,
+  options?: RequestOptions,
+): Promise<NotificationDetail> {
+  return request<NotificationDetail>(
+    `/api/admin/notifications/${encodeURIComponent(id)}`,
+    undefined,
+    options,
+  );
+}
+
+/**
+ * One further attempt at one message.
+ *
+ * Takes an id and nothing else. The recipient, the subject and the body all
+ * come from the stored delivery record, so a retry sends exactly the message
+ * that was composed at the time — not whatever the templates say today, and
+ * certainly not anything this browser could suggest.
+ */
+export function retryNotification(id: string): Promise<NotificationRetryResult> {
+  return send<NotificationRetryResult>(
+    'post',
+    `/api/admin/notifications/${encodeURIComponent(id)}/retry`,
   );
 }

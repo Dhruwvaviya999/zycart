@@ -110,6 +110,7 @@ export async function bulkUpdateOrderStatus(req: Request, res: Response): Promis
   res.json({
     success: true,
     data: await operationsService.bulkUpdateOrderStatus(
+      req.env,
       orderNumbers,
       status,
       requireActor(req),

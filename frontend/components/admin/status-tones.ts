@@ -162,3 +162,30 @@ export function returnStatusTone(status: string): BadgeTone {
       return 'neutral';
   }
 }
+
+/**
+ * A delivery's tone follows whether somebody has to do something about it.
+ *
+ * FAILED is a danger rather than a warning, which is a deliberate difference
+ * from a shipment EXCEPTION next door: a parcel that missed a delivery attempt
+ * will be attempted again by the carrier, whereas a failed email will not be
+ * sent by anybody unless an operator presses a button. PENDING and SENDING are
+ * neutral — a message on its way is not a problem, and colouring every
+ * in-flight row amber would make the screen look like an incident.
+ *
+ * The word is always shown beside the badge, so colour is reinforcement and
+ * never the message.
+ */
+export function deliveryTone(status: string): BadgeTone {
+  switch (status) {
+    case 'SENT':
+      return 'success';
+    case 'FAILED':
+      return 'danger';
+    case 'PENDING':
+    case 'SENDING':
+      return 'neutral';
+    default:
+      return 'neutral';
+  }
+}

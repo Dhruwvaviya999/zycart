@@ -48,6 +48,18 @@ export const AUDIT_ACTIONS = [
   'RETURN_RECEIVED',
   'RETURN_REFUND_INITIATED',
   'RETURN_REFUND_COMPLETED',
+
+  /**
+   * Phase 14. One action, and deliberately only one.
+   *
+   * Creating a notification is not an administrative act — it is a consequence
+   * of a transition that is already audited — so there is no
+   * NOTIFICATION_CREATED here, and the delivery records are not a second audit
+   * trail. Asking for a failed message to be sent again *is* an act by a named
+   * person with an outward-facing consequence, so it is recorded like every
+   * other one.
+   */
+  'NOTIFICATION_RETRIED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -58,6 +70,8 @@ export const AUDIT_ENTITIES = [
   'CUSTOMER',
   'SHIPMENT',
   'RETURN',
+  /** A customer communication delivery record; see Phase 14. */
+  'NOTIFICATION',
 ] as const;
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number];
 

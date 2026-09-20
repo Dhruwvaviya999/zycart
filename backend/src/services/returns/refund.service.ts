@@ -4,6 +4,11 @@ import { Order } from '../../models/order.model';
 import { ReturnRequest } from '../../models/return.model';
 import { AppError } from '../../utils/AppError';
 import { recordAudit, type AuditActor } from '../admin/audit.service';
+import {
+  NotificationOutbox,
+  queueNotification,
+} from '../notifications/notification.service';
+import { buildRefundCompletedPayload } from '../notifications/payloads';
 import * as razorpay from '../razorpay.service';
 import { plannedRefund, refundability } from './return-policy';
 import { getAdminReturn, type AdminReturnDetail } from './return.service';
@@ -76,6 +81,7 @@ export async function issueReturnRefund(
     const settled = refund.status === 'processed';
 
     await settleRefund({
+      env,
       returnId: request._id,
       orderId: order._id,
       razorpayRefundId: refund.id,
@@ -252,6 +258,7 @@ async function claimForRefund(returnRef: string, actor: AuditActor) {
  * already carries precisely.
  */
 async function settleRefund(params: {
+  env: Env;
   returnId: Types.ObjectId;
   orderId: Types.ObjectId;
   razorpayRefundId: string;
@@ -262,6 +269,7 @@ async function settleRefund(params: {
   orderNumber: string;
 }): Promise<void> {
   const session = await mongoose.startSession();
+  const outbox = new NotificationOutbox();
 
   try {
     await session.withTransaction(async () => {
@@ -332,7 +340,39 @@ async function settleRefund(params: {
         },
         session,
       );
+
+      /**
+       * Only a refund the gateway has actually settled is communicated.
+       *
+       * `settled` is `refund.status === 'processed'` from Razorpay's own
+       * response. A refund it merely accepted is REFUND_PENDING, the money is
+       * still with the bank, and telling a customer it is back would be a
+       * statement about their account that ZyCart cannot make. When it does
+       * settle — through the `refund.processed` webhook — `applyRefundOutcome`
+       * raises the same event, against the same idempotency key, so the
+       * customer gets exactly one message whichever path got there.
+       */
+      if (params.settled) {
+        await queueNotification(
+          {
+            event: 'REFUND_COMPLETED',
+            entityType: 'RETURN',
+            entityId: updated._id,
+            entityLabel: updated.returnNumber,
+            orderNumber: updated.orderNumber,
+            userId: updated.user as Types.ObjectId,
+            // The amount from the stored refund record — the figure that was
+            // actually sent to the gateway, never a recomputed one.
+            buildPayload: (recipient) =>
+              buildRefundCompletedPayload(recipient.firstName, updated),
+          },
+          session,
+          outbox,
+        );
+      }
     });
+
+    await outbox.flush(params.env);
   } finally {
     await session.endSession();
   }
@@ -372,6 +412,7 @@ export async function reconcileReturnRefund(
   const refund = await razorpay.fetchRefund(env, refundId);
 
   await applyRefundOutcome({
+    env,
     returnId: request._id,
     refundId,
     status: refund.status,
@@ -393,6 +434,7 @@ export async function reconcileReturnRefund(
  * a manual check arriving together produce one transition.
  */
 export async function applyRefundOutcome(params: {
+  env: Env;
   returnId: Types.ObjectId;
   refundId: string;
   status: string;
@@ -402,6 +444,7 @@ export async function applyRefundOutcome(params: {
 
   if (params.status === 'processed') {
     const session = await mongoose.startSession();
+    const outbox = new NotificationOutbox();
 
     try {
       let outcome: 'SETTLED' | 'UNCHANGED' = 'UNCHANGED';
@@ -445,8 +488,40 @@ export async function applyRefundOutcome(params: {
           );
         }
 
+        /**
+         * The customer is told the money is back, and only now.
+         *
+         * This is the path a bank settlement actually takes: Razorpay sends
+         * `refund.processed`, the webhook resolves it to this return, and the
+         * state moves here. The notification is raised inside the same
+         * transaction as that move, so "REFUNDED" and "the customer was told"
+         * commit together.
+         *
+         * A duplicate delivery of the same webhook finds the return already
+         * REFUNDED, `updated` is null, and this line is never reached — and
+         * even if it were, the idempotency key would refuse a second message.
+         * Two independent guards, because one of them protecting a customer's
+         * inbox is not enough.
+         */
+        await queueNotification(
+          {
+            event: 'REFUND_COMPLETED',
+            entityType: 'RETURN',
+            entityId: updated._id,
+            entityLabel: updated.returnNumber,
+            orderNumber: updated.orderNumber,
+            userId: updated.user as Types.ObjectId,
+            buildPayload: (recipient) =>
+              buildRefundCompletedPayload(recipient.firstName, updated),
+          },
+          session,
+          outbox,
+        );
+
         outcome = 'SETTLED';
       });
+
+      await outbox.flush(params.env);
 
       return outcome;
     } finally {

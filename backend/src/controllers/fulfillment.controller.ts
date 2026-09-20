@@ -73,7 +73,7 @@ export async function updateShipmentStatus(req: Request, res: Response): Promise
 
   res.json({
     success: true,
-    data: await shipmentService.advanceShipment(orderRef(req), input, requireActor(req)),
+    data: await shipmentService.advanceShipment(req.env, orderRef(req), input, requireActor(req)),
   });
 }
 
@@ -101,7 +101,7 @@ export async function approveReturn(req: Request, res: Response): Promise<void> 
 
   res.json({
     success: true,
-    data: await returnService.approveReturn(returnRef(req), input, requireActor(req)),
+    data: await returnService.approveReturn(req.env, returnRef(req), input, requireActor(req)),
   });
 }
 

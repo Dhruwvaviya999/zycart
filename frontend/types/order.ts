@@ -137,6 +137,16 @@ export interface Order extends Omit<OrderListItem, 'preview'> {
   returns: ReturnSummary[];
   /** The server's verdict on whether a return may be started, and for what. */
   returnability: Returnability;
+  /**
+   * When ZyCart last successfully emailed this customer about this, or null.
+   *
+   * Null covers three situations and the page says the same thing in all of
+   * them — nothing: there was nothing worth emailing about, a message is still
+   * waiting to go out, or one failed. Claiming "we've emailed you" for a
+   * message a mail server refused is the one thing this field exists to make
+   * impossible.
+   */
+  lastUpdateEmailedAt: string | null;
 }
 
 export interface OrderListResponse {

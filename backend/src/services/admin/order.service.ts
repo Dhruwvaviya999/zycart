@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import type { Env } from '../../config/env';
 import { AuditLog } from '../../models/audit-log.model';
 import { InventoryMovement } from '../../models/inventory-movement.model';
 import { Order, type OrderStatus } from '../../models/order.model';
@@ -348,11 +349,12 @@ export async function getOrder(orderRef: string): Promise<AdminOrderDetail> {
  * than working it out.
  */
 export async function updateStatus(
+  env: Env,
   orderRef: string,
   status: OrderStatus,
   actor: AuditActor,
   note?: string,
 ): Promise<AdminOrderDetail> {
-  await setOrderStatus(orderRef, status, note, actor);
+  await setOrderStatus(env, orderRef, status, note, actor);
   return getOrder(orderRef);
 }
