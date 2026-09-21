@@ -70,19 +70,24 @@ export function SelectField({
   'aria-invalid': invalid,
 }: SelectFieldProps) {
   /**
-   * Base UI models "nothing selected" as `null`; the callers here all model it
+   * Base UI models "nothing selected" as `null`; every caller here models it
    * as the empty string, because that is what a form field and a URL search
-   * param both want. The translation happens once, here.
+   * param both want. The translation happens once, here — and it has to,
+   * because an empty string *is* a value to Base UI, so passing it through
+   * would suppress the placeholder and leave the trigger blank.
    */
+  const selected = value === '' ? null : value;
+  const emptyLabel = clearLabel ?? placeholder;
+
   const items = [
-    ...(clearLabel ? [{ value: '', label: clearLabel }] : []),
+    { value: null, label: emptyLabel },
     ...options.map((option) => ({ value: option.value, label: option.label })),
   ];
 
   return (
     <Select
       items={items}
-      value={value}
+      value={selected}
       onValueChange={(next) => onValueChange(typeof next === 'string' ? next : '')}
       disabled={disabled}
       name={name}
@@ -96,12 +101,14 @@ export function SelectField({
         aria-invalid={invalid}
         className={cn(fullWidth && 'w-full', className)}
       >
-        <SelectValue placeholder={placeholder} />
+        <SelectValue placeholder={emptyLabel} />
       </SelectTrigger>
 
       <SelectContent>
+        {/* Only offered where clearing is a real choice. A required field has
+            no "none" row; its placeholder is a prompt, not an option. */}
         {clearLabel && (
-          <SelectItem value="" className="text-muted-foreground">
+          <SelectItem value={null} className="text-muted-foreground">
             {clearLabel}
           </SelectItem>
         )}

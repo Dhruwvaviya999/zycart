@@ -231,7 +231,13 @@ export function ShopClient({
               <span className="text-small hidden shrink-0 text-muted-foreground sm:inline">
                 Sort by
               </span>
+              {/*
+                `items` is what makes the trigger read "Newest first" rather
+                than "newest": without it Base UI has no way to map the value
+                back to a label, and the control was showing the raw sort key.
+              */}
               <Select
+                items={SORT_OPTIONS}
                 value={filters.sort}
                 onValueChange={(value) => apply({ sort: value as SortKey })}
               >

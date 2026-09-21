@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Container } from '@/components/layout/container';
 import { newsletter } from '@/data/banners';
 
@@ -38,14 +39,18 @@ export function Newsletter() {
               <label htmlFor="newsletter-email" className="sr-only">
                 Email address
               </label>
-              <input
+              {/* The design-system field rather than a hand-rolled one: this
+                  was the last input in the storefront with its own focus
+                  treatment, which meant the newsletter box lit up differently
+                  from every other field on the site. */}
+              <Input
                 id="newsletter-email"
                 type="email"
+                size="xl"
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder={newsletter.placeholder}
-                className="focus-ring text-body h-12 w-full rounded-xl border border-border bg-background px-4 placeholder:text-muted-foreground"
               />
               <Button type="submit" size="cta-lg" variant="brand" className="shrink-0">
                 {newsletter.ctaLabel}

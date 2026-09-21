@@ -19,9 +19,15 @@ const inputVariants = cva(
   {
     variants: {
       size: {
-        sm: 'h-8 rounded-[min(var(--radius-md),10px)] px-2.5 py-1 text-[0.8125rem]',
+        sm: 'h-8 rounded-[min(var(--radius-md),10px)] px-2.5 py-1 text-[0.8125rem] md:text-[0.8125rem]',
         default: 'h-9 rounded-lg px-3 py-1',
         lg: 'h-11 rounded-xl px-3.5 py-2',
+        /* Pairs with the `cta-lg` button, for the marketing bands where the
+           field and its call to action sit side by side. The `md:` repeat is
+           needed to beat the base `md:text-sm`, which the size ladder is
+           otherwise powerless against: a media query wins over an unprefixed
+           utility whatever order the classes are written in. */
+        xl: 'h-12 rounded-xl px-4 py-2 text-base md:text-base',
       },
     },
     defaultVariants: { size: 'default' },

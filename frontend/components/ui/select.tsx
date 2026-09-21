@@ -56,11 +56,17 @@ function SelectTrigger({
       {...props}
     >
       {children}
-      <SelectPrimitive.Icon
-        render={
-          <ChevronDownIcon className="pointer-events-none size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-brand group-data-open/select-trigger:rotate-180" />
-        }
-      />
+      {/*
+        The chevron is the Icon's *child*, not its `render`. Base UI's Icon
+        defaults its children to a "▼" glyph, and a `render` element inherits
+        them — so rendering the Lucide chevron through `render` left a stray
+        text node inside the `<svg>`. As children it replaces the default
+        outright, and the open state lands on the wrapper where the rotation
+        can read it.
+      */}
+      <SelectPrimitive.Icon className="pointer-events-none flex shrink-0 text-muted-foreground transition-transform duration-200 ease-brand data-open:rotate-180">
+        <ChevronDownIcon className="size-4" />
+      </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
 }
