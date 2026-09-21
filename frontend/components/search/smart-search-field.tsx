@@ -135,7 +135,10 @@ export function SmartSearchField({ filters, onNotice, className }: SmartSearchFi
         Search products, brands, or describe what you need
       </label>
 
-      <div className="flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-3 transition-shadow focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/45">
+{/* `h-11`, matching the `lg` step of the field ladder: this control sits
+          in a row with the Filters button and the sort select, and 40px beside
+          two 44px controls reads as a mistake rather than as a hierarchy. */}
+      <div className="flex h-11 items-center gap-2 rounded-xl border border-input bg-background px-3.5 transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/45">
         {busy ? (
           <Loader2 className="size-4 shrink-0 animate-spin text-brand" aria-hidden />
         ) : (
@@ -171,7 +174,7 @@ export function SmartSearchField({ filters, onNotice, className }: SmartSearchFi
           disabled={busy}
           aria-label="Search"
           className={cn(
-            'focus-ring inline-flex h-7 shrink-0 items-center gap-1 rounded-lg px-2.5 text-[0.75rem] font-semibold transition-colors',
+            'focus-ring inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[0.75rem] font-semibold transition-colors',
             'bg-foreground text-background hover:bg-foreground/90 disabled:opacity-60',
           )}
         >

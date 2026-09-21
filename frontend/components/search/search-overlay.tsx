@@ -89,8 +89,9 @@ export function SearchOverlay() {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
+        variant="command"
+        size="xl"
         showCloseButton={false}
-        className="top-0 max-w-full translate-y-0 gap-0 overflow-hidden rounded-none border-x-0 border-t-0 p-0 sm:top-[8vh] sm:max-w-2xl sm:rounded-2xl sm:border"
       >
         <DialogTitle className="sr-only">Search ZyCart</DialogTitle>
         <DialogDescription className="sr-only">
@@ -134,22 +135,37 @@ export function SearchOverlay() {
                 inputRef.current?.focus();
               }}
               aria-label="Clear search"
-              className="focus-ring inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              /* A filled chip, so it reads as "empty the field" rather than as a
+                 second copy of the close button beside it. */
+              className="focus-ring inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-surface-strong hover:text-foreground"
             >
-              <X className="size-4" />
+              <X className="size-3.5" aria-hidden />
             </button>
           )}
 
+          {/*
+            A real close control, not an "Esc" badge.
+
+            The badge it replaces was `hidden sm:inline-flex`, which meant the
+            full-screen overlay on a phone — the one surface with no visible
+            backdrop to tap — had no way out at all except the hardware back
+            button. Escape still closes it; this is for everyone not using a
+            keyboard.
+          */}
           <button
             type="button"
             onClick={() => handleOpenChange(false)}
-            className="focus-ring text-caption hidden shrink-0 rounded-md border border-border px-2 py-1 font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
+            aria-label="Close search"
+            className="focus-ring inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            Esc
+            <X className="size-[18px]" aria-hidden />
           </button>
         </form>
 
-        <div className="max-h-[70vh] overflow-y-auto overscroll-contain p-4 sm:max-h-[60vh] sm:p-5">
+        {/* The panel now caps its own height, so the results simply take
+            whatever is left inside it. `min-h-0` is what lets a flex child
+            scroll instead of growing past its parent. */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
           {!hasQuery && (
             <div className="space-y-6">
               <Suggestions

@@ -43,10 +43,13 @@ export function SearchTrigger({ variant = 'field', className }: SearchTriggerPro
       )}
     >
       <Search className="size-4 shrink-0" aria-hidden />
+      {/*
+        No shortcut badge. Ctrl/Cmd-K still opens search — the overlay owns that
+        handler — but a keyboard hint in the field is a developer-tool
+        convention, and a shopper reads it as one more thing to decode before
+        they can type. The label keeps the full width of the control instead.
+      */}
       <span className="truncate">Search products, brands and categories...</span>
-      <kbd className="text-caption ml-auto hidden shrink-0 rounded border border-border bg-background px-1.5 py-0.5 font-sans font-medium lg:inline-block">
-        ⌘K
-      </kbd>
     </button>
   );
 }
