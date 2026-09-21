@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
 
   images: {
     // Mock catalogue imagery. Phase 3 replaces this with the Cloudinary host.
+    unoptimized: true,
     remotePatterns: [{ protocol: 'https', hostname: 'images.unsplash.com' }],
     formats: ['image/avif', 'image/webp'],
   },
