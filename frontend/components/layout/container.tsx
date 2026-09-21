@@ -14,5 +14,10 @@ interface ContainerProps extends React.ComponentProps<'div'> {
 
 /** The single horizontal gutter for the whole site. Never re-specify padding. */
 export function Container({ className, width = 'default', ...props }: ContainerProps) {
-  return <div className={cn('mx-auto w-full px-4 sm:px-6 lg:px-8', widths[width], className)} {...props} />;
+  return (
+    <div
+      className={cn('mx-auto w-full px-4 sm:px-6 lg:px-8', widths[width], className)}
+      {...props}
+    />
+  );
 }

@@ -1,74 +1,109 @@
-export type CategorySlug =
-  | 'electronics'
-  | 'fashion'
-  | 'footwear'
-  | 'accessories'
-  | 'home'
-  | 'beauty';
+import type { RatingDistribution } from '@/types/review';
 
-export type ProductBadge = 'sale' | 'new' | 'bestseller' | 'limited';
-
-export interface ProductImage {
-  url: string;
-  alt: string;
+/** A populated `category` or `brand` reference as the API returns it. */
+export interface ProductReference {
+  id: string;
+  name: string;
+  slug: string;
 }
 
-export interface ProductVariantOption {
+export interface ProductColor {
+  name: string;
+  hex: string;
+}
+
+export interface ProductSize {
+  label: string;
+  inStock: boolean;
+}
+
+export interface ProductSpecification {
   label: string;
   value: string;
-  /** CSS colour for swatch rendering; only set on colour options. */
-  swatch?: string;
-  available?: boolean;
 }
 
-export interface Product {
+/**
+ * What the list endpoints return. They deliberately omit the long-form fields,
+ * so anything rendering a grid of cards works with this narrower shape.
+ */
+export interface ProductSummary {
   id: string;
-  slug: string;
   name: string;
-  brand: string;
-  category: CategorySlug;
-  /** Primary image first; the second is revealed on card hover when present. */
-  images: ProductImage[];
+  slug: string;
+  shortDescription: string;
+  images: string[];
   price: number;
-  /** Pre-discount price. Absent when the product is not discounted. */
-  compareAtPrice?: number;
+  compareAtPrice?: number | null;
+  category: ProductReference;
+  brand: ProductReference;
+  sku: string;
+  stock: number;
+  colors: ProductColor[];
+  sizes: ProductSize[];
+  tags: string[];
+  /** Derived from approved reviews; zero until a product has been reviewed. */
   rating: number;
   reviewCount: number;
-  badges: ProductBadge[];
-  inStock: boolean;
-  /** Short line used on cards and in search results. */
-  tagline: string;
+  isFeatured: boolean;
+  isBestSeller: boolean;
+  isNewArrival: boolean;
+  createdAt: string;
+}
+
+/** The detail endpoint adds everything the product page needs. */
+export interface Product extends ProductSummary {
   description: string;
   highlights: string[];
-  specifications: { label: string; value: string }[];
-  sizes?: ProductVariantOption[];
-  colors?: ProductVariantOption[];
-  createdAt: string;
-  /** Drives the "Best Sellers" ordering. */
-  unitsSold: number;
+  specifications: ProductSpecification[];
+  /**
+   * How many approved reviews gave each star.
+   *
+   * Carried on the product so the review section can draw its distribution
+   * without a second request. The list endpoints leave it behind — a card only
+   * needs the average.
+   */
+  ratingBreakdown: RatingDistribution;
+  updatedAt: string;
 }
 
 export interface Category {
-  slug: CategorySlug;
-  name: string;
-  tagline: string;
-  image: string;
-  itemCount: number;
-}
-
-export interface Review {
   id: string;
-  author: string;
-  initials: string;
-  rating: number;
-  date: string;
-  title: string;
-  body: string;
-  verified: boolean;
+  name: string;
+  slug: string;
+  description: string;
+  image: string;
+  isActive: boolean;
+  /** Active products in this category, supplied by the list endpoint. */
+  productCount: number;
 }
 
-export type SortKey = 'featured' | 'newest' | 'price-asc' | 'price-desc' | 'rating' | 'discount';
+export interface Brand {
+  id: string;
+  name: string;
+  slug: string;
+  logo: string;
+  isActive: boolean;
+}
 
+/**
+ * Matches the API's sort keys exactly — the storefront never invents its own.
+ *
+ * `relevance` arrived in Phase 11 and is the only one whose order depends on
+ * the search term; with no term the API falls back to `newest` rather than
+ * rejecting it, so a shared link that lost its query still renders.
+ */
+export type SortKey = 'newest' | 'oldest' | 'price_asc' | 'price_desc' | 'rating' | 'relevance';
+
+export interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export type ProductBadgeKind = 'new' | 'sale' | 'bestseller' | 'limited';
+
+/** A cart line stores only what the shopper chose; prices always come from the API. */
 export interface CartLine {
   productId: string;
   quantity: number;

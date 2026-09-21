@@ -4,10 +4,14 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { Clock, Loader2, Search, SearchX, Tag, TrendingUp, X } from 'lucide-react';
+import { AlertTriangle, Clock, Loader2, Search, SearchX, TrendingUp, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { popularSearches, recentSearches } from '@/data/navigation';
+import { imageAlt } from '@/lib/product';
 import { useProductSearch } from '@/components/search/use-product-search';
+import { interpretSearch } from '@/services/smart-search.service';
+import { buildShopHref, defaultFilters } from '@/components/shop/shop-filters';
+import type { SortKey } from '@/types/product';
 import { useUiStore } from '@/store/ui-store';
 import { formatPrice } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -19,7 +23,14 @@ export function SearchOverlay() {
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  const { results, loading, isEmpty, hasQuery } = useProductSearch(query);
+  const { products, loading, error, isEmpty, hasQuery } = useProductSearch(query);
+
+  /**
+   * Interpretation runs on submit only. The live preview above stays a plain
+   * catalogue search — it fires as the shopper types, and a model call per
+   * keystroke is exactly what this phase set out not to do.
+   */
+  const [submitting, setSubmitting] = useState(false);
 
   // Cmd/Ctrl-K opens search from anywhere on the site.
   useEffect(() => {
@@ -38,11 +49,41 @@ export function SearchOverlay() {
     if (!next) setQuery('');
   }
 
-  function submit(term: string) {
+  async function submit(term: string) {
     const trimmed = term.trim();
-    if (!trimmed) return;
-    setOpen(false);
-    router.push(`/shop?q=${encodeURIComponent(trimmed)}`);
+    if (!trimmed || submitting) return;
+
+    setSubmitting(true);
+
+    try {
+      const result = await interpretSearch({ query: trimmed });
+
+      setOpen(false);
+      router.push(
+        buildShopHref({
+          ...defaultFilters,
+          // The extracted terms, not the whole sentence — the rest of it has
+          // already become the filters below.
+          query: result.filters.query,
+          category: result.filters.category,
+          brand: result.filters.brand,
+          color: result.filters.color,
+          minPrice: result.filters.minPrice,
+          maxPrice: result.filters.maxPrice,
+          minRating: result.filters.minRating,
+          inStockOnly: result.filters.inStock ?? false,
+          sort: result.filters.sort as SortKey,
+          interpreted: result.interpreted,
+        }),
+      );
+    } catch {
+      // Interpretation is an enhancement. If it is unreachable the shopper
+      // still gets the search they asked for.
+      setOpen(false);
+      router.push(`/shop?q=${encodeURIComponent(trimmed)}&sort=relevance`);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -53,13 +94,14 @@ export function SearchOverlay() {
       >
         <DialogTitle className="sr-only">Search ZyCart</DialogTitle>
         <DialogDescription className="sr-only">
-          Search products, brands and categories across the ZyCart catalogue.
+          Search products, brands and categories across the ZyCart catalogue, or describe what you
+          are looking for.
         </DialogDescription>
 
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            submit(query);
+            void submit(query);
           }}
           className="flex items-center gap-3 border-b border-border px-4 sm:px-5"
         >
@@ -70,12 +112,19 @@ export function SearchOverlay() {
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search products, brands and categories..."
-            aria-label="Search products, brands and categories"
+            placeholder="Search, or describe what you need..."
+            aria-label="Search products and brands, or describe what you need"
             className="text-body h-14 w-full bg-transparent outline-none placeholder:text-muted-foreground sm:h-16"
           />
 
-          {loading && <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />}
+          {(loading || submitting) && (
+            <Loader2
+              className={cn(
+                'size-4 shrink-0 animate-spin',
+                submitting ? 'text-brand' : 'text-muted-foreground',
+              )}
+            />
+          )}
 
           {query && (
             <button
@@ -107,13 +156,13 @@ export function SearchOverlay() {
                 icon={Clock}
                 title="Recent searches"
                 terms={recentSearches}
-                onPick={submit}
+                onPick={(term) => void submit(term)}
               />
               <Suggestions
                 icon={TrendingUp}
                 title="Popular searches"
                 terms={popularSearches}
-                onPick={submit}
+                onPick={(term) => void submit(term)}
               />
             </div>
           )}
@@ -130,83 +179,60 @@ export function SearchOverlay() {
             </div>
           )}
 
-          {hasQuery && !isEmpty && (
-            <div className="space-y-6">
-              {results.products.length > 0 && (
-                <section>
-                  <SectionLabel>Products</SectionLabel>
-                  <ul className="mt-2 space-y-1">
-                    {results.products.map((product) => (
-                      <li key={product.id}>
-                        <Link
-                          href={`/products/${product.slug}`}
-                          onClick={() => setOpen(false)}
-                          className="focus-ring flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-muted"
-                        >
-                          <span className="relative size-12 shrink-0 overflow-hidden rounded-lg bg-surface">
-                            {product.images[0] && (
-                              <Image
-                                src={product.images[0].url}
-                                alt=""
-                                fill
-                                sizes="48px"
-                                className="object-cover"
-                              />
-                            )}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="text-caption block text-muted-foreground">
-                              {product.brand}
-                            </span>
-                            <span className="text-small block truncate font-medium">
-                              {product.name}
-                            </span>
-                          </span>
-                          <span className="text-price shrink-0">{formatPrice(product.price)}</span>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-
-              {results.categories.length > 0 && (
-                <section>
-                  <SectionLabel>Categories</SectionLabel>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {results.categories.map((category) => (
-                      <Link
-                        key={category.slug}
-                        href={`/shop?category=${category.slug}`}
-                        onClick={() => setOpen(false)}
-                        className="focus-ring text-small inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 transition-colors hover:bg-muted"
-                      >
-                        <Tag className="size-3.5 text-muted-foreground" aria-hidden />
-                        {category.name}
-                      </Link>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {results.brands.length > 0 && (
-                <section>
-                  <SectionLabel>Brands</SectionLabel>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {results.brands.map((brand) => (
-                      <Link
-                        key={brand}
-                        href={`/shop?brand=${encodeURIComponent(brand)}`}
-                        onClick={() => setOpen(false)}
-                        className="focus-ring text-small inline-flex rounded-full border border-border px-3 py-1.5 transition-colors hover:bg-muted"
-                      >
-                        {brand}
-                      </Link>
-                    ))}
-                  </div>
-                </section>
-              )}
+          {hasQuery && error && (
+            <div className="flex flex-col items-center px-6 py-14 text-center">
+              <div className="mb-4 grid size-12 place-items-center rounded-xl bg-destructive/10 text-destructive">
+                <AlertTriangle className="size-5" aria-hidden />
+              </div>
+              <p className="text-h4">Search is unavailable.</p>
+              <p className="text-small mt-2 max-w-sm text-muted-foreground">{error}</p>
             </div>
+          )}
+
+          {hasQuery && !isEmpty && !error && products.length > 0 && (
+            <section>
+              <SectionLabel>Products</SectionLabel>
+              <ul className="mt-2 space-y-1">
+                {products.map((product) => (
+                  <li key={product.id}>
+                    <Link
+                      href={`/products/${product.slug}`}
+                      onClick={() => setOpen(false)}
+                      className="focus-ring flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-muted"
+                    >
+                      <span className="relative size-12 shrink-0 overflow-hidden rounded-lg bg-surface">
+                        {product.images[0] && (
+                          <Image
+                            src={product.images[0]}
+                            alt={imageAlt(product, 0)}
+                            fill
+                            sizes="48px"
+                            className="object-cover"
+                          />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="text-caption block text-muted-foreground">
+                          {product.brand.name}
+                        </span>
+                        <span className="text-small block truncate font-medium">
+                          {product.name}
+                        </span>
+                      </span>
+                      <span className="text-price shrink-0">{formatPrice(product.price)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+
+              <button
+                type="button"
+                onClick={() => void submit(query)}
+                className="focus-ring text-small mt-3 w-full rounded-xl border border-border py-2.5 font-medium transition-colors hover:bg-muted"
+              >
+                See all results for “{query.trim()}”
+              </button>
+            </section>
           )}
         </div>
       </DialogContent>

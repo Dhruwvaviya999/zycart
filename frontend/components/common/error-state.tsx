@@ -9,6 +9,8 @@ interface ErrorStateProps {
   title?: string;
   body?: string;
   onRetry?: () => void;
+  /** Where to go when retrying is not what the reader wants. */
+  secondaryAction?: { label: string; href: string };
   className?: string;
 }
 
@@ -16,6 +18,7 @@ export function ErrorState({
   title = 'Something went wrong.',
   body = 'We could not load this page. It is almost certainly us, not you — try again in a moment.',
   onRetry,
+  secondaryAction = { label: 'Back to home', href: '/' },
   className,
 }: ErrorStateProps) {
   return (
@@ -36,12 +39,12 @@ export function ErrorState({
       <div className="mt-8 flex flex-col gap-3 sm:flex-row">
         {onRetry && (
           <Button size="cta" variant="brand" onClick={onRetry}>
-            <RotateCcw className="size-4" />
+            <RotateCcw className="size-4" data-icon="inline-start" />
             Try again
           </Button>
         )}
-        <Button size="cta" variant="outline" render={<Link href="/" />}>
-          Back to home
+        <Button size="cta" variant="outline" render={<Link href={secondaryAction.href} />}>
+          {secondaryAction.label}
         </Button>
       </div>
     </div>

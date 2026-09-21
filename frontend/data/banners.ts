@@ -77,21 +77,30 @@ export const secondaryPromo: PromoBanner = {
   imageAlt: 'Structured amber leather satchel with a woven base',
 };
 
+/**
+ * The homepage AI band.
+ *
+ * `prompts` are live from Phase 10: tapping one opens the assistant with that
+ * question asked. So they have to be things it can genuinely answer from the
+ * catalogue — a prompt that produces "I don't have that" is worse than no
+ * prompt, which is why the open-ended gift suggestion that used to sit here is
+ * gone. It read well as a mock and would have failed as a feature.
+ */
 export const aiSection = {
-  eyebrow: 'Coming to ZyCart',
-  title: 'Shopping made smarter.',
-  body: 'Tell ZyCart what you are looking for and let AI narrow thousands of products down to the handful that actually fit.',
-  ctaLabel: 'Try AI Shopping',
-  href: '/shop',
+  eyebrow: 'ZyCart AI',
+  title: 'Shopping, with a little more intelligence.',
+  body: 'Tell ZyCart what you need and the assistant narrows the catalogue down to the handful that actually fit — with the real price, rating and stock for each one.',
+  ctaLabel: 'Ask ZyCart AI',
+  href: '/ai-shopping',
   prompts: [
-    'I need a comfortable pair of black shoes under ₹3000.',
-    'Something warm for Delhi in December, under ₹6000.',
-    'A gift for someone who already owns everything.',
+    'I need a comfortable pair of black shoes under ₹3,000.',
+    'Show me highly rated headphones under ₹5,000.',
+    'Compare the two best-rated laptops you can find.',
   ],
   capabilities: [
     { title: 'Understands plain language', body: 'Describe it the way you would to a friend.' },
     { title: 'Respects your budget', body: 'Price caps are treated as hard limits, not hints.' },
-    { title: 'Explains its picks', body: 'Every suggestion comes with the reason it was chosen.' },
+    { title: 'Answers from the catalogue', body: 'Live prices and stock — nothing invented.' },
   ],
 };
 
@@ -105,6 +114,8 @@ export const newsletter = {
 
 export const trustBadges = [
   { title: 'Free shipping', body: 'On orders above ₹999' },
+  // Enforced from Phase 13: `RETURN_WINDOW_DAYS` in the backend's return model
+  // is the rule this advertises. Change them together.
   { title: '30-day returns', body: 'No questions asked' },
   { title: 'Secure checkout', body: '256-bit encryption' },
   { title: 'Genuine products', body: 'Sourced from authorised sellers' },

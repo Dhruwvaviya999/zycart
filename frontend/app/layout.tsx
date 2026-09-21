@@ -1,11 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import { AnnouncementBar } from '@/components/layout/announcement-bar';
-import { Footer } from '@/components/layout/footer';
-import { Navbar } from '@/components/layout/navbar';
+import { AuthProvider } from '@/components/auth/auth-provider';
 import { ThemeProvider } from '@/components/layout/theme-provider';
-import { SearchOverlay } from '@/components/search/search-overlay';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { getSessionUser } from '@/lib/server-auth';
 import './globals.css';
 
 const geistSans = Geist({
@@ -36,7 +34,21 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: LayoutProps<'/'>) {
+/**
+ * The document, and nothing else.
+ *
+ * Deliberately thin: fonts, global styles and the three providers that every
+ * route needs — theme, session and tooltips — and no chrome. The shop's navbar
+ * and footer belong to the `(storefront)` group; the admin console brings its
+ * own shell. A layout that rendered both would force one onto the other, which
+ * is exactly what it used to do.
+ *
+ * `getSessionUser` is `cache`d, so the storefront chrome reading it again a
+ * moment later costs nothing.
+ */
+export default async function RootLayout({ children }: LayoutProps<'/'>) {
+  const user = await getSessionUser();
+
   return (
     <html
       lang="en"
@@ -45,24 +57,9 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
     >
       <body className="flex min-h-full flex-col overflow-x-hidden antialiased">
         <ThemeProvider>
-          <TooltipProvider>
-            <a
-              href="#main"
-              className="focus-ring text-small sr-only rounded-lg bg-background px-4 py-2 font-medium shadow-lg focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50"
-            >
-              Skip to content
-            </a>
-
-            <AnnouncementBar />
-            <Navbar />
-
-            <main id="main" className="flex-1">
-              {children}
-            </main>
-
-            <Footer />
-            <SearchOverlay />
-          </TooltipProvider>
+          <AuthProvider user={user}>
+            <TooltipProvider>{children}</TooltipProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

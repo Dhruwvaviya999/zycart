@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import { useState } from 'react';
 import { ProductBadgeChip } from '@/components/product/product-badge';
+import { imageAlt, productBadge } from '@/lib/product';
 import type { Product } from '@/types/product';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +17,7 @@ export function ProductGallery({ product }: { product: Product }) {
   const [zoomed, setZoomed] = useState(false);
 
   const active = product.images[activeIndex] ?? product.images[0];
+  const badge = productBadge(product);
   if (!active) return null;
 
   return (
@@ -23,7 +25,7 @@ export function ProductGallery({ product }: { product: Product }) {
       {product.images.length > 1 && (
         <ul className="no-scrollbar flex gap-3 overflow-x-auto sm:flex-col sm:overflow-visible">
           {product.images.map((image, index) => (
-            <li key={image.url + index}>
+            <li key={image + index}>
               <button
                 type="button"
                 onClick={() => setActiveIndex(index)}
@@ -36,7 +38,7 @@ export function ProductGallery({ product }: { product: Product }) {
                     : 'ring-border/70 hover:ring-foreground/25',
                 )}
               >
-                <Image src={image.url} alt="" fill sizes="80px" className="object-cover" />
+                <Image src={image} alt="" fill sizes="80px" className="object-cover" />
               </button>
             </li>
           ))}
@@ -56,9 +58,9 @@ export function ProductGallery({ product }: { product: Product }) {
         onPointerLeave={() => setZoomed(false)}
       >
         <Image
-          key={active.url}
-          src={active.url}
-          alt={active.alt}
+          key={active}
+          src={active}
+          alt={imageAlt(product, activeIndex)}
           fill
           priority
           sizes="(min-width: 1024px) 45vw, 100vw"
@@ -69,11 +71,9 @@ export function ProductGallery({ product }: { product: Product }) {
           )}
         />
 
-        {product.badges.length > 0 && (
+        {badge && (
           <div className="pointer-events-none absolute top-4 left-4 flex flex-wrap gap-2">
-            {product.badges.map((badge) => (
-              <ProductBadgeChip key={badge} badge={badge} />
-            ))}
+            <ProductBadgeChip badge={badge} />
           </div>
         )}
       </div>

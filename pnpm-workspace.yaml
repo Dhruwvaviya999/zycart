@@ -2,6 +2,12 @@ packages:
   - frontend
   - backend
 
+# bcrypt ships a native addon and pnpm blocks install scripts by default, which
+# would leave it unbuilt — and failing at runtime — on any machine without a
+# matching prebuilt binary. Approving it here keeps installs reproducible.
 allowBuilds:
+  '@google/genai': true
+  bcrypt: true
   esbuild: true
+  protobufjs: true
   unrs-resolver: true

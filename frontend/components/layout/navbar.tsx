@@ -3,28 +3,35 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Heart, Search, ShoppingBag, User } from 'lucide-react';
+import { Heart, ShoppingBag } from 'lucide-react';
 import { Container } from '@/components/layout/container';
 import { Logo } from '@/components/layout/logo';
 import { MobileNav } from '@/components/layout/mobile-nav';
+import { SearchTrigger } from '@/components/search/search-trigger';
+import { UserMenu } from '@/components/layout/user-menu';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { primaryNav } from '@/data/navigation';
-import { useCartStore } from '@/store/cart-store';
-import { useUiStore } from '@/store/ui-store';
+import type { Category } from '@/types/product';
+import type { AuthUser } from '@/types/user';
+import { selectCartCount, useCartStore } from '@/store/cart-store';
 import { useWishlistStore } from '@/store/wishlist-store';
 import { cn } from '@/lib/utils';
 
-export function Navbar() {
+interface NavbarProps {
+  categories: Category[];
+  user: AuthUser | null;
+}
+
+export function Navbar({ categories, user }: NavbarProps) {
   const pathname = usePathname();
-  const setSearchOpen = useUiStore((state) => state.setSearchOpen);
   const [scrolled, setScrolled] = useState(false);
 
-  const cartHydrated = useCartStore((state) => state.hydrated);
-  const cartCount = useCartStore((state) =>
-    state.lines.reduce((sum, line) => sum + line.quantity, 0),
-  );
-  const wishlistHydrated = useWishlistStore((state) => state.hydrated);
-  const wishlistCount = useWishlistStore((state) => state.ids.length);
+  // Totals come from the resolved cart, so the badge counts units and matches
+  // the cart page exactly — in both guest and signed-in modes.
+  const cartCount = useCartStore(selectCartCount);
+  const cartReady = useCartStore((state) => state.status === 'ready');
+  const wishlistCount = useWishlistStore((state) => state.wishlist.itemCount);
+  const wishlistReady = useWishlistStore((state) => state.status === 'ready');
 
   // Border and blur appear only once the page has moved, keeping the top of
   // the page clean without making the bar disappear on scroll.
@@ -45,13 +52,17 @@ export function Navbar() {
       )}
     >
       <Container className="flex h-16 items-center gap-3 sm:h-[68px]">
-        <MobileNav />
+        <MobileNav categories={categories} user={user} />
         <Logo className="mr-1 shrink-0" />
 
         <nav aria-label="Primary" className="hidden lg:block">
           <ul className="flex items-center gap-1">
             {primaryNav.map((item) => {
-              const active = pathname === item.href.split('?')[0] && item.href === '/shop';
+              // Only links that address a page outright claim the indicator —
+              // the query-scoped views (Deals, New Arrivals) are filtered
+              // versions of /shop, not separate destinations.
+              const plain = !/[?#]/.test(item.href);
+              const active = plain && pathname === item.href;
 
               return (
                 <li key={item.label}>
@@ -73,35 +84,29 @@ export function Navbar() {
           </ul>
         </nav>
 
-        {/* Desktop search affordance: looks like a field, opens the overlay. */}
-        <button
-          type="button"
-          onClick={() => setSearchOpen(true)}
-          className="focus-ring text-small mx-auto hidden h-10 w-full max-w-sm items-center gap-2.5 rounded-full border border-border bg-surface px-4 text-muted-foreground transition-colors hover:border-foreground/20 hover:bg-surface-strong md:flex"
-        >
-          <Search className="size-4 shrink-0" aria-hidden />
-          <span className="truncate">Search products, brands and categories...</span>
-          <kbd className="text-caption ml-auto hidden shrink-0 rounded border border-border bg-background px-1.5 py-0.5 font-sans font-medium lg:inline-block">
-            ⌘K
-          </kbd>
-        </button>
+        {/*
+          `min-w-0` is load-bearing, not tidying.
+
+          A flex item defaults to `min-width: auto`, which means it refuses to
+          shrink below its content — so at exactly 1024px, where the primary nav
+          first appears alongside the logo, the search and the icon group, the
+          four of them demanded 982px inside a 945px content box and the row
+          spilled past the container. `min-w-0` lets the search give up the
+          difference, which is right because it is the only element here with no
+          natural size: the label already truncates, and a search box is
+          supposed to take whatever room is left over.
+        */}
+        <SearchTrigger className="mx-auto hidden min-w-0 max-w-sm md:flex" />
 
         <div className="ml-auto flex items-center gap-0.5 md:ml-0">
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            aria-label="Search"
-            className="focus-ring inline-flex size-9 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted md:hidden"
-          >
-            <Search className="size-[18px]" />
-          </button>
+          <SearchTrigger variant="icon" className="md:hidden" />
 
           <ThemeToggle className="hidden sm:inline-flex" />
 
           <IconLink
             href="/wishlist"
             label="Wishlist"
-            count={wishlistHydrated ? wishlistCount : 0}
+            count={wishlistReady ? wishlistCount : 0}
             icon={Heart}
             className="hidden sm:inline-flex"
           />
@@ -109,16 +114,11 @@ export function Navbar() {
           <IconLink
             href="/cart"
             label="Cart"
-            count={cartHydrated ? cartCount : 0}
+            count={cartReady ? cartCount : 0}
             icon={ShoppingBag}
           />
 
-          <IconLink
-            href="/account"
-            label="Account"
-            icon={User}
-            className="hidden sm:inline-flex"
-          />
+          <UserMenu serverUser={user} className="hidden sm:inline-flex" />
         </div>
       </Container>
     </header>

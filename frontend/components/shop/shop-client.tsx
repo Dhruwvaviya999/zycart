@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { PackageSearch, SlidersHorizontal, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useState, useTransition } from 'react';
+import { SlidersHorizontal, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import {
@@ -12,46 +13,102 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Breadcrumbs } from '@/components/common/breadcrumbs';
-import { EmptyState } from '@/components/common/empty-state';
+import { ProductGridSkeleton } from '@/components/common/loading-state';
 import { Container } from '@/components/layout/container';
 import { ProductGrid } from '@/components/product/product-grid';
+import { ActiveFilters } from '@/components/shop/active-filters';
 import { FilterPanel } from '@/components/shop/filter-panel';
-import { sortOptions, useShopFilters, type ShopFilters } from '@/components/shop/use-shop-filters';
-import { categories } from '@/data/categories';
-import { products } from '@/data/products';
-import type { SortKey } from '@/types/product';
+import { ShopPagination } from '@/components/shop/shop-pagination';
+import { SmartSearchField } from '@/components/search/smart-search-field';
+import { SmartSearchSummary } from '@/components/search/smart-search-summary';
+import { SearchEmptyState } from '@/components/search/search-empty-state';
+import {
+  buildShopHref,
+  countActiveFilters,
+  defaultFilters,
+  SORT_OPTIONS,
+  type ShopFilters,
+} from '@/components/shop/shop-filters';
+import type { Brand, Category, Pagination, ProductSummary, SortKey } from '@/types/product';
+import { cn } from '@/lib/utils';
 
-export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
-  const { filters, results, activeCount, update, toggleInArray, reset } = useShopFilters(initial);
+/**
+ * Filter fields whose URL name differs from the patch key that changes them.
+ * `inStock` is stored as `inStockOnly` on the client but is called `inStock`
+ * everywhere the server and the interpretation refer to it.
+ */
+const FIELD_ALIASES: Record<string, string> = { inStock: 'inStockOnly' };
+
+interface ShopClientProps {
+  filters: ShopFilters;
+  products: ProductSummary[];
+  pagination: Pagination;
+  categories: Category[];
+  brands: Brand[];
+  priceCeiling: number;
+  colors: string[];
+}
+
+export function ShopClient({
+  filters,
+  products,
+  pagination,
+  categories,
+  brands,
+  priceCeiling,
+  colors,
+}: ShopClientProps) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Category counts reflect every filter except category itself, so the
-  // numbers still guide you while a category is selected.
-  const counts = useMemo(() => {
-    const base = products.filter((product) => {
-      if (filters.brands.length && !filters.brands.includes(product.brand)) return false;
-      if (product.price < filters.priceRange[0] || product.price > filters.priceRange[1]) {
-        return false;
-      }
-      if (filters.minRating && product.rating < filters.minRating) return false;
-      if (filters.inStockOnly && !product.inStock) return false;
-      return true;
-    });
+  /**
+   * Set only when interpretation was attempted and failed. Kept in component
+   * state rather than in the URL: it describes one attempt, not the page, and
+   * a refresh of a standard-results page should not keep apologising for a
+   * model call that is no longer being made.
+   */
+  const [notice, setNotice] = useState<string>();
 
-    return Object.fromEntries(
-      categories.map((category) => [
-        category.slug,
-        base.filter((product) => product.category === category.slug).length,
-      ]),
-    );
-  }, [filters.brands, filters.priceRange, filters.minRating, filters.inStockOnly]);
+  const activeCount = countActiveFilters(filters);
+
+  /**
+   * Filters live in the URL, so every change is a navigation. `useTransition`
+   * keeps the current results on screen — dimmed — while the next page loads,
+   * instead of blanking the grid on each keystroke.
+   */
+  const apply = useCallback(
+    (patch: Partial<ShopFilters>) => {
+      // Any change other than paging returns to the first page, or you can end
+      // up on page 4 of a two-page result.
+      const next: ShopFilters = { ...filters, ...patch, page: patch.page ?? 1 };
+
+      /**
+       * Any filter the shopper changes by hand stops being one the search
+       * decided — so it survives the next smart search, and stops being
+       * presented as something the interpretation chose. Explicit choices win,
+       * and this is where that begins.
+       */
+      if (patch.interpreted === undefined) {
+        const touched = Object.keys(patch).filter((key) => key !== 'page');
+        next.interpreted = filters.interpreted.filter(
+          (field) => !touched.includes(field) && !touched.includes(FIELD_ALIASES[field] ?? field),
+        );
+      }
+
+      startTransition(() => router.push(buildShopHref(next), { scroll: false }));
+    },
+    [filters, router],
+  );
+
+  function reset() {
+    setNotice(undefined);
+    startTransition(() => router.push(buildShopHref(defaultFilters), { scroll: false }));
+  }
 
   const heading = filters.query
     ? `Results for “${filters.query}”`
-    : filters.categories.length === 1
-      ? (categories.find((category) => category.slug === filters.categories[0])?.name ??
-        'All products')
-      : 'All products';
+    : (categories.find((entry) => entry.slug === filters.category)?.name ?? 'All products');
 
   return (
     <Container className="py-8 sm:py-10">
@@ -59,9 +116,10 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
 
       <header className="mt-5 flex flex-col gap-2">
         <h1 className="text-h1">{heading}</h1>
-        <p className="text-small text-muted-foreground">
-          {results.length} {results.length === 1 ? 'product' : 'products'}
-          {activeCount > 0 && ` · ${activeCount} ${activeCount === 1 ? 'filter' : 'filters'} applied`}
+        <p className="text-small text-muted-foreground" aria-live="polite">
+          {pagination.total} {pagination.total === 1 ? 'product' : 'products'}
+          {activeCount > 0 &&
+            ` · ${activeCount} ${activeCount === 1 ? 'filter' : 'filters'} applied`}
         </p>
       </header>
 
@@ -84,16 +142,24 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
             <div className="max-h-[calc(100vh-9rem)] overflow-y-auto pr-1">
               <FilterPanel
                 filters={filters}
-                update={update}
-                toggleInArray={toggleInArray}
-                counts={counts}
+                categories={categories}
+                brands={brands}
+                priceCeiling={priceCeiling}
+                colors={colors}
+                onChange={apply}
               />
             </div>
           </div>
         </aside>
 
-        <div>
-          <div className="flex items-center gap-3 border-b border-border pb-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3 border-b border-border pb-4">
+            <SmartSearchField
+              filters={filters}
+              onNotice={setNotice}
+              className="w-full sm:w-auto sm:max-w-sm sm:min-w-56 sm:flex-1"
+            />
+
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
               <SheetTrigger
                 render={
@@ -111,7 +177,8 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
 
               <SheetContent
                 side="bottom"
-                className="max-h-[86vh] rounded-t-3xl data-[side=bottom]:h-auto"
+                showCloseButton={false}
+                className="flex max-h-[86vh] flex-col gap-0 p-0 data-[side=bottom]:h-auto data-[side=bottom]:rounded-t-3xl"
               >
                 <div className="flex items-center justify-between border-b border-border px-5 py-4">
                   <SheetTitle className="text-h4">Filters</SheetTitle>
@@ -139,9 +206,11 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
                 <div className="flex-1 overflow-y-auto overscroll-contain px-5">
                   <FilterPanel
                     filters={filters}
-                    update={update}
-                    toggleInArray={toggleInArray}
-                    counts={counts}
+                    categories={categories}
+                    brands={brands}
+                    priceCeiling={priceCeiling}
+                    colors={colors}
+                    onChange={apply}
                   />
                 </div>
 
@@ -152,15 +221,11 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
                     className="w-full"
                     onClick={() => setDrawerOpen(false)}
                   >
-                    Show {results.length} {results.length === 1 ? 'product' : 'products'}
+                    Show {pagination.total} {pagination.total === 1 ? 'product' : 'products'}
                   </Button>
                 </div>
               </SheetContent>
             </Sheet>
-
-            <span className="text-small hidden text-muted-foreground lg:inline">
-              Showing {results.length} of {products.length}
-            </span>
 
             <div className="ml-auto flex items-center gap-2">
               <span className="text-small hidden shrink-0 text-muted-foreground sm:inline">
@@ -168,13 +233,17 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
               </span>
               <Select
                 value={filters.sort}
-                onValueChange={(value) => update('sort', value as SortKey)}
+                onValueChange={(value) => apply({ sort: value as SortKey })}
               >
-                <SelectTrigger size="default" className="h-10 w-[11.5rem] rounded-xl">
+                <SelectTrigger
+                  size="default"
+                  aria-label="Sort products"
+                  className="h-10 w-[11.5rem] rounded-xl"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {sortOptions.map((option) => (
+                  {SORT_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -184,16 +253,46 @@ export function ShopClient({ initial }: { initial: Partial<ShopFilters> }) {
             </div>
           </div>
 
-          {results.length > 0 ? (
-            <ProductGrid products={results} columns={4} priorityCount={4} className="mt-8" />
+          <SmartSearchSummary
+            filters={filters}
+            categories={categories}
+            brands={brands}
+            notice={notice}
+            onChange={apply}
+            className="mt-4"
+          />
+
+          <ActiveFilters
+            filters={filters}
+            categories={categories}
+            brands={brands}
+            onChange={apply}
+            onReset={reset}
+            className="mt-4"
+          />
+
+          {products.length > 0 ? (
+            <>
+              <div
+                className={cn(
+                  'mt-8 transition-opacity duration-200',
+                  pending && 'pointer-events-none opacity-50',
+                )}
+                aria-busy={pending}
+              >
+                <ProductGrid products={products} columns={4} priorityCount={4} />
+              </div>
+
+              <ShopPagination
+                pagination={pagination}
+                onPageChange={(page) => apply({ page })}
+                className="mt-12 border-t border-border pt-8"
+              />
+            </>
+          ) : pending ? (
+            <ProductGridSkeleton count={8} className="mt-8" />
           ) : (
-            <EmptyState
-              icon={PackageSearch}
-              title="No products found."
-              body="Nothing matches this combination of filters. Try widening the price range or clearing a filter or two."
-              action={{ label: 'Browse everything', href: '/shop' }}
-              className="mt-8"
-            />
+            <SearchEmptyState filters={filters} onChange={apply} onReset={reset} className="mt-8" />
           )}
         </div>
       </div>

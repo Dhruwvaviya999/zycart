@@ -1,14 +1,14 @@
 import { Container } from '@/components/layout/container';
 import { SectionHeading } from '@/components/layout/section-heading';
 import { ProductGrid, type GridColumns } from '@/components/product/product-grid';
-import type { Product } from '@/types/product';
+import type { ProductSummary } from '@/types/product';
 import { cn } from '@/lib/utils';
 
 interface ProductSectionProps {
   eyebrow?: string;
   title: string;
   description?: string;
-  products: Product[];
+  products: ProductSummary[];
   action?: { label: string; href: string };
   columns?: GridColumns;
   priorityCount?: number;
@@ -31,12 +31,7 @@ export function ProductSection({
   return (
     <section id={id} className={cn('section-tight scroll-mt-24', className)}>
       <Container>
-        <SectionHeading
-          eyebrow={eyebrow}
-          title={title}
-          description={description}
-          action={action}
-        />
+        <SectionHeading eyebrow={eyebrow} title={title} description={description} action={action} />
         <ProductGrid
           products={products}
           columns={columns}

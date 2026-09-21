@@ -22,8 +22,8 @@ functionality.
 | `src/utils/AppError.ts`                | Error carrying an HTTP status                        |
 | `src/utils/asyncHandler.ts`            | Forwards async rejections to the error middleware    |
 
-`models/`, `services/`, and `validators/` are intentionally empty — they hold a
-`.gitkeep` so the structure is visible before Phase 2 fills them.
+`models/`, `services/`, and `validators/` were intentionally empty in Phase 1;
+Phase 3 filled them with the catalogue (see [phase 3](phase-3.md)).
 
 ### Frontend (`frontend/`)
 

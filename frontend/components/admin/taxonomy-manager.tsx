@@ -1,0 +1,432 @@
+'use client';
+
+import Image from 'next/image';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { AuthError } from '@/components/auth/auth-error';
+import { AdminEmpty, AdminTable, StatusBadge, Td, Th, Tr } from '@/components/admin/admin-ui';
+import { ConfirmDialog } from '@/components/admin/confirm-dialog';
+import { fieldErrors, toErrorMessage } from '@/services/api';
+import {
+  createBrand,
+  createCategory,
+  deleteBrand,
+  deleteCategory,
+  updateBrand,
+  updateCategory,
+} from '@/services/admin.service';
+import type { AdminTaxonomyRow, TaxonomyInput } from '@/types/admin';
+
+export type TaxonomyKind = 'category' | 'brand';
+
+const API = {
+  category: { create: createCategory, update: updateCategory, remove: deleteCategory },
+  brand: { create: createBrand, update: updateBrand, remove: deleteBrand },
+} as const;
+
+/**
+ * Categories and brands, managed with one component.
+ *
+ * They differ in two details — a category has a description and an `image`, a
+ * brand has a `logo` — and are otherwise the same screen: a short list, an
+ * inline editor, and a delete that the server refuses while products still
+ * point at it. Two near-identical screens would have drifted apart.
+ *
+ * The list is short by nature, so it is rendered whole rather than paged, and
+ * editing happens in a dialog rather than on its own route: an operator
+ * renaming a category should not lose their place.
+ */
+export function TaxonomyManager({ kind, rows }: { kind: TaxonomyKind; rows: AdminTaxonomyRow[] }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState<AdminTaxonomyRow | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [removing, setRemoving] = useState<AdminTaxonomyRow | null>(null);
+
+  const noun = kind === 'category' ? 'category' : 'brand';
+  const plural = kind === 'category' ? 'categories' : 'brands';
+
+  return (
+    <>
+      <div className="mb-4 flex justify-end">
+        <Button size="sm" variant="brand" onClick={() => setCreating(true)}>
+          <Plus className="size-3.5" data-icon="inline-start" aria-hidden />
+          New {noun}
+        </Button>
+      </div>
+
+      {rows.length === 0 ? (
+        <AdminEmpty
+          title={`No ${plural} yet`}
+          body={`Create a ${noun} before adding products to it.`}
+          action={
+            <Button size="sm" variant="brand" onClick={() => setCreating(true)}>
+              <Plus className="size-3.5" data-icon="inline-start" aria-hidden />
+              New {noun}
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <AdminTable
+            className="hidden sm:block"
+            head={
+              <>
+                <Th>{kind === 'category' ? 'Category' : 'Brand'}</Th>
+                <Th className="hidden md:table-cell">Slug</Th>
+                <Th align="right">Products</Th>
+                <Th>Status</Th>
+                <Th align="right">
+                  <span className="sr-only">Actions</span>
+                </Th>
+              </>
+            }
+          >
+            {rows.map((row) => (
+              <Tr key={row.id}>
+                <Td>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Thumb row={row} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{row.name}</span>
+                      {row.description && (
+                        <span className="text-caption block truncate text-muted-foreground">
+                          {row.description}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </Td>
+                <Td className="hidden text-muted-foreground md:table-cell">
+                  <code className="text-caption">{row.slug}</code>
+                </Td>
+                <Td align="right">
+                  {row.productCount > 0 ? (
+                    <Link
+                      href={`/admin/products?${kind}=${row.id}`}
+                      className="focus-ring rounded-sm font-medium tabular-nums hover:underline"
+                    >
+                      {row.productCount}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">0</span>
+                  )}
+                </Td>
+                <Td>
+                  <StatusBadge tone={row.isActive ? 'success' : 'neutral'}>
+                    {row.isActive ? 'Active' : 'Inactive'}
+                  </StatusBadge>
+                </Td>
+                <Td align="right">
+                  <RowActions
+                    row={row}
+                    onEdit={() => setEditing(row)}
+                    onDelete={() => setRemoving(row)}
+                  />
+                </Td>
+              </Tr>
+            ))}
+          </AdminTable>
+
+          <ul className="space-y-2 sm:hidden">
+            {rows.map((row) => (
+              <li
+                key={row.id}
+                className="flex items-center gap-3 rounded-xl border border-border p-3"
+              >
+                <Thumb row={row} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-small truncate font-medium">{row.name}</p>
+                  <p className="text-caption text-muted-foreground">
+                    {row.productCount} {row.productCount === 1 ? 'product' : 'products'}
+                    {!row.isActive && ' · Inactive'}
+                  </p>
+                </div>
+                <RowActions
+                  row={row}
+                  onEdit={() => setEditing(row)}
+                  onDelete={() => setRemoving(row)}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <TaxonomyDialog
+        kind={kind}
+        open={creating || editing !== null}
+        row={editing}
+        onOpenChange={(open) => {
+          if (open) return;
+          setCreating(false);
+          setEditing(null);
+        }}
+        onSaved={() => router.refresh()}
+      />
+
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title={`Delete this ${noun}?`}
+        destructive
+        description={
+          removing && removing.productCount > 0 ? (
+            <>
+              <strong>{removing.name}</strong> still has {removing.productCount}{' '}
+              {removing.productCount === 1 ? 'product' : 'products'} in it. Deleting it will be
+              refused — move or delete those products first, or deactivate this {noun} instead to
+              hide it from the shop.
+            </>
+          ) : (
+            <>
+              <strong>{removing?.name}</strong> will be removed permanently. Past orders keep their
+              own copy of what was bought, so order history is unaffected.
+            </>
+          )
+        }
+        confirmLabel="Delete"
+        busyLabel="Deleting…"
+        onConfirm={async () => {
+          if (!removing) return;
+          await API[kind].remove(removing.id);
+          router.refresh();
+        }}
+      />
+    </>
+  );
+}
+
+function Thumb({ row }: { row: AdminTaxonomyRow }) {
+  return (
+    <span className="relative size-9 shrink-0 overflow-hidden rounded-lg bg-surface">
+      {row.image && <Image src={row.image} alt="" fill sizes="36px" className="object-cover" />}
+    </span>
+  );
+}
+
+function RowActions({
+  row,
+  onEdit,
+  onDelete,
+}: {
+  row: AdminTaxonomyRow;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        onClick={onEdit}
+        aria-label={`Edit ${row.name}`}
+        className="focus-ring grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <Pencil className="size-3.5" aria-hidden />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        aria-label={`Delete ${row.name}`}
+        className="focus-ring grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+      >
+        <Trash2 className="size-3.5" aria-hidden />
+      </button>
+    </div>
+  );
+}
+
+function TaxonomyDialog({
+  kind,
+  open,
+  row,
+  onOpenChange,
+  onSaved,
+}: {
+  kind: TaxonomyKind;
+  open: boolean;
+  row: AdminTaxonomyRow | null;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
+  const noun = kind === 'category' ? 'category' : 'brand';
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogTitle className="text-h4">{row ? `Edit ${noun}` : `New ${noun}`}</DialogTitle>
+        <DialogDescription className="text-caption text-muted-foreground">
+          {kind === 'category'
+            ? 'Categories group products in the shop and in filters.'
+            : 'Brands label products and drive the brand filter.'}
+        </DialogDescription>
+
+        {/* Keyed and mounted only while open, so the fields come from props at
+            mount and reset on close without an effect syncing them. */}
+        {open && (
+          <TaxonomyFields
+            key={row?.id ?? 'new'}
+            kind={kind}
+            row={row}
+            onDone={() => {
+              onSaved();
+              onOpenChange(false);
+            }}
+            onCancel={() => onOpenChange(false)}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TaxonomyFields({
+  kind,
+  row,
+  onDone,
+  onCancel,
+}: {
+  kind: TaxonomyKind;
+  row: AdminTaxonomyRow | null;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(row?.name ?? '');
+  const [description, setDescription] = useState(row?.description ?? '');
+  const [image, setImage] = useState(row?.image ?? '');
+  const [isActive, setIsActive] = useState(row?.isActive ?? true);
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const [fields, setFields] = useState<Record<string, string>>({});
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+
+    if (name.trim().length < 2) {
+      setFields({ name: 'Give it a name of at least 2 characters.' });
+      return;
+    }
+
+    setSaving(true);
+    setError(undefined);
+    setFields({});
+
+    // A category stores `image`, a brand stores `logo`; the only shape
+    // difference between them.
+    const input: TaxonomyInput = {
+      name: name.trim(),
+      isActive,
+      ...(kind === 'category'
+        ? {
+            description: description.trim() || undefined,
+            image: image.trim() || undefined,
+          }
+        : { logo: image.trim() || undefined }),
+    };
+
+    try {
+      if (row) await API[kind].update(row.id, input);
+      else await API[kind].create(input);
+
+      onDone();
+    } catch (cause) {
+      setError(toErrorMessage(cause));
+      setFields(fieldErrors(cause));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <AuthError message={error} />
+
+      <div>
+        <label htmlFor="taxonomy-name" className="text-caption font-medium">
+          Name
+        </label>
+        <Input
+          id="taxonomy-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          maxLength={80}
+          disabled={saving}
+          aria-invalid={Boolean(fields.name) || undefined}
+          className="mt-1.5"
+        />
+        <p
+          role={fields.name ? 'alert' : undefined}
+          className="text-caption min-h-4 pt-1 text-destructive"
+        >
+          {fields.name ?? ''}
+        </p>
+      </div>
+
+      {kind === 'category' && (
+        <div>
+          <label htmlFor="taxonomy-description" className="text-caption font-medium">
+            Description <span className="font-normal text-muted-foreground">(optional)</span>
+          </label>
+          <Input
+            id="taxonomy-description"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            maxLength={500}
+            disabled={saving}
+            className="mt-1.5"
+          />
+        </div>
+      )}
+
+      <div>
+        <label htmlFor="taxonomy-image" className="text-caption font-medium">
+          {kind === 'category' ? 'Image URL' : 'Logo URL'}{' '}
+          <span className="font-normal text-muted-foreground">(optional)</span>
+        </label>
+        <Input
+          id="taxonomy-image"
+          type="url"
+          value={image}
+          onChange={(event) => setImage(event.target.value)}
+          placeholder="https://…"
+          disabled={saving}
+          className="mt-1.5"
+        />
+      </div>
+
+      <label className="focus-within:ring-ring/45 flex cursor-pointer items-center gap-2.5 rounded-lg py-1 focus-within:ring-[3px]">
+        <input
+          type="checkbox"
+          checked={isActive}
+          onChange={(event) => setIsActive(event.target.checked)}
+          disabled={saving}
+          className="size-4 accent-brand"
+        />
+        <span className="text-small font-medium">Active</span>
+      </label>
+
+      <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+        <Button type="button" size="cta" variant="outline" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+        <Button type="submit" size="cta" variant="brand" disabled={saving}>
+          {saving ? (
+            <>
+              <Loader2 className="size-4 animate-spin" data-icon="inline-start" aria-hidden />
+              Saving…
+            </>
+          ) : row ? (
+            'Save changes'
+          ) : (
+            'Create'
+          )}
+        </Button>
+      </div>
+    </form>
+  );
+}
