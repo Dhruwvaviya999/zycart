@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
 
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,11 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        'fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+        /* 10% black was not enough scrim to separate a white dialog from a
+           white page, and in the dark theme it was barely there at all. This
+           is dim enough to say "the page behind is not available" and light
+           enough that the page is still recognisably there. */
+        'fixed inset-0 isolate z-50 bg-black/35 duration-150 supports-backdrop-filter:backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 dark:bg-black/55',
         className,
       )}
       {...props}
@@ -36,23 +41,67 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   );
 }
 
+/**
+ * Dialog shapes.
+ *
+ * `sheet` exists because four storefront dialogs had each written out the same
+ * 200-character class string to be a bottom sheet on a phone and a centred
+ * dialog on a desktop — the correct behaviour, expressed four times, with no
+ * way to change it in one place. It is the default for anything a shopper
+ * opens: a centred box on a 360px screen is a box with its buttons in the
+ * middle of the viewport and its content squeezed, while a sheet rises from
+ * the thumb.
+ *
+ * `centered` is the plain dialog, used by the admin console where the viewport
+ * is a desktop one. `command` is the search overlay: anchored to the top,
+ * because a result list grows downwards and should not push its own input
+ * around as it does.
+ *
+ * Every variant caps its height against the *dynamic* viewport, so no dialog
+ * can ever be taller than the screen it opened on — including mobile Safari
+ * with its address bar showing.
+ */
+const dialogContentVariants = cva(
+  'fixed z-50 bg-popover text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+  {
+    variants: {
+      variant: {
+        centered:
+          'top-1/2 left-1/2 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-xl p-4 data-open:zoom-in-95 data-closed:zoom-out-95',
+        sheet:
+          'bottom-0 left-1/2 flex max-h-[90dvh] w-full max-w-full -translate-x-1/2 flex-col gap-0 overflow-hidden rounded-t-3xl data-open:slide-in-from-bottom-4 data-closed:slide-out-to-bottom-4 sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-4rem)] sm:-translate-y-1/2 sm:rounded-2xl sm:data-open:zoom-in-95 sm:data-open:slide-in-from-bottom-0 sm:data-closed:zoom-out-95 sm:data-closed:slide-out-to-bottom-0',
+        command:
+          'top-0 left-1/2 flex max-h-[100dvh] w-full max-w-full -translate-x-1/2 flex-col gap-0 overflow-hidden rounded-none border-x-0 border-t-0 data-open:slide-in-from-top-2 sm:top-[8vh] sm:max-h-[84dvh] sm:rounded-2xl sm:border sm:data-open:zoom-in-98',
+      },
+      size: {
+        sm: 'sm:max-w-sm',
+        md: 'sm:max-w-md',
+        lg: 'sm:max-w-lg',
+        xl: 'sm:max-w-2xl',
+      },
+    },
+    defaultVariants: { variant: 'centered', size: 'sm' },
+  },
+);
+
 function DialogContent({
   className,
   children,
+  variant = 'centered',
+  size = 'sm',
   showCloseButton = true,
   ...props
-}: DialogPrimitive.Popup.Props & {
-  showCloseButton?: boolean;
-}) {
+}: DialogPrimitive.Popup.Props &
+  VariantProps<typeof dialogContentVariants> & {
+    showCloseButton?: boolean;
+  }) {
   return (
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
-        className={cn(
-          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
-          className,
-        )}
+        data-variant={variant}
+        className={cn(dialogContentVariants({ variant, size }), className)}
         {...props}
       >
         {children}
@@ -135,4 +184,5 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
+  dialogContentVariants,
 };

@@ -114,6 +114,11 @@
 
   --radius: 0.75rem;
 
+  /* Scrollbar: a hairline of the same ink the borders use, so the chrome of
+     the page reads as part of it rather than as the operating system's. */
+  --scrollbar-thumb: oklch(0.2 0.02 265 / 0.22);
+  --scrollbar-thumb-hover: oklch(0.2 0.02 265 / 0.4);
+
   --elevation-xs: 0 1px 2px -1px oklch(0.2 0.02 265 / 0.08);
   --elevation-sm:
     0 1px 2px -1px oklch(0.2 0.02 265 / 0.08), 0 2px 6px -2px oklch(0.2 0.02 265 / 0.06);
@@ -167,6 +172,9 @@
   --input: oklch(1 0 0 / 14%);
   --ring: oklch(0.672 0.174 277);
 
+  --scrollbar-thumb: oklch(1 0 0 / 0.18);
+  --scrollbar-thumb-hover: oklch(1 0 0 / 0.32);
+
   --elevation-xs: 0 1px 2px -1px oklch(0 0 0 / 0.4);
   --elevation-sm: 0 1px 2px -1px oklch(0 0 0 / 0.45), 0 2px 6px -2px oklch(0 0 0 / 0.35);
   --elevation-md: 0 2px 4px -2px oklch(0 0 0 / 0.45), 0 8px 20px -6px oklch(0 0 0 / 0.45);
@@ -183,6 +191,12 @@
     @apply font-sans;
     -webkit-text-size-adjust: 100%;
     scroll-behavior: smooth;
+
+    /* Firefox. `thin` plus a tinted thumb is as far as Firefox lets us go, and
+       it is enough: the track stays transparent and the thumb matches the
+       WebKit rule below closely enough that the two read as one design. */
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   body {
@@ -207,6 +221,50 @@
   ::selection {
     background: var(--brand-muted);
     color: var(--foreground);
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Scrollbars
+   *
+   * One treatment for the page and for every container that scrolls, so
+   * a filter rail and the document itself do not disagree about what a
+   * scrollbar looks like. The gutter is 10px but the thumb is drawn
+   * inside a 3px transparent border, so what is actually visible is a
+   * 4px hairline that grows on hover — present enough to grab, quiet
+   * enough to disappear behind the content.
+   *
+   * WebKit/Blink only; Firefox is handled by the `scrollbar-*` pair on
+   * `html` above and ignores all of this. Opting out is `.no-scrollbar`,
+   * which the horizontal rails already use.
+   * ---------------------------------------------------------------- */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+
+  /* A resting thumb on a touch device is noise — the finger is the
+     scrollbar. Only draw one where there is a pointer to aim with. */
+  @media (hover: none) {
+    ::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
