@@ -1,6 +1,26 @@
+/**
+ * What a navigation item considers "here".
+ *
+ * Kept next to the links rather than in the header, because the answer is a
+ * property of the destination, not of the component drawing it — the desktop
+ * bar and the mobile sheet both read it, and neither gets to disagree.
+ */
+export interface NavMatch {
+  /** Pathnames that are exactly this destination. */
+  paths?: string[];
+  /** Pathnames nested under this destination — `/products` belongs to Shop. */
+  prefixes?: string[];
+  /** Search params that must all be present with these values. */
+  query?: Record<string, string>;
+  /** Location hash, including the `#`. */
+  hash?: string;
+}
+
 export interface NavLink {
   label: string;
   href: string;
+  /** Omit to make the item purely a link, never an active destination. */
+  match?: NavMatch;
 }
 
 export interface NavGroup {
@@ -9,10 +29,28 @@ export interface NavGroup {
 }
 
 export const primaryNav: NavLink[] = [
-  { label: 'Shop', href: '/shop' },
-  { label: 'Categories', href: '/#categories' },
-  { label: 'Deals', href: '/shop?sort=discount' },
-  { label: 'New Arrivals', href: '/shop?sort=newest' },
+  {
+    label: 'Shop',
+    href: '/shop',
+    // A product detail page is inside the shop, so the indicator stays on Shop
+    // rather than vanishing the moment a shopper opens something.
+    match: { paths: ['/shop'], prefixes: ['/products'] },
+  },
+  {
+    label: 'Categories',
+    href: '/#categories',
+    match: { paths: ['/'], hash: '#categories' },
+  },
+  {
+    label: 'Deals',
+    href: '/shop?sort=discount',
+    match: { paths: ['/shop'], query: { sort: 'discount' } },
+  },
+  {
+    label: 'New Arrivals',
+    href: '/shop?sort=newest',
+    match: { paths: ['/shop'], query: { sort: 'newest' } },
+  },
 ];
 
 export const accountNav: NavLink[] = [

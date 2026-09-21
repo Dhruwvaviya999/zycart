@@ -1,8 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Heart, ShoppingBag } from 'lucide-react';
 import { Container } from '@/components/layout/container';
 import { Logo } from '@/components/layout/logo';
@@ -11,6 +10,7 @@ import { SearchTrigger } from '@/components/search/search-trigger';
 import { UserMenu } from '@/components/layout/user-menu';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { primaryNav } from '@/data/navigation';
+import { useActiveNav } from '@/hooks/use-active-nav';
 import type { Category } from '@/types/product';
 import type { AuthUser } from '@/types/user';
 import { selectCartCount, useCartStore } from '@/store/cart-store';
@@ -23,7 +23,6 @@ interface NavbarProps {
 }
 
 export function Navbar({ categories, user }: NavbarProps) {
-  const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
 
   // Totals come from the resolved cart, so the badge counts units and matches
@@ -55,34 +54,15 @@ export function Navbar({ categories, user }: NavbarProps) {
         <MobileNav categories={categories} user={user} />
         <Logo className="mr-1 shrink-0" />
 
-        <nav aria-label="Primary" className="hidden lg:block">
-          <ul className="flex items-center gap-1">
-            {primaryNav.map((item) => {
-              // Only links that address a page outright claim the indicator —
-              // the query-scoped views (Deals, New Arrivals) are filtered
-              // versions of /shop, not separate destinations.
-              const plain = !/[?#]/.test(item.href);
-              const active = plain && pathname === item.href;
-
-              return (
-                <li key={item.label}>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'focus-ring text-nav relative inline-flex h-9 items-center rounded-lg px-3 transition-colors',
-                      active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {item.label}
-                    {active && (
-                      <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-brand" />
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+        {/*
+          The indicator reads the route through `useActiveNav`, which needs
+          `useSearchParams` — so the list sits behind a boundary of its own.
+          The fallback is the same markup with nothing highlighted rather than
+          a blank space, so the bar never reflows while it resolves.
+        */}
+        <Suspense fallback={<PrimaryNav active={null} />}>
+          <PrimaryNavLive />
+        </Suspense>
 
         {/*
           `min-w-0` is load-bearing, not tidying.
@@ -122,6 +102,47 @@ export function Navbar({ categories, user }: NavbarProps) {
         </div>
       </Container>
     </header>
+  );
+}
+
+/** Split out so only the indicator, not the whole header, waits on the URL. */
+function PrimaryNavLive() {
+  const active = useActiveNav(primaryNav);
+  return <PrimaryNav active={active} />;
+}
+
+function PrimaryNav({ active }: { active: string | null }) {
+  return (
+    <nav aria-label="Primary" className="hidden lg:block">
+      <ul className="flex items-center gap-1">
+        {primaryNav.map((item) => {
+          const current = item.label === active;
+
+          return (
+            <li key={item.label}>
+              <Link
+                href={item.href}
+                /* The route decides, so the route is what gets announced. */
+                aria-current={current ? 'page' : undefined}
+                className={cn(
+                  'focus-ring text-nav relative inline-flex h-9 items-center rounded-lg px-3 transition-colors',
+                  current ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {item.label}
+                <span
+                  aria-hidden
+                  className={cn(
+                    'absolute inset-x-3 -bottom-px h-0.5 origin-center rounded-full bg-brand transition-transform duration-300 ease-brand',
+                    current ? 'scale-x-100' : 'scale-x-0',
+                  )}
+                />
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }
 

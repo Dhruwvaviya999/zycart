@@ -3,14 +3,15 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect } from 'react';
-import { ChevronRight, Heart, Menu, ShoppingBag, User, X } from 'lucide-react';
+import { Suspense, useCallback, useEffect } from 'react';
+import { Check, ChevronRight, Heart, Menu, ShoppingBag, User, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Logo } from '@/components/layout/logo';
 import { primaryNav } from '@/data/navigation';
+import { useActiveNav } from '@/hooks/use-active-nav';
 import type { Category } from '@/types/product';
 import { fullName, initials, type AuthUser } from '@/types/user';
 import { useUiStore } from '@/store/ui-store';
@@ -66,20 +67,11 @@ export function MobileNav({ categories, user }: MobileNavProps) {
         </div>
 
         <nav aria-label="Mobile" className="flex-1 overflow-y-auto overscroll-contain">
-          <ul className="px-3 py-3">
-            {primaryNav.map((item) => (
-              <li key={item.label}>
-                <Link
-                  href={item.href}
-                  onClick={close}
-                  className="focus-ring text-h4 flex items-center justify-between rounded-xl px-3 py-3 transition-colors hover:bg-muted"
-                >
-                  {item.label}
-                  <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {/* Same source of truth as the desktop bar, drawn the way a list
+              wants it: a brand rail and a tick rather than an underline. */}
+          <Suspense fallback={<PrimaryLinks active={null} onNavigate={close} />}>
+            <PrimaryLinksLive onNavigate={close} />
+          </Suspense>
 
           {categories.length > 0 && (
             <>
@@ -156,6 +148,54 @@ export function MobileNav({ categories, user }: MobileNavProps) {
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function PrimaryLinksLive({ onNavigate }: { onNavigate: () => void }) {
+  const active = useActiveNav(primaryNav);
+  return <PrimaryLinks active={active} onNavigate={onNavigate} />;
+}
+
+function PrimaryLinks({
+  active,
+  onNavigate,
+}: {
+  active: string | null;
+  onNavigate: () => void;
+}) {
+  return (
+    <ul className="px-3 py-3">
+      {primaryNav.map((item) => {
+        const current = item.label === active;
+
+        return (
+          <li key={item.label}>
+            <Link
+              href={item.href}
+              onClick={onNavigate}
+              aria-current={current ? 'page' : undefined}
+              className={cn(
+                'focus-ring text-h4 relative flex items-center justify-between rounded-xl py-3 pr-3 pl-3 transition-colors hover:bg-muted',
+                current && 'bg-brand-subtle text-brand',
+              )}
+            >
+              {current && (
+                <span
+                  aria-hidden
+                  className="absolute top-3 bottom-3 left-0 w-0.5 rounded-full bg-brand"
+                />
+              )}
+              {item.label}
+              {current ? (
+                <Check className="size-4 text-brand" aria-hidden />
+              ) : (
+                <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
+              )}
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
