@@ -257,7 +257,7 @@ function TaxonomyDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="md">
         <DialogTitle className="text-h4">{row ? `Edit ${noun}` : `New ${noun}`}</DialogTitle>
         <DialogDescription className="text-caption text-muted-foreground">
           {kind === 'category'

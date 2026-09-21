@@ -5,6 +5,7 @@ import { ImagePlus, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { AuthError } from '@/components/auth/auth-error';
 import { RatingSelector } from '@/components/reviews/rating-selector';
 import { toErrorMessage } from '@/services/api';
@@ -64,7 +65,8 @@ export function ReviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-auto bottom-0 left-1/2 flex max-h-[90vh] w-full max-w-full -translate-y-0 flex-col gap-0 rounded-t-3xl rounded-b-none p-0 sm:top-1/2 sm:bottom-auto sm:max-w-lg sm:-translate-y-1/2 sm:rounded-2xl"
+        variant="sheet"
+          size="lg"
       >
         <div className="flex items-start justify-between gap-3 border-b border-border p-5">
           <div className="min-w-0">
@@ -260,7 +262,7 @@ function ReviewForm({ productId, existing, onSaved, onCancel }: FormProps) {
             <label htmlFor="review-comment" className="text-small font-medium">
               Your review
             </label>
-            <textarea
+            <Textarea
               id="review-comment"
               value={comment}
               onChange={(event) => {
@@ -272,10 +274,7 @@ function ReviewForm({ productId, existing, onSaved, onCancel }: FormProps) {
               placeholder="What did you like or dislike? How did it compare to what you expected?"
               aria-invalid={Boolean(fields.comment) || undefined}
               aria-describedby="review-comment-error review-comment-count"
-              className={cn(
-                'text-small focus-visible:ring-ring/50 mt-2 w-full resize-y rounded-lg border border-border bg-background px-3 py-2.5 outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] disabled:opacity-50',
-                fields.comment && 'border-destructive',
-              )}
+              className="mt-2"
             />
 
             <div className="flex items-start justify-between gap-3">

@@ -114,7 +114,7 @@ export function RegisterForm({ redirectTo }: RegisterFormProps) {
                 autoComplete="given-name"
                 autoFocus
                 onChange={(event) => set('firstName', event.target.value)}
-                className="h-11 rounded-xl"
+                size="lg"
               />
             )}
           </FormField>
@@ -126,7 +126,7 @@ export function RegisterForm({ redirectTo }: RegisterFormProps) {
                 value={values.lastName}
                 autoComplete="family-name"
                 onChange={(event) => set('lastName', event.target.value)}
-                className="h-11 rounded-xl"
+                size="lg"
               />
             )}
           </FormField>
@@ -141,7 +141,7 @@ export function RegisterForm({ redirectTo }: RegisterFormProps) {
               autoComplete="email"
               placeholder="you@example.com"
               onChange={(event) => set('email', event.target.value)}
-              className="h-11 rounded-xl"
+              size="lg"
             />
           )}
         </FormField>

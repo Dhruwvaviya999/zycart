@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SelectField } from '@/components/common/select-field';
 import { AuthError } from '@/components/auth/auth-error';
 import { toErrorMessage } from '@/services/api';
 import { createReturn } from '@/services/return.service';
@@ -162,7 +163,8 @@ export function ReturnRequestDialog({
         <DialogContent
           aria-labelledby={headingId}
           showCloseButton={false}
-          className="top-auto bottom-0 left-1/2 flex max-h-[90vh] w-full max-w-full -translate-y-0 flex-col gap-0 rounded-t-3xl rounded-b-none p-0 sm:top-1/2 sm:bottom-auto sm:max-w-lg sm:-translate-y-1/2 sm:rounded-2xl"
+          variant="sheet"
+          size="lg"
         >
           <header className="flex items-start justify-between gap-3 border-b border-border p-5">
             <div className="min-w-0">
@@ -238,7 +240,7 @@ export function ReturnRequestDialog({
                     maxLength={500}
                     onChange={(event) => setNote(event.target.value)}
                     placeholder="Tell us more"
-                    className="h-11 rounded-xl"
+                    size="lg"
                   />
                 </div>
 
@@ -436,21 +438,18 @@ function ItemPicker({
           <label htmlFor={reasonId} className="text-caption font-medium">
             What went wrong?
           </label>
-          <select
+          <SelectField
             id={reasonId}
             value={reason ?? ''}
-            onChange={(event) => onReason(event.target.value as ReturnReason)}
-            className="focus-ring text-small mt-1.5 h-10 w-full rounded-xl border border-border bg-background px-3"
-          >
-            <option value="" disabled>
-              Choose a reason
-            </option>
-            {RETURN_REASON_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            onValueChange={(next) => onReason(next as ReturnReason)}
+            options={RETURN_REASON_OPTIONS.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+            placeholder="Choose a reason"
+            size="lg"
+            className="mt-1.5"
+          />
 
           {reason && (
             <p className="text-caption mt-1.5 text-pretty text-muted-foreground">

@@ -140,7 +140,7 @@ function AuditDetailDialog({ entry, onClose }: { entry: AuditLogRow | null; onCl
 
   return (
     <Dialog open={entry !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="md">
         {entry && (
           <>
             <DialogTitle className="text-h4">{AUDIT_ACTION_LABEL[entry.action]}</DialogTitle>

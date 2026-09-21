@@ -118,9 +118,13 @@ export function CartItem({
             />
           )}
 
+          {/* `lg` rather than `sm`: these are the two row actions a shopper
+              taps on a phone, and a 28px control beside a 32px stepper is
+              under every touch-target guideline. The icons stay at 14px, so
+              only the target grew, not the visual weight. */}
           {onSaveForLater && item.product && !unavailable && (
             <Button
-              size="sm"
+              size="lg"
               variant="ghost"
               onClick={onSaveForLater}
               disabled={busy}
@@ -132,7 +136,7 @@ export function CartItem({
           )}
 
           <Button
-            size="sm"
+            size="lg"
             variant="ghost"
             onClick={onRemove}
             disabled={busy}

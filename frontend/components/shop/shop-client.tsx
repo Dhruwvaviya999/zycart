@@ -235,11 +235,7 @@ export function ShopClient({
                 value={filters.sort}
                 onValueChange={(value) => apply({ sort: value as SortKey })}
               >
-                <SelectTrigger
-                  size="default"
-                  aria-label="Sort products"
-                  className="h-10 w-[11.5rem] rounded-xl"
-                >
+                <SelectTrigger size="lg" aria-label="Sort products" className="w-[12rem]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

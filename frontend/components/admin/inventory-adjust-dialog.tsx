@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { SelectField } from '@/components/common/select-field';
 import { AuthError } from '@/components/auth/auth-error';
 import { StatusBadge } from '@/components/admin/admin-ui';
 import { STOCK_LABEL, stockTone } from '@/components/admin/status-tones';
@@ -194,7 +195,7 @@ export function InventoryAdjustDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="lg">
         {result ? (
           <AdjustmentDone result={result} onClose={() => close(false)} />
         ) : (
@@ -279,28 +280,29 @@ export function InventoryAdjustDialog({
                 </span>
               </label>
 
-              <label className="block" htmlFor={`${fieldId}-reason`}>
-                <span className="text-caption font-medium">Reason</span>
-                <select
+              <div className="block">
+                <label className="text-caption font-medium" htmlFor={`${fieldId}-reason`}>
+                  Reason
+                </label>
+                <SelectField
                   id={`${fieldId}-reason`}
                   value={reason}
-                  onChange={(event) => setReason(event.target.value as AdjustmentReason)}
+                  onValueChange={(next) => setReason(next as AdjustmentReason)}
+                  options={reasons.map((candidate) => ({
+                    value: candidate,
+                    label: REASON_LABEL[candidate],
+                  }))}
                   disabled={busy}
-                  className="text-small focus-visible:ring-ring/50 mt-1.5 h-9 w-full rounded-lg border border-border bg-background px-2.5 outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px]"
-                >
-                  {reasons.map((candidate) => (
-                    <option key={candidate} value={candidate}>
-                      {REASON_LABEL[candidate]}
-                    </option>
-                  ))}
-                </select>
+                  aria-invalid={!reasonFits}
+                  className="mt-1.5"
+                />
                 {!reasonFits && (
                   <span className="text-caption mt-1 block text-destructive">
                     {REASON_LABEL[reason]} does not fit a{' '}
                     {direction === 'increase' ? 'increase' : 'decrease'}. Choose another reason.
                   </span>
                 )}
-              </label>
+              </div>
 
               <label className="block" htmlFor={`${fieldId}-note`}>
                 <span className="text-caption font-medium">

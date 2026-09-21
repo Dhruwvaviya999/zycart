@@ -7,12 +7,13 @@ import { useEffect, useState } from 'react';
 import { Boxes, Loader2, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { SelectField } from '@/components/common/select-field';
 import { AuthError } from '@/components/auth/auth-error';
 import { ConfirmDialog } from '@/components/admin/confirm-dialog';
 import { fieldErrors, toErrorMessage } from '@/services/api';
 import { createProduct, deleteProduct, updateProduct } from '@/services/admin.service';
 import type { AdminProduct, AdminTaxonomyRow, ProductInput } from '@/types/admin';
-import { cn } from '@/lib/utils';
 
 /**
  * Creating and editing a product.
@@ -168,17 +169,13 @@ export function ProductForm({
             </Field>
 
             <Field label="Description" error={fields.description} htmlFor="description">
-              <textarea
+              <Textarea
                 id="description"
                 value={form.description}
                 onChange={(event) => update('description', event.target.value)}
                 rows={6}
                 maxLength={4000}
                 aria-invalid={Boolean(fields.description) || undefined}
-                className={cn(
-                  'text-small focus-visible:ring-ring/50 w-full resize-y rounded-lg border border-border bg-background px-3 py-2.5 outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px]',
-                  fields.description && 'border-destructive',
-                )}
               />
             </Field>
           </Card>
@@ -594,19 +591,13 @@ function Select({
   onChange: (value: string) => void;
 }) {
   return (
-    <select
+    <SelectField
       id={id}
       value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="text-small focus-visible:ring-ring/50 h-9 w-full rounded-lg border border-border bg-background px-2.5 outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px]"
-    >
-      <option value="">Choose…</option>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+      onValueChange={onChange}
+      options={options}
+      placeholder="Choose…"
+    />
   );
 }
 

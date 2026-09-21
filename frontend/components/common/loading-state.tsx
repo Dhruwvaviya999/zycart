@@ -11,8 +11,13 @@ export function ProductCardSkeleton() {
     <div className="flex flex-col gap-3.5">
       <Skeleton className="aspect-4/5 w-full rounded-2xl" />
       <div className="space-y-2">
+        {/* Brand */}
         <Skeleton className="h-3 w-16" />
-        <Skeleton className="h-4 w-4/5" />
+        {/* Two title lines, because the card reserves two whatever the name is
+            — a one-line placeholder followed by a two-line name is a jump. */}
+        <Skeleton className="h-3.5 w-11/12" />
+        <Skeleton className="h-3.5 w-2/3" />
+        {/* Rating, then price */}
         <Skeleton className="h-3 w-20" />
         <Skeleton className="h-4 w-28" />
       </div>
@@ -86,7 +91,7 @@ export function CartSkeleton({ className }: { className?: string }) {
                 </div>
                 <Skeleton className="h-4 w-20 shrink-0" />
               </div>
-              <Skeleton className="mt-auto h-8 w-32 rounded-xl" />
+              <Skeleton className="mt-auto h-9 w-32 rounded-xl" />
             </div>
           </li>
         ))}

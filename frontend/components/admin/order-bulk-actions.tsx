@@ -198,7 +198,7 @@ export function OrderBulkBar() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent size="md">
           <DialogTitle className="text-h4">
             {move?.label} {count} orders?
           </DialogTitle>
@@ -244,7 +244,7 @@ export function OrderBulkBar() {
 function BulkResultDialog({ result, onClose }: { result: BulkResult | null; onClose: () => void }) {
   return (
     <Dialog open={result !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="lg">
         {result && (
           <>
             <DialogTitle className="text-h4">

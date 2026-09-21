@@ -165,7 +165,18 @@ export function ProductCard({
           {product.brand.name}
         </p>
 
-        <Heading className="text-small leading-snug font-medium">
+        {/*
+          Two lines are reserved whether or not the name needs them.
+
+          `line-clamp-2` caps a long name at two lines, but it does nothing for
+          a short one — so in a grid of four, a card with a one-line name used
+          to pull its rating and price a line higher than the card beside it,
+          and the row read as misaligned rather than as products of different
+          names. `min-h` holds the second line open, which costs 19px on short
+          names and buys a grid whose ratings and prices sit on shared
+          baselines all the way across.
+        */}
+        <Heading className="text-small min-h-[calc(2*1.375*0.875rem)] leading-snug font-medium">
           <Link href={`/products/${product.slug}`} className="focus-ring rounded-sm">
             {/* Stretches the click target over the card without nesting links. */}
             <span className="absolute inset-0 z-0" aria-hidden />

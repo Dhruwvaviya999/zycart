@@ -201,7 +201,7 @@ function MovementDetailDialog({
 }) {
   return (
     <Dialog open={movement !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="md">
         {movement && (
           <>
             <DialogTitle className="text-h4">

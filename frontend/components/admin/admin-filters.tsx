@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SelectField } from '@/components/common/select-field';
 import { cn } from '@/lib/utils';
 
 /**
@@ -134,11 +135,14 @@ export interface FilterOption {
 }
 
 /**
- * A labelled `<select>` rather than a custom listbox.
+ * A labelled filter dropdown.
  *
- * Native selects are keyboard-accessible for free, open as a proper picker on a
- * phone, and stay legible in both themes. For a filter with five options and no
- * search, the custom control would be effort spent making something worse.
+ * This was a native `<select>`, chosen because it is keyboard-accessible for
+ * free. It still is — `SelectField` wraps Base UI's listbox, which keeps
+ * type-ahead, the arrow keys, Home/End, Enter and Escape — but the option list
+ * is now ZyCart's rather than the operating system's, which matters because
+ * the admin console is the one place a native picker was still visible next to
+ * the styled controls around it.
  */
 export function AdminSelect({
   label,
@@ -155,22 +159,22 @@ export function AdminSelect({
   allLabel?: string;
   className?: string;
 }) {
+  const labelId = `admin-filter-${label.replace(/\W+/g, '-').toLowerCase()}`;
+
   return (
-    <label className={cn('flex min-w-0 flex-col gap-1', className)}>
-      <span className="text-caption font-medium text-muted-foreground">{label}</span>
-      <select
+    <div className={cn('flex min-w-0 flex-col gap-1', className)}>
+      <span id={labelId} className="text-caption font-medium text-muted-foreground">
+        {label}
+      </span>
+      <SelectField
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="text-small focus-visible:ring-ring/50 h-9 min-w-0 rounded-lg border border-border bg-background px-2.5 outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px]"
-      >
-        <option value="">{allLabel}</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        onValueChange={onChange}
+        options={options}
+        clearLabel={allLabel}
+        placeholder={allLabel}
+        aria-labelledby={labelId}
+      />
+    </div>
   );
 }
 

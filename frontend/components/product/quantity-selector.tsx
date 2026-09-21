@@ -26,7 +26,10 @@ export function QuantitySelector({
   className,
 }: QuantitySelectorProps) {
   const compact = size === 'sm';
-  const buttonSize = compact ? 'size-8' : 'size-10';
+  /* 36px compact, 40px default. The compact stepper shares a cart row with
+     the Save-for-later and Remove buttons, which are 36px, so anything
+     smaller made the row look like three unrelated controls. */
+  const buttonSize = compact ? 'size-9' : 'size-10';
 
   return (
     <div

@@ -87,7 +87,7 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
               autoFocus
               placeholder="you@example.com"
               onChange={(event) => setEmail(event.target.value)}
-              className="h-11 rounded-xl"
+              size="lg"
             />
           )}
         </FormField>

@@ -48,7 +48,7 @@ export function DeleteReviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !submitting && onOpenChange(next)}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent size="sm">
         <DialogTitle className="text-h4">Delete review?</DialogTitle>
         <DialogDescription className="text-caption text-pretty text-muted-foreground">
           Your review will be removed from this product and the rating will be updated. This cannot

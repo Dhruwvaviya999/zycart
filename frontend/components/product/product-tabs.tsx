@@ -68,7 +68,10 @@ export function ProductTabs({
 
   return (
     <Tabs value={value} onValueChange={(next) => select(String(next))}>
-      <TabsList className="w-full justify-start overflow-x-auto">
+{/* `no-scrollbar` because this rail is the one place a scrollbar under a
+          44px control would be both ugly and useless — the tabs fit on every
+          viewport down to 320px, and the overflow is a safety net. */}
+      <TabsList size="lg" className="no-scrollbar max-w-full justify-start overflow-x-auto">
         <TabsTrigger value="description">Description</TabsTrigger>
         {specifications && <TabsTrigger value="specifications">Specifications</TabsTrigger>}
         <TabsTrigger value="reviews">

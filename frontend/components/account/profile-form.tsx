@@ -96,7 +96,7 @@ export function ProfileForm({ user }: { user: AuthUser }) {
                 value={values.firstName}
                 autoComplete="given-name"
                 onChange={(event) => set('firstName', event.target.value)}
-                className="h-11 rounded-xl"
+                size="lg"
               />
             )}
           </FormField>
@@ -108,7 +108,7 @@ export function ProfileForm({ user }: { user: AuthUser }) {
                 value={values.lastName}
                 autoComplete="family-name"
                 onChange={(event) => set('lastName', event.target.value)}
-                className="h-11 rounded-xl"
+                size="lg"
               />
             )}
           </FormField>
@@ -122,7 +122,8 @@ export function ProfileForm({ user }: { user: AuthUser }) {
               value={user.email}
               readOnly
               disabled
-              className="h-11 cursor-not-allowed rounded-xl"
+              size="lg"
+              className="cursor-not-allowed"
             />
           )}
         </FormField>
@@ -136,7 +137,7 @@ export function ProfileForm({ user }: { user: AuthUser }) {
               autoComplete="tel"
               placeholder="+91 98250 00000"
               onChange={(event) => set('phone', event.target.value)}
-              className="h-11 rounded-xl"
+              size="lg"
             />
           )}
         </FormField>
@@ -154,7 +155,7 @@ export function ProfileForm({ user }: { user: AuthUser }) {
               value={values.avatar}
               placeholder="https://..."
               onChange={(event) => set('avatar', event.target.value)}
-              className="h-11 rounded-xl"
+              size="lg"
             />
           )}
         </FormField>

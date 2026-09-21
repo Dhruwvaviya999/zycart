@@ -65,7 +65,7 @@ export function ConfirmDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="md">
         <DialogTitle className="text-h4">{title}</DialogTitle>
         <DialogDescription className="text-caption text-pretty text-muted-foreground">
           {description}

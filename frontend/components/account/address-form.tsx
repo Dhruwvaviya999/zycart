@@ -101,7 +101,7 @@ export function AddressForm({
           {...props}
           value={String(values[field] ?? '')}
           onChange={(event) => set(field, event.target.value as AddressInput[Field])}
-          className="h-11 rounded-xl"
+          size="lg"
         />
       )}
     </FormField>

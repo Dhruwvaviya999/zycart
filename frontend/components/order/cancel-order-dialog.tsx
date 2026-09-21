@@ -60,7 +60,8 @@ export function CancelOrderDialog({ orderNumber }: { orderNumber: string }) {
       <Dialog open={open} onOpenChange={(next) => !submitting && setOpen(next)}>
         <DialogContent
           showCloseButton={false}
-          className="top-auto bottom-0 left-1/2 flex max-h-[90vh] w-full max-w-full -translate-y-0 flex-col gap-0 rounded-t-3xl rounded-b-none p-0 sm:top-1/2 sm:bottom-auto sm:max-w-md sm:-translate-y-1/2 sm:rounded-2xl"
+          variant="sheet"
+          size="md"
         >
           <div className="flex items-start justify-between gap-3 border-b border-border p-5">
             <div className="min-w-0">
@@ -140,7 +141,7 @@ export function CancelOrderDialog({ orderNumber }: { orderNumber: string }) {
                 maxLength={300}
                 onChange={(event) => setNote(event.target.value)}
                 placeholder="Tell us more"
-                className="h-11 rounded-xl"
+                size="lg"
               />
             </div>
           </div>

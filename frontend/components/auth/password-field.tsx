@@ -25,7 +25,8 @@ export function PasswordField({ className, ...props }: PasswordFieldProps) {
       <Input
         {...props}
         type={visible ? 'text' : 'password'}
-        className={cn('h-11 rounded-xl pr-11', className)}
+        size="lg"
+        className={cn('pr-11', className)}
       />
 
       <button
