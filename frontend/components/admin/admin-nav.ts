@@ -113,5 +113,12 @@ export const ADMIN_NAV: AdminNavGroup[] = [
  */
 export function isActiveNav(item: AdminNavItem, pathname: string): boolean {
   if (item.href === '/admin') return pathname === '/admin';
-  return item.nested ? pathname.startsWith(item.href) : pathname === item.href;
+  if (!item.nested) return pathname === item.href;
+
+  /**
+   * The segment boundary matters: a bare `startsWith` would light "Orders" on
+   * a hypothetical `/admin/orders-archive`, which is a different section that
+   * merely begins with the same letters.
+   */
+  return pathname === item.href || pathname.startsWith(`${item.href}/`);
 }

@@ -62,20 +62,47 @@ function isUnder(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
+/** Anything with a `match` can be scored — the primary nav, the account rail. */
+interface Matchable {
+  match?: NavMatch;
+}
+
 /**
- * The single active item, or `null` where the current URL is not part of the
- * primary navigation at all — the cart and the account pages, for instance,
- * which have their own controls in the header and should not borrow Shop's.
+ * The single active item, or `null` where the current URL is not part of this
+ * navigation at all — the cart, for instance, which has its own control in the
+ * header and should not borrow Shop's.
+ *
+ * Generic over the item, because the primary nav and the account rail draw
+ * themselves differently and key off different fields, but must not disagree
+ * about *which* item is current.
  */
-export function activeNavLabel(items: NavLink[], location: NavLocation): string | null {
-  let best: { label: string; score: number } | null = null;
+export function activeNavItem<T extends Matchable>(items: T[], location: NavLocation): T | null {
+  let best: { item: T; score: number } | null = null;
 
   for (const item of items) {
     if (!item.match) continue;
     const score = matchScore(item.match, location);
     if (score === null) continue;
-    if (!best || score > best.score) best = { label: item.label, score };
+    if (!best || score > best.score) best = { item, score };
   }
 
-  return best?.label ?? null;
+  return best?.item ?? null;
 }
+
+export function activeNavLabel(items: NavLink[], location: NavLocation): string | null {
+  return activeNavItem(items, location)?.label ?? null;
+}
+
+/**
+ * For navigations whose destinations are plain paths.
+ *
+ * The account rail has no query- or hash-scoped entries, so it needs neither
+ * `useSearchParams` nor the Suspense boundary that comes with it — but it does
+ * need the same nesting rule, which is the whole reason it shares this module
+ * rather than testing `pathname === href` for itself.
+ */
+export function activePathItem<T extends Matchable>(items: T[], pathname: string): T | null {
+  return activeNavItem(items, { pathname, params: EMPTY_PARAMS, hash: '' });
+}
+
+const EMPTY_PARAMS: Pick<URLSearchParams, 'get'> = { get: () => null };

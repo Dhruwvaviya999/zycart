@@ -13,25 +13,66 @@ import {
   User,
   type LucideIcon,
 } from 'lucide-react';
+import { activePathItem } from '@/lib/nav-active';
+import type { NavMatch } from '@/data/navigation';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
+  match: NavMatch;
 }
 
+/**
+ * `match` rather than a bare href, for the same reason the primary nav has
+ * one: this rail used to test `pathname === href`, so opening an order —
+ * `/account/orders/ZY-1024` — or a return unlit every item in the sidebar, and
+ * a customer reading their own order was shown an account section with nothing
+ * selected. The sections that have detail pages claim them by prefix; Overview
+ * matches `/account` exactly, or it would own every page beneath it.
+ */
 const ITEMS: NavItem[] = [
-  { href: '/account', label: 'Overview', icon: LayoutGrid },
-  { href: '/account/profile', label: 'Profile', icon: User },
-  { href: '/account/orders', label: 'Orders', icon: Package },
+  { href: '/account', label: 'Overview', icon: LayoutGrid, match: { paths: ['/account'] } },
+  {
+    href: '/account/profile',
+    label: 'Profile',
+    icon: User,
+    match: { paths: ['/account/profile'] },
+  },
+  {
+    href: '/account/orders',
+    label: 'Orders',
+    icon: Package,
+    match: { paths: ['/account/orders'], prefixes: ['/account/orders'] },
+  },
   // Beside orders rather than under them: a customer chasing a refund is not
   // looking for the order it came from, they are looking for the return.
-  { href: '/account/returns', label: 'Returns', icon: RotateCcw },
-  { href: '/account/reviews', label: 'Reviews', icon: Star },
-  { href: '/account/addresses', label: 'Addresses', icon: MapPin },
-  { href: '/account/settings', label: 'Settings', icon: Settings },
-  { href: '/wishlist', label: 'Wishlist', icon: Heart },
+  {
+    href: '/account/returns',
+    label: 'Returns',
+    icon: RotateCcw,
+    match: { paths: ['/account/returns'], prefixes: ['/account/returns'] },
+  },
+  {
+    href: '/account/reviews',
+    label: 'Reviews',
+    icon: Star,
+    match: { paths: ['/account/reviews'], prefixes: ['/account/reviews'] },
+  },
+  {
+    href: '/account/addresses',
+    label: 'Addresses',
+    icon: MapPin,
+    match: { paths: ['/account/addresses'] },
+  },
+  {
+    href: '/account/settings',
+    label: 'Settings',
+    icon: Settings,
+    match: { paths: ['/account/settings'] },
+  },
+  { href: '/wishlist', label: 'Wishlist', icon: Heart, match: { paths: ['/wishlist'] } },
 ];
 
 /**
@@ -40,6 +81,7 @@ const ITEMS: NavItem[] = [
  */
 export function AccountNavigation({ className }: { className?: string }) {
   const pathname = usePathname();
+  const current = activePathItem(ITEMS, pathname);
 
   return (
     /**
@@ -58,7 +100,7 @@ export function AccountNavigation({ className }: { className?: string }) {
     <nav aria-label="Account" className={cn('min-w-0', className)}>
       <ul className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:flex-col lg:gap-1 lg:px-0">
         {ITEMS.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href;
+          const active = current?.href === href;
 
           return (
             <li key={href} className="shrink-0">
