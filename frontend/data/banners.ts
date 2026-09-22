@@ -33,108 +33,146 @@ export interface HeroImage {
   alt: string;
 }
 
-export interface HeroSlide {
+export interface HeroBanner {
   id: string;
+  /** Short kicker above the headline. */
   eyebrow: string;
-  /** Two lines: the second one carries the brand gradient. */
-  headline: [string, string];
+  title: string;
+  /** One supporting line. Anything longer does not survive the crop. */
   body: string;
-  primaryCta: { label: string; href: string };
-  secondaryCta: { label: string; href: string };
-  /** The tall crop. Always present. */
-  primaryImage: HeroImage;
-  /** The two supporting crops beside it. */
-  supportImages: [HeroImage, HeroImage];
+  ctaLabel: string;
+  href: string;
+  image: HeroImage;
+  /** Which side the copy sits on, so the rail is not five identical cards. */
+  align?: 'start' | 'end';
+  /** Tints the scrim, so consecutive banners are distinguishable at a glance. */
+  tone?: 'ink' | 'brand' | 'sale';
 }
 
 /**
- * The homepage hero, as slides.
+ * The banner rail at the top of the homepage.
  *
- * Three, not eight: a hero carousel earns its controls by having something
- * different to say on each stop, and past the third slide a shopper is being
- * shown the same store three more times. Each one here leads somewhere
- * different — everything, the new season, and the assistant — so the dots are
- * a table of contents rather than a timer.
+ * A horizontally scrolling row of wide promotional cards, which is what a
+ * shopper arriving at a storefront expects to see first: what is on offer
+ * today, scannable in one sweep, each one a link somewhere specific.
  *
- * `HeroSlide` is shaped the way a CMS would return it, so the merchandising
- * team owning this later changes this file and nothing else.
+ * Every banner is ZyCart's own. None of them imitates a third-party brand's
+ * advertising, and none is labelled "AD", because nothing here was paid for —
+ * a fake ad slot on a storefront that sells no ad inventory is a lie told to
+ * the shopper about why they are being shown something.
+ *
+ * Shaped the way a CMS would return it, so the merchandising team owning this
+ * later changes this file and nothing else.
  */
-export const heroSlides: HeroSlide[] = [
+export const heroBanners: HeroBanner[] = [
   {
-    id: 'everything',
-    eyebrow: 'New season · 2026',
-    headline: ['Everything you want.', 'One smarter cart.'],
-    body: 'Discover products picked for the way you shop — curated ranges, honest pricing, and an assistant that actually understands what you asked for.',
-    primaryCta: { label: 'Start shopping', href: '/shop' },
-    secondaryCta: { label: 'See new arrivals', href: '/shop?sort=newest' },
-    primaryImage: {
-      url: 'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&w=1000&q=85',
-      alt: 'Pastel Air Force 1 sneakers photographed on a soft gradient backdrop',
+    id: 'big-savings',
+    eyebrow: 'Big savings days',
+    title: 'Up to 60% off electronics',
+    body: 'Laptops, audio and wearables, reduced from what they actually sold for.',
+    ctaLabel: 'Shop the deals',
+    href: '/shop?sort=discount',
+    image: {
+      url: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=1400&q=85',
+      alt: 'Open laptop on a wooden desk',
     },
-    supportImages: [
-      {
-        url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=85',
-        alt: 'Black over-ear headphones on a bright yellow background',
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&w=700&q=85',
-        alt: 'Steel dive watch with a deep blue dial',
-      },
-    ],
+    tone: 'ink',
   },
   {
-    id: 'deals',
-    eyebrow: 'The essentials edit',
-    headline: ['Everyday pieces,', 'marked down properly.'],
-    body: 'Real reductions on the things that get used daily — not a higher price with a bigger number struck through it. Every discount on ZyCart is worked out from what the product actually sold for.',
-    primaryCta: { label: 'Shop the deals', href: '/shop?sort=discount' },
-    secondaryCta: { label: 'Browse everything', href: '/shop' },
-    primaryImage: {
-      url: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=1000&q=85',
-      alt: 'Seasonal flat lay of knitwear, denim and a watch',
+    id: 'footwear',
+    eyebrow: 'New season',
+    title: 'Footwear that just landed',
+    body: 'This season’s silhouettes, in the sizes people actually buy.',
+    ctaLabel: 'Shop footwear',
+    href: '/shop?category=footwear',
+    image: {
+      url: 'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&w=1400&q=85',
+      alt: 'Pastel Air Force 1 sneakers photographed on a soft gradient backdrop',
     },
-    supportImages: [
-      {
-        url: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=700&q=85',
-        alt: 'Structured amber leather satchel with a woven base',
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&w=700&q=85',
-        alt: 'Steel dive watch with a deep blue dial',
-      },
-    ],
+    align: 'end',
+    tone: 'brand',
+  },
+  {
+    id: 'audio',
+    eyebrow: 'Sound, sorted',
+    title: 'Headphones from ₹1,499',
+    body: 'Over-ear, in-ear and everything between — rated by people who bought them.',
+    ctaLabel: 'Shop audio',
+    href: '/shop?category=electronics',
+    image: {
+      url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=1400&q=85',
+      alt: 'Black over-ear headphones on a bright yellow background',
+    },
+    tone: 'ink',
   },
   {
     id: 'assistant',
     eyebrow: 'ZyCart AI',
-    headline: ['Describe it once.', 'We narrow it down.'],
-    body: 'Tell the assistant what you need in your own words and it answers from the live catalogue — real prices, real ratings, real stock, and a budget it treats as a limit rather than a hint.',
-    primaryCta: { label: 'Ask ZyCart AI', href: '/ai-shopping' },
-    secondaryCta: { label: 'Shop by category', href: '/#categories' },
-    primaryImage: {
-      url: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=1000&q=85',
-      alt: 'Open laptop on a wooden desk',
+    title: 'Describe it once. We narrow it down.',
+    body: 'Real prices, real stock, and a budget treated as a limit rather than a hint.',
+    ctaLabel: 'Ask ZyCart AI',
+    href: '/ai-shopping',
+    image: {
+      url: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=1400&q=85',
+      alt: 'Seasonal flat lay of knitwear, denim and a watch',
     },
-    supportImages: [
-      {
-        url: 'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&w=700&q=85',
-        alt: 'Pastel Air Force 1 sneakers photographed on a soft gradient backdrop',
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=700&q=85',
-        alt: 'Structured amber leather satchel with a woven base',
-      },
-    ],
+    align: 'end',
+    tone: 'brand',
+  },
+  {
+    id: 'accessories',
+    eyebrow: 'Limited release',
+    title: 'Made in small runs',
+    body: 'Watches and leather produced a few hundred at a time, by makers we can name.',
+    ctaLabel: 'See limited pieces',
+    href: '/shop?category=accessories',
+    image: {
+      url: 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&w=1400&q=85',
+      alt: 'Steel dive watch with a deep blue dial',
+    },
+    tone: 'sale',
   },
 ];
 
 /**
- * The proof line under the hero.
+ * The editorial band further down the page.
  *
- * Deliberately outside the slides: it is true whichever slide is showing, and
- * keeping it in the frame rather than in the rotation means the hero's height
- * is decided once instead of changing under the reader.
+ * This was the hero until the banner rail took that slot. It is a statement
+ * about the store rather than an offer, which is exactly why it reads better
+ * once a shopper has scrolled past the offers — and why it is now static: two
+ * things rotating on one page is one too many, and the rail above is the one
+ * with a reason to.
  */
+export const showcase = {
+  eyebrow: 'New season · 2026',
+  headline: ['Everything you want.', 'One smarter cart.'],
+  body: 'Discover products picked for the way you shop — curated ranges, honest pricing, and an assistant that actually understands what you asked for.',
+  primaryCta: { label: 'Start shopping', href: '/shop' },
+  secondaryCta: { label: 'See new arrivals', href: '/shop?sort=newest' },
+  images: {
+    primary: {
+      url: 'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&w=1000&q=85',
+      alt: 'Pastel Air Force 1 sneakers photographed on a soft gradient backdrop',
+    },
+    secondary: {
+      url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=85',
+      alt: 'Black over-ear headphones on a bright yellow background',
+    },
+    tertiary: {
+      url: 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&w=700&q=85',
+      alt: 'Steel dive watch with a deep blue dial',
+    },
+  },
+} satisfies {
+  eyebrow: string;
+  headline: [string, string];
+  body: string;
+  primaryCta: { label: string; href: string };
+  secondaryCta: { label: string; href: string };
+  images: Record<'primary' | 'secondary' | 'tertiary', HeroImage>;
+};
+
+/** The proof line under the showcase. */
 export const heroStats = [
   { value: '36', label: 'Curated products' },
   { value: '4.7★', label: 'Average rating' },

@@ -22,7 +22,7 @@ ones the audit turned up while it was there.
 
 | Gap | What closes it |
 | --- | --- |
-| The homepage hero was a static composition | A three-slide carousel built as a stack, not a track |
+| The homepage hero was a static composition | A scroll-snap rail of promotional banners, with the editorial band moved below the first product rail |
 | Select options sat flush against the popup edge | An inset popup, comfortable rows, and a size ladder shared with `Input` |
 | The scrollbar was the operating system's | Theme-aware scrollbars in both engines, suppressed on touch |
 | Search showed a ⌘K chip and an Esc pill | Both gone; the shortcuts stay, and the overlay gains a real close button |
@@ -45,7 +45,7 @@ diff for this phase is entirely under `frontend/`.
 ## Contents
 
 - [The design system](#the-design-system)
-- [The hero carousel](#the-hero-carousel)
+- [The hero banner rail](#the-hero-banner-rail)
 - [Select](#select)
 - [Scrollbars](#scrollbars)
 - [Search](#search)
@@ -121,72 +121,78 @@ defined for both themes alongside the elevation scale.
 
 ---
 
-## The hero carousel
+## The hero banner rail
 
-Three slides — everything, the deals edit, the assistant. Three and not eight,
-because a hero carousel earns its controls by having something different to say
-at each stop, and past the third a shopper is being shown the same store three
-more times. Each slide leads somewhere different, so the dots are a table of
-contents rather than a timer.
+The homepage now opens on a horizontally scrolling row of wide promotional
+cards — what is on offer today, scannable in one sweep, each card a link
+somewhere specific. Five of them, with the next peeking past the right edge.
 
-### Why a stack and not a track
+### Why a scroll container and not a track
 
-A carousel is normally `overflow: hidden` wrapped around a row three viewports
-wide, translated sideways. That is how a carousel ends up adding a horizontal
-scrollbar to the document the first time a slide is a pixel wider than its
-frame, and it is why the brief asks for a carousel that does not overflow the
-page.
+It is a native `overflow-x: auto` element with `scroll-snap`, not a transform
+track. Everything a carousel normally reimplements comes from the browser:
+momentum scrolling, swipe, trackpad gestures, keyboard arrow scrolling, and the
+peeking neighbour that tells a shopper the row moves. Autoplay is then a
+`scrollTo`, which the same snap points bring to rest in the right place.
 
-ZyCart's is a stack. Every slide occupies the same CSS grid cell; what changes
-is opacity. The section is therefore exactly as wide as the page and exactly as
-tall as its tallest slide, measured on the first paint with all three already in
-the DOM. No track, no overflow, and no layout shift — the frame around the copy
-never resizes while the copy inside it does.
+It also cannot widen the page. The overflow belongs to the rail, so a card
+wider than its frame scrolls inside it rather than pushing the document
+sideways — which is the failure mode of every hero built as a wide row that is
+translated.
 
-The proof line under the hero — products, rating, delivery — sits *outside* the
-rotation for the same reason. It is true whichever slide is showing, and keeping
-it in the frame means the hero's height is decided once rather than changing
-under the reader.
+The active card is *observed* rather than calculated. Card width changes at
+every breakpoint, so measuring one and dividing would be a second source of
+truth that has to be kept in step with the CSS; an `IntersectionObserver`
+rooted on the rail already knows which card is in view.
 
-### Behaviour
+### The banners are ZyCart's own
 
-- **Autoplay** every 7 seconds, and only while every one of these holds: more
-  than one slide, the reader has not taken over, it is not paused, the pointer
-  is not over it, focus is not inside it, the tab is visible, and reduced motion
-  is not requested.
-- **Taking over is permanent.** Any prev, next, dot or swipe sets a flag that
-  autoplay never clears. Being moved along after you have taken the wheel is the
-  single most irritating thing a carousel does.
-- **A pause control**, offered only while there is something to pause — after
-  the reader has taken over, or under reduced motion where the timer never
-  started, a pause button would be a lie.
-- **Swipe** on touch and pen, past 48px, and only when the gesture is more
-  horizontal than vertical, so a page scroll is never read as a slide change.
-- **Arrow keys** move it while focus is anywhere inside the region.
+The reference this was built from is an ad strip: third-party brand creatives
+badged "AD". These are not that, and deliberately. Nothing here imitates a real
+company's advertising, and nothing is badged "AD" — ZyCart sells no ad
+inventory, so an ad slot would be a lie told to the shopper about why they are
+being shown something. Each banner is a ZyCart promotion pointing at a real
+filtered view of the real catalogue.
 
-### Accessibility
+Copy sits over a gradient scrim rather than over the photograph, because a
+merchandiser picks an image for the product in it, not for how much contrast it
+leaves behind white text. Three scrim tones and two copy alignments, so five
+consecutive cards read as five cards rather than as one long strip.
 
-It follows the ARIA carousel pattern rather than approximating it:
+### Behaviour and accessibility
 
-- the region is `aria-roledescription="carousel"` with a label; each slide is
-  `aria-roledescription="slide"`, labelled "2 of 3";
-- inactive slides carry `inert`, so no keyboard can reach a link it cannot see,
-  with `tabIndex={-1}` on the CTAs as a fallback for engines without `inert`;
-- the live region is `aria-live="off"` while it rotates and `polite` once it
-  does not, which is what keeps a rotating carousel from interrupting a screen
-  reader;
-- every control has a name: "Previous slide", "Next slide", "Pause the
-  carousel", and "Go to slide 2: The essentials edit" rather than "2";
-- the dots are 6px indicators inside 36px targets.
+Autoplay every 5.5 seconds, and only while: more than one banner, the shopper
+has not scrolled or used a control, the pointer is not over it, focus is not
+inside it, the tab is visible, and reduced motion is not requested. Any
+interaction — a pointer down on the rail, an arrow key, a dot, a chevron —
+stops it for good.
 
-`prefers-reduced-motion` is read in JavaScript, not only in CSS. The global
-stylesheet already flattens transitions for those readers, but a component that
-moves *on a timer* is not something CSS can switch off — the timer has to be
-told, so `useReducedMotion` exists and the hero never starts one.
+The region is `aria-roledescription="carousel"`; each card is a labelled slide
+of five; the rail is a focusable scroll container with its own label, so a
+keyboard user scrolls it with the arrow keys as the browser intends; the dots
+are buttons named "Go to offer 3: Headphones from ₹1,499" rather than "3", with
+`aria-current`; the chevrons appear from `md` up, where there is a pointer to
+aim them with. No `inert` is needed, because unlike a stacked carousel every
+card here is genuinely reachable.
 
-**One slide degrades cleanly.** With `heroSlides` reduced to a single entry the
-controls, the roles, the live region and the timer all disappear, and what is
-left is the static hero this phase started with.
+### The editorial band moved down
+
+What was the hero is now `Showcase`, and it sits below the first product rail.
+At the top of a storefront a shopper is looking for offers and a way into the
+catalogue; a paragraph about the store's philosophy above the fold is the shop
+talking about itself before it has shown anything. A few rails down, once the
+offers and the first products have done their job, the same paragraph is a
+reason to stay — and it breaks up what would otherwise be four product rails in
+a row.
+
+It is a server component again, and static. Its three slides were the right
+answer while it was the hero; the rail above now does the rotating, and two
+things rotating on one page is one too many. The other two slides' copy did not
+go anywhere — it became banners.
+
+Its heading dropped from `h1` to `h2`, and the rail carries the page's one `h1`
+as a visually hidden line. The rail is images and links, so without that the
+homepage would open on an `h2` and have no heading of its own.
 
 ---
 
@@ -452,10 +458,14 @@ or hanging a frontend check off the backend's `tsx` — would be more
 infrastructure than the check is worth. It is recorded here so the next person
 knows the cases and can re-run them.
 
-**Hero** — three `aria-roledescription="slide"` groups, labelled "1 of 3"
-through "3 of 3"; exactly two `inert` attributes; "Previous slide", "Next
-slide" and "Pause the carousel" all present and labelled; three dots labelled
-"Go to slide N: <eyebrow>".
+**Hero rail** — five `aria-roledescription="slide"` groups labelled "1 of 5"
+through "5 of 5"; five dots each naming its offer ("Go to offer 3: Headphones
+from ₹1,499"); "Previous offers" and "Next offers" present and labelled; the
+rail focusable with `tabindex="0"`; `snap-x`, `snap-mandatory`, `overflow-x-auto`
+and `snap-start` all present, confirming a native scroll container rather than a
+transform track; the first banner emitted as `<link rel="preload" as="image">`;
+exactly one `<h1>` on the page, with the showcase now an `<h2>` further down;
+and no `AD` badge anywhere.
 
 **Search** — zero occurrences of `⌘K`, `<kbd>` or `>Esc<` anywhere in the
 rendered storefront.

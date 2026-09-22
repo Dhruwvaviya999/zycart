@@ -1102,10 +1102,14 @@ new textarea now share one size ladder; `SelectField` replaced the native
 controls that could not be styled past their border in Safari or on Windows;
 and `Dialog` gained variants so a shopper's dialog rises from the thumb on a
 phone and centres on a desktop without either being restated per page. The
-homepage hero became a three-slide carousel built as a stack rather than a
-sliding track, so it cannot add a horizontal scrollbar to the document and has
-no layout shift to speak of; it stops rotating for good the moment a reader
-takes a turn, and never starts under `prefers-reduced-motion`. The navigation
+homepage now opens on a scroll-snap rail of promotional banners — a native
+scroll container, so the swipe, the momentum and the peeking next card come
+from the browser rather than from gesture code, and the overflow belongs to the
+rail rather than to the document; it stops rotating for good the moment a
+shopper takes a turn, and never starts under `prefers-reduced-motion`. The
+editorial band that used to be the hero moved below the first product rail,
+where a paragraph about the store reads as a reason to stay rather than as the
+shop talking about itself before it has shown anything. The navigation
 indicator now follows the route instead of an href comparison that could never
 light Deals, New Arrivals, Categories or a product page — each destination
 declares what it matches and the URL picks the winner by specificity, with no

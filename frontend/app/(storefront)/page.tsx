@@ -6,6 +6,7 @@ import { Hero } from '@/components/store/hero';
 import { Newsletter } from '@/components/store/newsletter';
 import { ProductSection } from '@/components/store/product-section';
 import { PromoBanner } from '@/components/store/promo-banner';
+import { Showcase } from '@/components/store/showcase';
 import { RecommendationSkeleton } from '@/components/recommendations/recommendation-skeleton';
 import { RecommendedProducts } from '@/components/recommendations/recommended-products';
 import { Container } from '@/components/layout/container';
@@ -81,6 +82,18 @@ export default async function Home() {
               action={{ label: 'View all', href: '/shop?sort=rating' }}
             />
           )}
+
+          {/*
+            The editorial band sits here rather than at the top.
+
+            The page now opens on offers — the banner rail — and then on the
+            categories and the first products, which is the order a shopper
+            arriving at a storefront is actually looking in. The statement
+            about what ZyCart is lands once they have seen something worth
+            staying for, and it breaks up what would otherwise be four product
+            rails in a row.
+          */}
+          <Showcase />
 
           {/*
             The personalised rail, streaming on its own.
