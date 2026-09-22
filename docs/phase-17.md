@@ -28,6 +28,7 @@ ones the audit turned up while it was there.
 | Search showed a ⌘K chip and an Esc pill | Both gone; the shortcuts stay, and the overlay gains a real close button |
 | The nav indicator did not follow the route | Route-driven matching, declared per destination, with no component state |
 | Four native selects, eleven copied field heights, four copied dialog strings | `SelectField`, an `Input`/`Select`/`Textarea` size ladder, `Dialog` variants |
+| The account rail unlit itself on every order and return detail page | The same matcher, shared |
 | Cards misaligned when product names differed in length | Two title lines reserved, whatever the name |
 | The sort control read `newest` | `items` on the Select root, so the trigger reads the label |
 
@@ -339,6 +340,31 @@ only a one-frame delay before a hash-only state appears.
 
 ---
 
+### The same bug, in a second navigation
+
+The audit then found the account rail doing exactly what the header used to:
+`const active = pathname === href`. Which meant that opening an order —
+`/account/orders/ZY-1024` — or a return, or a review, unlit *every* item in the
+sidebar, and a customer reading their own order was shown an account section
+with nothing selected at all.
+
+It now declares `match` per destination and reads `activePathItem`, the
+path-only entry point to the same scorer. `Orders`, `Returns` and `Reviews`
+claim their detail pages by prefix; `Overview` matches `/account` exactly, or
+it would own every page beneath it. No `useSearchParams` and therefore no
+Suspense boundary, because none of those destinations is query-scoped.
+
+`activeNavLabel` became a thin wrapper over a generic `activeNavItem`, so the
+header and the rail draw themselves differently and key off different fields
+while being unable to disagree about which item is current.
+
+The admin console's `isActiveNav` was already correct about nesting and is left
+where it is — it serves a different information architecture. Its `startsWith`
+did gain a segment-boundary check, so a future `/admin/orders-archive` cannot
+light `/admin/orders`.
+
+---
+
 ## Dialogs, sheets and overlays
 
 `DialogContent` gained `variant` and `size`.
@@ -411,6 +437,20 @@ Two `aria-label="Primary"` blocks appear in each response — the Suspense
 fallback and the resolved content — and the resolved one carries the correct
 `aria-current="page"`. The indicator is therefore server-rendered, not
 hydration-dependent.
+
+**The matcher itself**, driven directly rather than through a page, because the
+account rail's pages are behind a session and cannot be fetched anonymously.
+Twenty-two cases, all passing: the twelve primary-nav ones above plus
+`/#categories` → Categories and `/shopping` → none (the segment boundary that
+stops a prefix matching a longer word), and ten account-rail ones including
+`/account/orders/ZY-1024` → Orders and `/account/returns/RT-77` → Returns,
+which is the case that was broken.
+
+This ran as a throwaway script against `lib/nav-active.ts` and is not checked
+in: the frontend has no test runner, and wiring one up for a single module —
+or hanging a frontend check off the backend's `tsx` — would be more
+infrastructure than the check is worth. It is recorded here so the next person
+knows the cases and can re-run them.
 
 **Hero** — three `aria-roledescription="slide"` groups, labelled "1 of 3"
 through "3 of 3"; exactly two `inert` attributes; "Previous slide", "Next

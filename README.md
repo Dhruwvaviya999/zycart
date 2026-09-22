@@ -11,8 +11,9 @@ UI)**, **Phase 3 (product catalogue)**, **Phase 4 (accounts)**, **Phase 5 (cart
 shopping assistant)**, **Phase 11 (AI discovery, smart search &
 recommendations)**, **Phase 12 (admin operations, inventory & fulfilment)**,
 **Phase 13 (shipping, returns & refunds)**,
-**Phase 14 (transactional email)** and
-**Phase 15 (operational hardening)** — a Next.js storefront backed by a
+**Phase 14 (transactional email)**, **Phase 15 (operational hardening)**,
+**Phase 16 (observability & pre-deploy verification)** and
+**Phase 17 (UI excellence & component polish)** — a Next.js storefront backed by a
 real MongoDB catalogue, customer accounts, a persistent cart, ordering paid
 either online or on delivery, ratings written only by customers who received what
 they are rating, a console to run the store, a shopping assistant that answers
@@ -79,7 +80,8 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 9](docs/phase-9.md), [phase 10](docs/phase-10.md),
 [phase 11](docs/phase-11.md), [phase 12](docs/phase-12.md),
 [phase 13](docs/phase-13.md), [phase 14](docs/phase-14.md),
-[phase 15](docs/phase-15.md).
+[phase 15](docs/phase-15.md), [phase 16](docs/phase-16.md),
+[phase 17](docs/phase-17.md).
 
 Deploying it is covered separately, in
 [docs/deployment.md](docs/deployment.md): the two-service Vercel layout, every
@@ -1088,6 +1090,30 @@ And `pnpm smoke:deploy` answers the question asked immediately before every
 deployment — it builds both applications the way a deployment does, starts the
 compiled entrypoint, and checks health and the public catalogue, while placing
 no order, sending no email, taking no payment and writing nothing at all.
+
+Phase 17 went back over the interface those phases had built, and added no
+surface of its own. The audit kept finding the same thing in different
+disguises: a decision that belongs to a component had been pushed out to the
+pages using it. Eleven call sites carried the same two classes to turn the
+dense default input into the storefront's field, four places had hand-rolled
+the same native `<select>`, and four dialogs had each written out the same
+class string to be a bottom sheet on a phone. Inputs, select triggers and the
+new textarea now share one size ladder; `SelectField` replaced the native
+controls that could not be styled past their border in Safari or on Windows;
+and `Dialog` gained variants so a shopper's dialog rises from the thumb on a
+phone and centres on a desktop without either being restated per page. The
+homepage hero became a three-slide carousel built as a stack rather than a
+sliding track, so it cannot add a horizontal scrollbar to the document and has
+no layout shift to speak of; it stops rotating for good the moment a reader
+takes a turn, and never starts under `prefers-reduced-motion`. The navigation
+indicator now follows the route instead of an href comparison that could never
+light Deals, New Arrivals, Categories or a product page — each destination
+declares what it matches and the URL picks the winner by specificity, with no
+component state to fall out of sync, and the account rail reads the same
+matcher so opening an order no longer unlights the sidebar. Scrollbars became
+theme-aware in both engines, the ⌘K and Esc badges left the search field — the
+shortcuts stayed — and removing the Esc pill exposed that a phone had no
+visible way out of a full-screen search at all.
 
 Later phases can build on that foundation: a shipping-provider integration behind
 the shipment domain Phase 13 modelled, SMS and in-app notification beside the
