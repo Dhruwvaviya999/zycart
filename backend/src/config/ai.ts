@@ -9,18 +9,18 @@ import type { Env } from './env';
  * is never logged, printed at startup, or included in an error message.
  */
 
-export type AiProviderName = 'anthropic' | 'gemini' | 'mock';
+export type AiProviderName = 'anthropic' | 'gemini' | 'huggingface' | 'mock';
 
 /** A provider that is actually usable, with its credentials already resolved. */
-export interface AiConfig {
-  provider: AiProviderName;
-  /** Present for a real provider; the mock needs no credentials. */
-  apiKey: string;
-  model: string;
-  timeoutMs: number;
-}
+  export interface AiConfig {
+    provider: AiProviderName;
+    /** Present for a real provider; the mock needs no credentials. */
+    apiKey: string;
+    model: string;
+    timeoutMs: number;
+  }
 
-/**
+  /**
  * The model each vendor is asked for when `AI_MODEL` is unset.
  *
  * Flash rather than Pro for Gemini: the two jobs ZyCart gives a model —
@@ -30,7 +30,16 @@ export interface AiConfig {
  */
 const DEFAULT_MODEL: Record<AiProviderName, string> = {
   anthropic: 'claude-opus-5',
-  gemini: 'gemini-2.5-flash',
+  gemini: 'gemini-3.5-flash-lite',
+  /**
+   * Hugging Face routes by repository id, and the assistant is useless without
+   * tool calling, so the default is a model known to support it rather than the
+   * most capable one available. Left unpinned to a backend deliberately: an
+   * operator who finds a backend that handles these schemas well should pin it
+   * with a `:provider` suffix, which is a decision about their account, not a
+   * default this file can make for them.
+   */
+  huggingface: 'meta-llama/Llama-3.3-70B-Instruct',
   mock: 'mock-1',
 };
 

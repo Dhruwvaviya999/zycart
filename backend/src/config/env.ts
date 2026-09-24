@@ -107,7 +107,7 @@ const envSchema = z
       .enum(['true', 'false'])
       .default('true')
       .transform((value) => value === 'true'),
-    AI_PROVIDER: z.enum(['anthropic', 'gemini', 'mock']).default('anthropic'),
+    AI_PROVIDER: z.enum(['anthropic', 'gemini', 'huggingface', 'mock']).default('anthropic'),
     AI_API_KEY: z.string().min(20, 'looks too short to be an API key').optional(),
     /**
      * Left undefined on purpose. Each provider has a different default model,

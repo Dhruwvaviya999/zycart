@@ -4,6 +4,7 @@ import { AppError } from '../../utils/AppError';
 import { logger, serializeError } from '../../utils/logger';
 import { createAnthropicProvider } from './anthropic.provider';
 import { createGeminiProvider } from './gemini.provider';
+import { createHuggingFaceProvider } from './huggingface.provider';
 import { createMockProvider } from './mock.provider';
 import type { AiProvider } from './provider';
 
@@ -21,6 +22,8 @@ function createAiProvider(config: AiConfig): AiProvider {
       return createMockProvider();
     case 'gemini':
       return createGeminiProvider(config);
+    case 'huggingface':
+      return createHuggingFaceProvider(config);
     case 'anthropic':
       return createAnthropicProvider(config);
   }

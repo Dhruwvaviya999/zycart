@@ -89,7 +89,7 @@ export function InventoryAdjustDialog({
    */
   const typed = parseAmount(amount);
 
-  const quantityChange = typed === null ? null : mode === 'change' ? typed : typed - product.stock;
+  const quantityChange = changeFrom(typed, mode, product.stock);
 
   const projected = quantityChange === null ? product.stock : product.stock + quantityChange;
 
@@ -121,13 +121,7 @@ export function InventoryAdjustDialog({
   function setAmountAndReason(next: string) {
     setAmount(next);
 
-    const typedNext = parseAmount(next);
-    const changeNext =
-      typedNext === null || Number.isNaN(typedNext)
-        ? null
-        : mode === 'change'
-          ? typedNext
-          : typedNext - product.stock;
+    const changeNext = changeFrom(parseAmount(next), mode, product.stock);
 
     if (changeNext === null || changeNext === 0) return;
 
@@ -467,6 +461,20 @@ function parseAmount(value: string): number | null {
 
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+/**
+ * The change implied by what has been typed, or null when there is not one.
+ *
+ * `null` covers both halves of "no usable number": a field the operator has
+ * only started (`''`, `'-'`) and one holding something that is not a number at
+ * all, which `parseAmount` reports as `NaN`. Arithmetic over `NaN` propagates,
+ * so letting it past here is what printed `NaN` into the projection panel
+ * while the field said "Enter a whole number of units" underneath it.
+ */
+function changeFrom(typed: number | null, mode: 'change' | 'total', stock: number) {
+  if (typed === null || Number.isNaN(typed)) return null;
+  return mode === 'change' ? typed : typed - stock;
 }
 
 /** The message under the field, or null when the input is fine. */

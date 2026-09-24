@@ -2,6 +2,7 @@ import {
   ApiError,
   FunctionCallingConfigMode,
   GoogleGenAI,
+  ThinkingLevel,
   type Content,
   type FunctionDeclaration,
   type GenerateContentResponse,
@@ -138,12 +139,22 @@ function toFunctionDeclarations(request: AiGenerateRequest): FunctionDeclaration
  * Thinking costs latency, and on the free tier it costs quota.
  *
  * Shopping chat and one-shot query interpretation are retrieval and
- * classification, not reasoning, so thinking is turned off where the model
- * allows it. Only the Flash family accepts a zero budget — Pro requires one —
- * so this is applied by capability rather than unconditionally.
+ * classification, not reasoning, so thinking is turned down as far as the model
+ * allows. How you ask for that changed between model generations:
+ *
+ * - Gemini 3 and later replaced the numeric budget with `thinkingLevel`, and
+ *   reject `thinkingBudget: 0` outright with a 400 INVALID_ARGUMENT. `MINIMAL`
+ *   is the floor there, and it reports zero thought tokens.
+ * - Gemini 2.x Flash accepts `thinkingBudget: 0`. Pro requires a budget, so the
+ *   Flash check stays: this is applied by capability, not unconditionally.
  */
-const thinkingFor = (model: string) =>
-  /flash/i.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {};
+const thinkingFor = (model: string) => {
+  if (/gemini-[3-9]/i.test(model)) {
+    return { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } };
+  }
+
+  return /flash/i.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {};
+};
 
 /** Markers Google uses for "you have run out", as opposed to "you may not". */
 const isQuota = (message: string): boolean =>
