@@ -2,14 +2,41 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { heroBanners, type HeroBanner } from '@/data/banners';
+import { useDragScroll } from '@/hooks/use-drag-scroll';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { cn } from '@/lib/utils';
 
 /** Long enough to read a banner, short enough that the rail keeps moving. */
 const INTERVAL_MS = 5500;
+
+/** Copies of the banners in the rail: the real one, with a clone either side. */
+const COPIES = 3;
+const REAL_COPY = 1;
+
+/** Each card's snapped `scrollLeft`: the rail's padding matches its scroll padding, so the first rests at 0. */
+function stopsOf(rail: HTMLElement): number[] {
+  const cards = Array.from(rail.children) as HTMLElement[];
+  const first = cards[0];
+  return first ? cards.map((card) => card.offsetLeft - first.offsetLeft) : [];
+}
+
+function nearestStop(stops: number[], at: number): number {
+  return stops.reduce(
+    (best, stop, card) => (Math.abs(stop - at) < Math.abs(stops[best] - at) ? card : best),
+    0,
+  );
+}
+
+/** Moves the rail instantly, past the `scroll-smooth` it otherwise carries. */
+function jump(rail: HTMLElement, left: number) {
+  const behavior = rail.style.scrollBehavior;
+  rail.style.scrollBehavior = 'auto';
+  rail.scrollLeft = left;
+  rail.style.scrollBehavior = behavior;
+}
 
 /**
  * The banner rail at the top of the homepage.
@@ -37,73 +64,126 @@ export function Hero() {
 
   const railRef = useRef<HTMLUListElement>(null);
   const [index, setIndex] = useState(0);
+  const { dragging, handlers: dragHandlers } = useDragScroll(railRef);
 
   /** Set once the shopper has driven the rail; autoplay does not come back. */
   const [taken, setTaken] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
 
+  /** Where a smooth scroll in flight is headed, so a second click builds on it. */
+  const pending = useRef<number | null>(null);
+
   const railId = useId();
   const count = banners.length;
   const single = count <= 1;
+  const loop = !single;
 
   const rotating = !single && !taken && !hovered && !focused && !reducedMotion;
 
+  const slides = loop
+    ? Array.from({ length: COPIES }, (_, copy) => banners.map((banner) => ({ banner, copy }))).flat()
+    : banners.map((banner) => ({ banner, copy: REAL_COPY }));
+
+  /** Start in the middle copy, so there is a full copy to scroll into either way. */
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail || !loop) return;
+    jump(rail, stopsOf(rail)[count]);
+  }, [loop, count]);
+
   /**
-   * Which card is showing.
+   * Which card is showing, and keeping the rail in its middle copy.
    *
-   * Observed rather than calculated: the rail is a real scroll container whose
-   * card width changes at every breakpoint, so measuring one card and dividing
-   * would be a second source of truth that has to be kept in step with the CSS.
-   * The browser already knows which card is in view.
+   * The card is read off `scrollLeft` against each card's snapped position,
+   * the leftmost card being the current one — measured from the DOM on every
+   * read, since card width changes at every breakpoint.
+   *
+   * Once the rail comes to rest in a clone it is moved by exactly one copy's
+   * width onto the same card in the middle copy. The two are pixel-identical,
+   * so the jump cannot be seen, and it only ever happens at rest: moving a
+   * rail under a finger or mid-animation would fight the gesture.
    */
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
 
-    const cards = Array.from(rail.children);
-    const ratios = new Map<Element, number>();
+    let frame = 0;
+    let idle = 0;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) ratios.set(entry.target, entry.intersectionRatio);
+    const track = () => {
+      frame = 0;
+      setIndex(nearestStop(stopsOf(rail), rail.scrollLeft) % count);
+    };
 
-        let best = 0;
-        let bestRatio = 0;
-        cards.forEach((card, position) => {
-          const ratio = ratios.get(card) ?? 0;
-          if (ratio > bestRatio) {
-            bestRatio = ratio;
-            best = position;
-          }
-        });
+    const recentre = () => {
+      pending.current = null;
+      if (!loop) return;
 
-        setIndex(best);
-      },
-      { root: rail, threshold: [0.25, 0.5, 0.75, 1] },
-    );
+      const stops = stopsOf(rail);
+      const width = stops[count];
+      const at = nearestStop(stops, rail.scrollLeft);
 
-    cards.forEach((card) => observer.observe(card));
-    return () => observer.disconnect();
-  }, [count]);
+      if (at < count) jump(rail, rail.scrollLeft + width);
+      else if (at >= count * 2) jump(rail, rail.scrollLeft - width);
+    };
 
-  const scrollTo = useCallback((position: number) => {
+    const endsNatively = 'onscrollend' in window;
+    const onScroll = () => {
+      if (!frame) frame = window.requestAnimationFrame(track);
+      if (!endsNatively) {
+        window.clearTimeout(idle);
+        idle = window.setTimeout(recentre, 150);
+      }
+    };
+
+    rail.addEventListener('scroll', onScroll, { passive: true });
+    rail.addEventListener('scrollend', recentre);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(idle);
+      rail.removeEventListener('scroll', onScroll);
+      rail.removeEventListener('scrollend', recentre);
+    };
+  }, [loop, count]);
+
+  /** The card the rail is on, or is on its way to. */
+  const current = useCallback(() => {
     const rail = railRef.current;
-    const card = rail?.children[position] as HTMLElement | undefined;
-    if (!rail || !card) return;
+    if (!rail) return 0;
+    return pending.current ?? nearestStop(stopsOf(rail), rail.scrollLeft);
+  }, []);
+
+  /** Scrolls to a card by its place in the rail, clones included. */
+  const go = useCallback((card: number) => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const stops = stopsOf(rail);
+    const target = Math.max(0, Math.min(stops.length - 1, card));
+    pending.current = target;
 
     // `scrollLeft` rather than `scrollIntoView`, which would also scroll the
     // page vertically to bring the rail into view.
-    rail.scrollTo({ left: card.offsetLeft - rail.offsetLeft, behavior: 'smooth' });
+    rail.scrollTo({ left: stops[target], behavior: 'smooth' });
   }, []);
 
-  /** Every shopper-driven move goes through here, so one place stops the timer. */
-  const drive = useCallback(
+  /** Every shopper-driven move goes through these, so one place stops the timer. */
+  const step = useCallback(
+    (delta: number) => {
+      setTaken(true);
+      go(current() + delta);
+    },
+    [current, go],
+  );
+
+  const show = useCallback(
     (position: number) => {
       setTaken(true);
-      scrollTo(((position % count) + count) % count);
+      const at = current();
+      go(at - (at % count) + position);
     },
-    [count, scrollTo],
+    [count, current, go],
   );
 
   useEffect(() => {
@@ -113,15 +193,11 @@ export function Hero() {
       // Left alone while the tab is in the background: otherwise a shopper
       // returns to whichever banner the clock happened to land on.
       if (document.hidden) return;
-      setIndex((current) => {
-        const next = (current + 1) % count;
-        scrollTo(next);
-        return next;
-      });
+      go(current() + 1);
     }, INTERVAL_MS);
 
     return () => window.clearInterval(timer);
-  }, [rotating, count, scrollTo]);
+  }, [rotating, current, go]);
 
   return (
     <section
@@ -156,37 +232,56 @@ export function Hero() {
           className={cn(
             'no-scrollbar flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain scroll-smooth px-4 pb-1 sm:gap-4 sm:px-6 lg:px-8',
             'scroll-px-4 sm:scroll-px-6 lg:scroll-px-8',
-            'focus-visible:outline-none',
+            'focus-visible:outline-none select-none',
+            dragging && 'cursor-grabbing **:cursor-grabbing',
           )}
-          onPointerDown={() => setTaken(true)}
+          {...dragHandlers}
+          onPointerDown={(event) => {
+            setTaken(true);
+            dragHandlers.onPointerDown(event);
+          }}
           onKeyDown={(event) => {
             if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') setTaken(true);
           }}
         >
-          {banners.map((banner, position) => (
-            <li
-              key={banner.id}
-              role={single ? undefined : 'group'}
-              aria-roledescription={single ? undefined : 'slide'}
-              aria-label={single ? undefined : `${position + 1} of ${count}`}
-              /*
-                `basis` under a third at `lg` is what leaves the next card
-                peeking at the right edge — the cue that says the row scrolls,
-                without a scrollbar having to say it.
-              */
-              className="shrink-0 basis-[86%] snap-start sm:basis-[62%] md:basis-[47%] lg:basis-[32.4%]"
-            >
-              <BannerCard banner={banner} priority={position === 0} />
-            </li>
-          ))}
+          {slides.map(({ banner, copy }, slot) => {
+            const position = slot % count;
+            const clone = copy !== REAL_COPY;
+
+            return (
+              <li
+                key={`${copy}-${banner.id}`}
+                // The clones are there to be scrolled past, not read: a screen
+                // reader hears each offer once, and Tab never lands in them.
+                aria-hidden={clone || undefined}
+                role={single || clone ? undefined : 'group'}
+                aria-roledescription={single || clone ? undefined : 'slide'}
+                aria-label={single || clone ? undefined : `${position + 1} of ${count}`}
+                /*
+                  `basis` under a third at `lg` is what leaves the next card
+                  peeking at the right edge — the cue that says the row
+                  scrolls, without a scrollbar having to say it.
+                */
+                className="shrink-0 basis-[86%] snap-start sm:basis-[62%] md:basis-[47%] lg:basis-[32.4%]"
+              >
+                <BannerCard
+                  banner={banner}
+                  // The first copy's first card is what paints before
+                  // hydration moves the rail to the middle copy.
+                  priority={position === 0 && copy <= REAL_COPY}
+                  clone={clone}
+                />
+              </li>
+            );
+          })}
         </ul>
 
         {!single && (
           <>
             {/* Pointer affordances. Hidden on touch, where the swipe is the
                 control and an arrow floating over a card is just clutter. */}
-            <RailArrow side="start" controls={railId} onClick={() => drive(index - 1)} />
-            <RailArrow side="end" controls={railId} onClick={() => drive(index + 1)} />
+            <RailArrow side="start" controls={railId} onClick={() => step(-1)} />
+            <RailArrow side="end" controls={railId} onClick={() => step(1)} />
           </>
         )}
       </div>
@@ -200,7 +295,7 @@ export function Hero() {
               <li key={banner.id}>
                 <button
                   type="button"
-                  onClick={() => drive(position)}
+                  onClick={() => show(position)}
                   aria-label={`Go to offer ${position + 1}: ${banner.title}`}
                   aria-current={current ? 'true' : undefined}
                   aria-controls={railId}
@@ -242,12 +337,21 @@ const toneScrim: Record<NonNullable<HeroBanner['tone']>, string> = {
  * the photograph. Three tones, so five consecutive cards are distinguishable
  * at a glance rather than reading as one long strip.
  */
-function BannerCard({ banner, priority }: { banner: HeroBanner; priority: boolean }) {
+function BannerCard({
+  banner,
+  priority,
+  clone,
+}: {
+  banner: HeroBanner;
+  priority: boolean;
+  clone: boolean;
+}) {
   const alignEnd = banner.align === 'end';
 
   return (
     <Link
       href={banner.href}
+      tabIndex={clone ? -1 : undefined}
       className="focus-ring group/banner relative block aspect-16/9 overflow-hidden rounded-2xl bg-surface ring-1 ring-border/70 sm:aspect-2/1"
     >
       <Image
