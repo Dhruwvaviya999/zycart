@@ -76,7 +76,7 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
     <form onSubmit={handleSubmit} noValidate className="space-y-1">
       <AuthError message={formError} />
 
-      <div className={formError ? 'pt-5' : undefined}>
+      <div className={formError ? 'space-y-1 pt-5' : 'space-y-1'}>
         <FormField id="email" label="Email" error={errors.email}>
           {(field) => (
             <Input

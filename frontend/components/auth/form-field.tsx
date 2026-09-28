@@ -28,7 +28,7 @@ export function FormField({ id, label, hint, error, children, className }: FormF
   const describedBy = error || hint ? messageId : undefined;
 
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn('space-y-1.5', className)}>
       <Label htmlFor={id} className="text-small font-medium">
         {label}
       </Label>

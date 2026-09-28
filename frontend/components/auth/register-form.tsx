@@ -104,8 +104,8 @@ export function RegisterForm({ redirectTo }: RegisterFormProps) {
     <form onSubmit={handleSubmit} noValidate className="space-y-1">
       <AuthError message={formError} />
 
-      <div className={formError ? 'pt-5' : undefined}>
-        <div className="grid gap-x-4 sm:grid-cols-2">
+      <div className={formError ? 'space-y-1 pt-5' : 'space-y-1'}>
+        <div className="grid gap-x-3 sm:grid-cols-2">
           <FormField id="firstName" label="First name" error={errors.firstName}>
             {(field) => (
               <Input
@@ -113,6 +113,7 @@ export function RegisterForm({ redirectTo }: RegisterFormProps) {
                 value={values.firstName}
                 autoComplete="given-name"
                 autoFocus
+                placeholder="Aarav"
                 onChange={(event) => set('firstName', event.target.value)}
                 size="lg"
               />
@@ -125,6 +126,7 @@ export function RegisterForm({ redirectTo }: RegisterFormProps) {
                 {...field}
                 value={values.lastName}
                 autoComplete="family-name"
+                placeholder="Sharma"
                 onChange={(event) => set('lastName', event.target.value)}
                 size="lg"
               />
@@ -157,6 +159,7 @@ export function RegisterForm({ redirectTo }: RegisterFormProps) {
               {...field}
               value={values.password}
               autoComplete="new-password"
+              placeholder="Create a password"
               onChange={(event) => set('password', event.target.value)}
             />
           )}
@@ -168,6 +171,7 @@ export function RegisterForm({ redirectTo }: RegisterFormProps) {
               {...field}
               value={values.confirmPassword}
               autoComplete="new-password"
+              placeholder="Re-enter your password"
               onChange={(event) => set('confirmPassword', event.target.value)}
             />
           )}

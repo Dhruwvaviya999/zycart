@@ -23,6 +23,7 @@
     "health:verify": "pnpm --filter zycart-backend health:verify",
     "smoke:deploy": "pnpm --filter zycart-backend smoke:deploy",
     "seed:reviews": "pnpm --filter zycart-backend seed:reviews",
+    "seed:orders": "pnpm --filter zycart-backend seed:orders",
     "make-admin": "pnpm --filter zycart-backend make-admin",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",

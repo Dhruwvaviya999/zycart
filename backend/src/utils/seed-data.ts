@@ -2056,60 +2056,74 @@ export const seedProducts: SeedProduct[] = [
     ],
   },
   {
-    name: 'Rose Gold Halo Ring',
-    slug: 'lumiere-rose-gold-solitaire-ring',
+    name: 'Chunky Knit Wool Scarf',
+    slug: 'lumiere-chunky-knit-wool-scarf',
     description:
-      'A cushion-cut morganite centre stone in an 18k rose gold halo setting, with pavé shoulders. Each piece ships with an independent gemmological certificate.',
-    shortDescription: '18k rose gold with a certified centre stone',
+      'A generously sized winter scarf in a lambswool-blend rib knit. Long enough to double-wrap, dense enough to block wind, and finished with a short hand-tied fringe. The rib structure keeps its shape instead of stretching out over a season.',
+    shortDescription: 'Lambswool-blend rib knit, long enough to double-wrap',
     images: [
-      'https://images.unsplash.com/photo-1603561591411-07134e71a2a9?auto=format&fit=crop&w=900&q=80',
-      'https://images.unsplash.com/photo-1522312346375-d1a52e2b99b3?auto=format&fit=crop&w=900&q=80',
+      'https://images.unsplash.com/photo-1457545195570-67f207084966?auto=format&fit=crop&w=900&q=80',
+      'https://images.unsplash.com/photo-1520903920243-00d872a2d1c9?auto=format&fit=crop&w=900&q=80',
     ],
-    price: 28999,
+    price: 1899,
     category: 'accessories',
     brand: 'Lumière',
     sku: 'ZY-ACC-006',
     stock: 68,
-    tags: ['ring', 'jewellery', 'jewelry', 'gold', 'diamond'],
+    colors: [
+      {
+        name: 'Moss',
+        hex: '#7a8b3f',
+      },
+      {
+        name: 'Grey Melange',
+        hex: '#8a8f94',
+      },
+      {
+        name: 'Ivory',
+        hex: '#efe9dd',
+      },
+    ],
+    tags: ['scarf', 'wool', 'knit', 'winter', 'accessory', 'gift'],
     highlights: [
-      '18k rose gold, hallmarked',
-      'Cushion-cut morganite centre',
-      'Pavé-set shoulders',
-      'Independent certification included',
+      'Lambswool-blend rib knit',
+      '200 × 35 cm — doubles-wraps easily',
+      'Hand-tied fringe ends',
+      'Pre-washed so it arrives soft, not scratchy',
     ],
     specifications: [
       {
-        label: 'Metal',
-        value: '18k rose gold',
+        label: 'Material',
+        value: '60% lambswool, 40% acrylic',
       },
       {
-        label: 'Centre stone',
-        value: 'Morganite, cushion cut',
+        label: 'Knit',
+        value: 'Chunky 2×2 rib',
       },
       {
-        label: 'Accent stones',
-        value: 'Pavé white sapphire',
+        label: 'Dimensions',
+        value: '200 × 35 cm',
       },
       {
-        label: 'Band width',
-        value: '2.1 mm',
+        label: 'Fringe',
+        value: 'Hand-tied, 6 cm',
       },
       {
-        label: 'Certification',
-        value: 'Included',
+        label: 'Care',
+        value: 'Hand wash cold, dry flat',
       },
     ],
     isFeatured: false,
     isBestSeller: false,
     isNewArrival: false,
     createdAt: '2026-07-18',
-    compareAtPrice: 36999,
+    compareAtPrice: 2499,
   },
   {
-    name: 'Rose Dress Watch 36 mm',
-    slug: 'meridian-rose-dress-watch',
+    name: 'Meridian Dress Watch 36 mm',
+    slug: 'meridian-dress-watch-36',
     description:
-      'Deliberately small at 36 mm, with a domed sapphire crystal and a slim rose-gold-plated case. Sits flat under a shirt cuff, which most dress watches no longer do.',
+      'Deliberately small at 36 mm, with a domed sapphire crystal and a slim polished-steel case. Sits flat under a shirt cuff, which most dress watches no longer do.',
     shortDescription: 'A 36 mm case that slides under a cuff',
     images: [
       'https://images.unsplash.com/photo-1522312346375-d1a52e2b99b3?auto=format&fit=crop&w=900&q=80',
@@ -2120,7 +2134,7 @@ export const seedProducts: SeedProduct[] = [
     brand: 'Meridian',
     sku: 'ZY-ACC-007',
     stock: 81,
-    tags: ['watch', 'dress watch', 'wristwatch', 'rose gold'],
+    tags: ['watch', 'dress watch', 'wristwatch', 'minimal'],
     highlights: [
       '36 mm slim case, 8.2 mm thick',
       'Domed sapphire crystal',
@@ -2130,7 +2144,7 @@ export const seedProducts: SeedProduct[] = [
     specifications: [
       {
         label: 'Case',
-        value: '36 mm, rose gold plated',
+        value: '36 mm, polished stainless steel',
       },
       {
         label: 'Thickness',

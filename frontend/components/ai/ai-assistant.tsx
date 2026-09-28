@@ -1,6 +1,8 @@
 'use client';
 
-import { Eraser, Sparkles, X } from 'lucide-react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Eraser, Maximize2, Sparkles, X } from 'lucide-react';
 import { AiChat } from '@/components/ai/ai-chat';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { useAiStore } from '@/store/ai-store';
@@ -24,6 +26,12 @@ export function AiAssistant() {
   const setOpen = useAiStore((state) => state.setOpen);
   const clear = useAiStore((state) => state.clear);
   const hasMessages = useAiStore((state) => state.messages.length > 0);
+  const availability = useAiStore((state) => state.availability);
+
+  // The full-screen page renders this same conversation, so from there the
+  // button would be a door into the room you are already in.
+  const pathname = usePathname();
+  const onFullPage = pathname === '/ai-shopping';
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -53,7 +61,12 @@ export function AiAssistant() {
 
           <div className="min-w-0 flex-1">
             <SheetTitle className="text-small leading-tight font-semibold">ZyCart AI</SheetTitle>
-            <SheetDescription className="text-caption">Your shopping assistant</SheetDescription>
+            <SheetDescription className="text-caption flex items-center gap-1.5">
+              {availability === 'available' && (
+                <span className="size-1.5 shrink-0 rounded-full bg-success" aria-hidden />
+              )}
+              Your shopping assistant
+            </SheetDescription>
           </div>
 
           {hasMessages && (
@@ -66,6 +79,18 @@ export function AiAssistant() {
             >
               <Eraser className="size-4" aria-hidden />
             </button>
+          )}
+
+          {!onFullPage && (
+            <Link
+              href="/ai-shopping"
+              onClick={() => setOpen(false)}
+              className="focus-ring inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Open ZyCart AI in full screen"
+              title="Open full screen"
+            >
+              <Maximize2 className="size-4" aria-hidden />
+            </Link>
           )}
 
           <button

@@ -24,6 +24,7 @@
     "health:verify": "tsx src/utils/verify-health.ts",
     "smoke:deploy": "tsx src/utils/smoke-deploy.ts",
     "seed:reviews": "tsx src/utils/seed-reviews.ts",
+    "seed:orders": "tsx src/utils/seed-orders.ts",
     "make-admin": "tsx src/utils/make-admin.ts",
     "test": "node --import tsx --test \"tests/*.test.ts\"",
     "ai:verify": "tsx src/utils/verify-ai.ts",

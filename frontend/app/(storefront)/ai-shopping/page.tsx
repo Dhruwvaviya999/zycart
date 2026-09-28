@@ -28,7 +28,7 @@ export default function AiShoppingPage() {
     <Container className="py-8 sm:py-10">
       <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'AI Shopping' }]} />
 
-      <div className="mt-7 flex items-start gap-3">
+      <div className="mt-6 flex items-center gap-3">
         <span
           className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-subtle text-brand"
           aria-hidden
@@ -36,11 +36,10 @@ export default function AiShoppingPage() {
           <Sparkles className="size-5" />
         </span>
 
-        <div>
+        <div className="min-w-0">
           <h1 className="text-h2">AI Shopping</h1>
-          <p className="text-body mt-2 max-w-xl text-pretty text-muted-foreground">
-            Describe what you need the way you would to a friend. ZyCart AI searches the real
-            catalogue, so every price, rating and stock figure it shows you is the live one.
+          <p className="text-small mt-1 max-w-xl text-pretty text-muted-foreground">
+            Ask for what you need — answers come from the live catalogue.
           </p>
         </div>
       </div>
@@ -48,19 +47,17 @@ export default function AiShoppingPage() {
       {/*
         A bounded height rather than a growing page: the composer stays put at
         the bottom of the conversation, as it does in the panel, instead of
-        drifting further down with every reply. `dvh` so the mobile browser's
-        chrome cannot push it out of reach, and capped in rem so that on a tall
-        desktop screen the composer still lands above the fold rather than one
-        scroll below the heading that introduced it.
+        drifting further down with every reply. The height is the viewport minus
+        the chrome above and below the card (navbar, heading, page padding), so
+        the whole conversation is on screen without the page itself scrolling —
+        clamped so a short phone viewport still gets a usable window and a tall
+        desktop one does not become a canyon. No padding on the card: the chat
+        owns its own gutters, so the scroll area and the composer's top border
+        reach the card's edges instead of floating inside a second frame.
       */}
-      <div className="mt-6 flex h-[min(32rem,62dvh)] flex-col rounded-2xl border border-border bg-surface/40 p-3 sm:p-4 lg:h-[min(34rem,60dvh)]">
+      <div className="mt-5 flex h-[clamp(26rem,calc(100dvh-18.5rem),46rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface/40">
         <AiChat variant="page" />
       </div>
-
-      <p className="text-caption mt-5 max-w-2xl text-pretty text-muted-foreground">
-        ZyCart AI can search, explain and compare products, and add them to your cart once you are
-        signed in. It cannot place an order or take a payment — checkout stays with you.
-      </p>
     </Container>
   );
 }
