@@ -6,5 +6,7 @@ dist/
 *.log
 .DS_Store
 
-# Product images stored by UPLOAD_PROVIDER=local (Phase 18)
-uploads/
+# Product images stored by UPLOAD_PROVIDER=local (Phase 18).
+# Anchored with a leading slash so it matches only backend/uploads — an
+# unanchored `uploads/` also matches src/services/uploads/, the upload code.
+/uploads/
