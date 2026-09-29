@@ -197,17 +197,16 @@ export function returnability(order: PolicyOrder, now: Date = new Date()): Retur
  *   that decision is written down.
  * - **Discount is taken off, proportionally.** A customer who paid ₹900 for a
  *   ₹1,000 item after a basket discount is owed ₹900, not ₹1,000.
- * - **Tax is added back, proportionally.** They paid it; it comes back.
- * - **Everything is integer arithmetic.** `Math.floor` on both shares, never a
+ * - **Tax is not added back, because it was never added on.** Phase 13 wrote
+ *   this rule expecting GST to arrive as a charge on top of the price. Phase 18
+ *   made it the opposite: catalogue prices include GST, so the unit price
+ *   already contains every rupee of tax the customer paid for that unit, and
+ *   refunding the unit refunds its tax. Adding `pricing.tax` back as well would
+ *   refund the GST twice.
+ * - **Everything is integer arithmetic.** `Math.floor` on the share, never a
  *   float — ZyCart stores whole rupees and paise exist only inside a call to
  *   Razorpay. Flooring the discount share rounds in the customer's favour by at
- *   most a rupee per unit, and flooring the tax share rounds against them by at
- *   most the same; both are bounded and neither can compound.
- *
- * Both proportional terms are zero today, because `pricing.discount` and
- * `pricing.tax` are both zero on every order ZyCart has ever written. They are
- * computed anyway so that the day either engine lands, this does not silently
- * over-refund.
+ *   most a rupee per unit, and cannot compound.
  */
 export function refundableUnitPrice(order: PolicyOrder, unitPrice: number): number {
   const subtotal = order.pricing.subtotal;
@@ -217,9 +216,8 @@ export function refundableUnitPrice(order: PolicyOrder, unitPrice: number): numb
   if (subtotal <= 0) return 0;
 
   const discountShare = Math.floor((order.pricing.discount * unitPrice) / subtotal);
-  const taxShare = Math.floor((order.pricing.tax * unitPrice) / subtotal);
 
-  return Math.max(0, unitPrice - discountShare + taxShare);
+  return Math.max(0, unitPrice - discountShare);
 }
 
 /** How much of this order could still be refunded at all. */

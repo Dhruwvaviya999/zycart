@@ -5,6 +5,7 @@ import type { Env } from '../../config/env';
 import { NotificationDelivery } from '../../models/notification-delivery.model';
 import { deliverForDrain, eligibleForDrain, staleSendingBefore } from './notification.service';
 import { getEmailProvider } from './runtime';
+import { SECRET_BEARING_EVENTS } from './templates';
 
 /**
  * Recovering the messages a crash stranded.
@@ -124,10 +125,19 @@ const emptySummary = (options: DrainOptions, provider: string): DrainSummary => 
 async function countStale(now: Date): Promise<number> {
   const before = staleSendingBefore(now);
 
-  const count = await NotificationDelivery.countDocuments({
-    status: 'SENDING',
+  /**
+   * Secret-bearing messages are left out, as the drain's own eligibility leaves
+   * them out: their link died with the process that was sending them, so no
+   * command and no operator can do anything with one, and counting it would
+   * report the same unfixable row on every run for ever.
+   */
+  const stuck = {
+    status: 'SENDING' as const,
     lastAttemptAt: { $lt: before },
-  });
+    event: { $nin: [...SECRET_BEARING_EVENTS] },
+  };
+
+  const count = await NotificationDelivery.countDocuments(stuck);
 
   /**
    * Logged only when there is something to say.
@@ -141,10 +151,7 @@ async function countStale(now: Date): Promise<number> {
    * the admin console, which is where the decision is actually made.
    */
   if (count > 0) {
-    const oldest = await NotificationDelivery.findOne({
-      status: 'SENDING',
-      lastAttemptAt: { $lt: before },
-    })
+    const oldest = await NotificationDelivery.findOne(stuck)
       .sort({ lastAttemptAt: 1 })
       .select('_id lastAttemptAt')
       .lean<{ _id: Types.ObjectId; lastAttemptAt?: Date }>();

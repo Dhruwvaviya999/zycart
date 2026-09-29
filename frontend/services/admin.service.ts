@@ -1,4 +1,12 @@
-import { request, requestList, send, sendMessage, type RequestOptions } from '@/services/api';
+import {
+  downloadFile,
+  request,
+  requestList,
+  send,
+  sendFile,
+  sendMessage,
+  type RequestOptions,
+} from '@/services/api';
 import { fetchHealth } from '@/services/api';
 import type { HealthData } from '@/types/api';
 import type {
@@ -7,10 +15,19 @@ import type {
   ShipmentStatus,
   ShipmentUpdateInput,
 } from '@/types/fulfillment';
+import type { Invoice } from '@/types/invoice';
 import type { OrderStatus } from '@/types/order';
 import type {
   AdjustStockInput,
   AdjustmentResult,
+  AdminCouponDetail,
+  AdminCouponQuery,
+  AdminCouponRow,
+  CouponInput,
+  SubscriberCounts,
+  SubscriberQuery,
+  SubscriberRow,
+  UploadedImage,
   AdminCatalogueQuery,
   AdminProduct,
   AdminCustomerDetail,
@@ -195,6 +212,15 @@ export async function getOrders(
   );
 
   return { items, pagination };
+}
+
+/** The same invoice the customer sees, for any order that has one. */
+export function getOrderInvoice(orderRef: string, options?: RequestOptions): Promise<Invoice> {
+  return request<Invoice>(
+    `/api/admin/orders/${encodeURIComponent(orderRef)}/invoice`,
+    undefined,
+    options,
+  );
 }
 
 export function getOrder(orderRef: string, options?: RequestOptions): Promise<AdminOrderDetail> {
@@ -639,6 +665,70 @@ export function retryNotification(id: string): Promise<NotificationRetryResult> 
     `/api/admin/notifications/${encodeURIComponent(id)}/retry`,
   );
 }
+
+/* ---------------------------------------------------------------- */
+/* Promotions (Phase 18)                                             */
+/* ---------------------------------------------------------------- */
+
+export async function getCoupons(
+  query: AdminCouponQuery = {},
+  options?: RequestOptions,
+): Promise<AdminList<AdminCouponRow>> {
+  const { items, pagination } = await requestList<AdminCouponRow>(
+    '/api/admin/coupons',
+    params(query),
+    options,
+  );
+
+  return { items, pagination };
+}
+
+export function getCoupon(id: string, options?: RequestOptions): Promise<AdminCouponDetail> {
+  return request<AdminCouponDetail>(
+    `/api/admin/coupons/${encodeURIComponent(id)}`,
+    undefined,
+    options,
+  );
+}
+
+export const createCoupon = (input: CouponInput) =>
+  send<AdminCouponDetail>('post', '/api/admin/coupons', input);
+
+/** Everything but the code, which the server treats as immutable. */
+export const updateCoupon = (id: string, input: Omit<Partial<CouponInput>, 'code'>) =>
+  send<AdminCouponDetail>('patch', `/api/admin/coupons/${encodeURIComponent(id)}`, input);
+
+export const deleteCoupon = (id: string) =>
+  sendMessage('delete', `/api/admin/coupons/${encodeURIComponent(id)}`);
+
+export async function getSubscribers(
+  query: SubscriberQuery = {},
+  options?: RequestOptions,
+): Promise<AdminList<SubscriberRow>> {
+  const { items, pagination } = await requestList<SubscriberRow>(
+    '/api/admin/subscribers',
+    params(query),
+    options,
+  );
+
+  return { items, pagination };
+}
+
+export function getSubscriberCounts(options?: RequestOptions): Promise<SubscriberCounts> {
+  return request<SubscriberCounts>('/api/admin/subscribers/summary', undefined, options);
+}
+
+/** The confirmed list as a CSV file, with each row's signed unsubscribe link. */
+export const exportSubscribers = () => downloadFile('/api/admin/subscribers/export');
+
+/**
+ * Uploads one product image and answers with its URL.
+ *
+ * The file itself is the body; the server decides what it is from its bytes,
+ * not from its name or the type the browser claims.
+ */
+export const uploadProductImage = (file: File) =>
+  sendFile<UploadedImage>('/api/admin/uploads/images', file);
 
 /* ---------------------------------------------------------------- */
 /* System health                                                     */

@@ -181,6 +181,12 @@ export interface AdminTaxonomyRow {
   /** What makes a category deletable or not. */
   productCount: number;
   createdAt: string;
+  /**
+   * A category's GST rate and HSN code (Phase 18); absent on brands. A null
+   * rate follows the store default, which the console names.
+   */
+  gstRate?: number | null;
+  hsnCode?: string;
 }
 
 export interface AdminCatalogueQuery {
@@ -241,7 +247,19 @@ export interface TaxonomyInput {
   image?: string;
   logo?: string;
   isActive: boolean;
+  /** Categories only. Null follows the store default. */
+  gstRate?: number | null;
+  hsnCode?: string;
 }
+
+/**
+ * The GST slabs a category may carry. Must match `GST_RATES` in the backend's
+ * `config/commerce.ts` — the server refuses anything else.
+ */
+export const GST_RATES = [0, 0.25, 3, 5, 12, 18, 28, 40] as const;
+
+/** The rate a category without its own is taxed at. Mirrors `DEFAULT_GST_RATE`. */
+export const DEFAULT_GST_RATE = 18;
 
 /* ---------------------------------------------------------------- */
 /* Orders                                                            */
@@ -743,6 +761,9 @@ export const AUDIT_ACTIONS = [
   'RETURN_REFUND_INITIATED',
   'RETURN_REFUND_COMPLETED',
   'NOTIFICATION_RETRIED',
+  'COUPON_CREATED',
+  'COUPON_UPDATED',
+  'COUPON_DELETED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -764,6 +785,9 @@ export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   RETURN_REFUND_INITIATED: 'Refund started',
   RETURN_REFUND_COMPLETED: 'Refund completed',
   NOTIFICATION_RETRIED: 'Email retried',
+  COUPON_CREATED: 'Coupon created',
+  COUPON_UPDATED: 'Coupon updated',
+  COUPON_DELETED: 'Coupon deleted',
 };
 
 /** Must match `AUDIT_ENTITIES` in the backend's audit-log model. */
@@ -775,6 +799,7 @@ export const AUDIT_ENTITIES = [
   'SHIPMENT',
   'RETURN',
   'NOTIFICATION',
+  'COUPON',
 ] as const;
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number];
 
@@ -817,6 +842,13 @@ export const NOTIFICATION_EVENTS = [
   'ORDER_DELIVERED',
   'RETURN_APPROVED',
   'REFUND_COMPLETED',
+  'ORDER_PLACED',
+  'PAYMENT_FAILED',
+  'ABANDONED_CART',
+  'WELCOME',
+  'EMAIL_VERIFICATION',
+  'PASSWORD_RESET',
+  'NEWSLETTER_CONFIRMATION',
 ] as const;
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
 
@@ -831,7 +863,17 @@ export const NOTIFICATION_EVENT_LABEL: Record<NotificationEvent, string> = {
   ORDER_DELIVERED: 'Order delivered',
   RETURN_APPROVED: 'Return approved',
   REFUND_COMPLETED: 'Refund completed',
+  ORDER_PLACED: 'Order confirmed',
+  PAYMENT_FAILED: 'Payment failed',
+  ABANDONED_CART: 'Cart reminder',
+  WELCOME: 'Welcome',
+  EMAIL_VERIFICATION: 'Email verification',
+  PASSWORD_RESET: 'Password reset',
+  NEWSLETTER_CONFIRMATION: 'Newsletter confirmation',
 };
+
+/** What a delivery is about. Must match `NOTIFICATION_ENTITIES` in the backend. */
+export type NotificationEntity = 'ORDER' | 'RETURN' | 'USER' | 'SUBSCRIBER' | 'CART';
 
 /** Must match `DELIVERY_STATUSES`. There is deliberately no DELIVERED. */
 export const DELIVERY_STATUSES = ['PENDING', 'SENDING', 'SENT', 'FAILED'] as const;
@@ -849,7 +891,7 @@ export const DELIVERY_STATUS_LABEL: Record<DeliveryStatus, string> = {
 export interface NotificationRow {
   id: string;
   event: NotificationEvent;
-  entityType: 'ORDER' | 'RETURN';
+  entityType: NotificationEntity;
   entityLabel: string;
   orderNumber: string;
   customer: { name: string; email: string };
@@ -917,4 +959,120 @@ export interface NotificationQuery {
   event?: NotificationEvent;
   search?: string;
   period?: 'today' | '7d' | '30d' | 'all';
+}
+
+/* ---------------------------------------------------------------- */
+/* Promotions (Phase 18)                                             */
+/* ---------------------------------------------------------------- */
+
+export type CouponType = 'PERCENT' | 'FLAT';
+
+/** Decided by the server's `couponState`, so the badge and the checkout agree. */
+export type CouponState = 'ACTIVE' | 'SCHEDULED' | 'EXPIRED' | 'EXHAUSTED' | 'INACTIVE';
+
+export const COUPON_STATES: readonly CouponState[] = [
+  'ACTIVE',
+  'SCHEDULED',
+  'EXPIRED',
+  'EXHAUSTED',
+  'INACTIVE',
+];
+
+export const COUPON_STATE_LABEL: Record<CouponState, string> = {
+  ACTIVE: 'Active',
+  SCHEDULED: 'Scheduled',
+  EXPIRED: 'Expired',
+  EXHAUSTED: 'Used up',
+  INACTIVE: 'Switched off',
+};
+
+export interface AdminCouponRow {
+  id: string;
+  code: string;
+  description: string;
+  /** "10% off (up to ₹500)", written by the server. */
+  deal: string;
+  type: CouponType;
+  value: number;
+  maxDiscount: number | null;
+  minOrderValue: number;
+  startsAt: string | null;
+  expiresAt: string | null;
+  /** Null is unlimited. */
+  usageLimit: number | null;
+  /** Null is unlimited. */
+  perUserLimit: number | null;
+  usedCount: number;
+  isActive: boolean;
+  state: CouponState;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminCouponDetail extends AdminCouponRow {
+  redemptions: { orderNumber: string; discount: number; released: boolean; createdAt: string }[];
+  totalDiscount: number;
+  /** Only a never-used coupon can be deleted. */
+  canDelete: boolean;
+}
+
+export interface AdminCouponQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  state?: CouponState;
+}
+
+/** What the coupon form submits. The code is create-only; the server refuses it on update. */
+export interface CouponInput {
+  code?: string;
+  description?: string;
+  type: CouponType;
+  value: number;
+  maxDiscount: number | null;
+  minOrderValue: number;
+  startsAt: string | null;
+  expiresAt: string | null;
+  usageLimit: number | null;
+  perUserLimit: number | null;
+  isActive: boolean;
+}
+
+export type SubscriberStatus = 'PENDING' | 'SUBSCRIBED' | 'UNSUBSCRIBED';
+
+export const SUBSCRIBER_STATUS_LABEL: Record<SubscriberStatus, string> = {
+  PENDING: 'Awaiting confirmation',
+  SUBSCRIBED: 'Subscribed',
+  UNSUBSCRIBED: 'Unsubscribed',
+};
+
+export interface SubscriberRow {
+  id: string;
+  email: string;
+  status: SubscriberStatus;
+  source: 'homepage' | 'footer' | 'account';
+  createdAt: string;
+  confirmedAt: string | null;
+  unsubscribedAt: string | null;
+}
+
+export interface SubscriberCounts {
+  subscribed: number;
+  pending: number;
+  unsubscribed: number;
+}
+
+export interface SubscriberQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: SubscriberStatus;
+}
+
+/** A product image the server stored, and where the catalogue can find it. */
+export interface UploadedImage {
+  url: string;
+  bytes: number;
+  format: string;
+  provider: 'local' | 'cloudinary';
 }

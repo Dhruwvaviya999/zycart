@@ -4,6 +4,7 @@ import type {
   AddressInput,
   AuthUser,
   ChangePasswordInput,
+  EmailPreferences,
   UpdateProfileInput,
 } from '@/types/user';
 
@@ -17,6 +18,21 @@ export function updateProfile(input: UpdateProfileInput): Promise<AuthUser> {
 
 export function changePassword(input: ChangePasswordInput): Promise<string> {
   return sendMessage('patch', '/api/users/me/password', input);
+}
+
+export function updateEmailPreferences(input: EmailPreferences): Promise<AuthUser> {
+  return send<AuthUser>('patch', '/api/users/me/preferences', input);
+}
+
+/**
+ * The one-click opt-out from a cart reminder email. No session: the signed
+ * link's two values are the authority.
+ */
+export function optOutOfCartReminders(userId: string, signature: string): Promise<string> {
+  return sendMessage('post', '/api/email-preferences/cart-reminders/opt-out', {
+    u: userId,
+    s: signature,
+  });
 }
 
 // Every address write answers with the full list, so the client never has to

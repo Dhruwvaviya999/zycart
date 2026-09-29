@@ -84,6 +84,42 @@ export function returnUrl(brand: EmailBrand, returnNumber: string): string {
   return `${brand.appOrigin}/account/returns/${encodeURIComponent(returnNumber)}`;
 }
 
+/**
+ * A storefront page, absolute, built from configuration alone.
+ *
+ * Takes a path this codebase wrote and an optional query of values it also
+ * wrote. Every value is URI-encoded, so a token containing `&` cannot add a
+ * parameter of its own.
+ */
+export function storeUrl(
+  brand: EmailBrand,
+  path: string,
+  query: Record<string, string> = {},
+): string {
+  const search = Object.entries(query)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('&');
+
+  return `${brand.appOrigin}${path}${search ? `?${search}` : ''}`;
+}
+
+/**
+ * A link to this store that was composed by the server and stored, re-checked.
+ *
+ * Opt-out links are signed capability URLs built by the service that raised
+ * the message, and they sit in a delivery record's payload until it is sent.
+ * By then they are stored input like any other, so a value that does not point
+ * at this store's own origin produces no link rather than an off-site one.
+ */
+export function ownUrl(brand: EmailBrand, value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.origin === new URL(brand.appOrigin).origin ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Turns the stored lines into what the renderer draws. */
 export function toItemBlock(
   lines: readonly EmailLine[],
@@ -106,7 +142,7 @@ export function toItemBlock(
  * `content` returns structured data rather than HTML, which is what makes it
  * impossible for a template to emit unescaped markup. See `render.ts`.
  */
-export interface EmailTemplate<TData> {
+export interface EmailTemplate<TData, TSecrets = never> {
   readonly name: string;
   /**
    * Bumped whenever the wording or the data contract changes.
@@ -117,6 +153,27 @@ export interface EmailTemplate<TData> {
    */
   readonly version: number;
   readonly schema: z.ZodType<TData>;
+  /**
+   * Values this message needs that must never be written down (Phase 18).
+   *
+   * A password reset link *is* the password reset: anybody holding it can take
+   * the account. Storing it in the delivery's payload would undo the care taken
+   * to store only the token's hash. So a template that carries one declares
+   * it here, the value travels in memory from the request that minted it to the
+   * send, and the stored payload never contains it.
+   *
+   * The cost is deliberate: such a message cannot be re-sent from the console
+   * or the drain, because the link no longer exists anywhere to re-send. The
+   * customer asks for a new one instead, which is what they would do anyway.
+   */
+  readonly secrets?: z.ZodType<TSecrets>;
   subject(data: TData): string;
-  content(data: TData, brand: EmailBrand): EmailContent;
+  content(data: TData, brand: EmailBrand, secrets: TSecrets): EmailContent;
 }
+
+/** The single-use token a secret-bearing template is handed at send time. */
+export const tokenSecretSchema = z.object({ token: z.string().min(16).max(200) });
+export type TokenSecret = z.infer<typeof tokenSecretSchema>;
+
+/** A price in an email: whole rupees, validated as such. */
+export const rupeesSchema = z.number().int().min(0);

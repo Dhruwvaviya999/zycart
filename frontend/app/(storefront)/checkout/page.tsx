@@ -26,7 +26,7 @@ export default async function CheckoutPage() {
 
   let summary;
   try {
-    summary = await getCheckoutSummary(undefined, { cookie: await getSessionCookie() });
+    summary = await getCheckoutSummary({}, { cookie: await getSessionCookie() });
   } catch (error) {
     return (
       <Container className="py-8 sm:py-10">

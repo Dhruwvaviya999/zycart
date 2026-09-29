@@ -160,7 +160,36 @@ export interface EmailContent {
   secondary?: EmailAction;
   /** Supporting detail under the buttons. Optional, and usually one line. */
   notes?: string[];
+  /**
+   * Why this person is receiving this message, when it is not about an order.
+   *
+   * Absent for the four Phase 14 messages, which keep the order wording. From
+   * Phase 18 not every message is about an order — a password reset, a
+   * newsletter confirmation, a cart reminder — and a footer claiming "you
+   * placed this order with us" under any of them would be false in writing.
+   */
+  footer?: EmailFooter;
 }
+
+export interface EmailFooter {
+  /** One sentence: "You are receiving this because…". Plain text. */
+  reason: string;
+  /**
+   * Whether to link to the account. False for a newsletter address, whose
+   * owner may well have no account to link to.
+   */
+  showAccountLink?: boolean;
+  /** A one-click way to stop this kind of message, where one exists. */
+  optOut?: EmailAction;
+}
+
+/** The footer every message had before Phase 18, and the order messages still have. */
+const ORDER_FOOTER: EmailFooter = {
+  reason:
+    'This is a service message about your ZyCart order. You are receiving it because you ' +
+    'placed this order with us.',
+  showAccountLink: true,
+};
 
 /** The deployment's identity, resolved from configuration. */
 export interface EmailBrand {
@@ -314,24 +343,27 @@ function buttonHtml(action: EmailAction, variant: 'primary' | 'secondary'): stri
   );
 }
 
-function footerHtml(brand: EmailBrand): string {
-  const support = brand.supportEmail
-    ? `<a href="mailto:${escapeHtml(brand.supportEmail)}" style="color:${PALETTE.muted};">` +
-      `${escapeHtml(brand.supportEmail)}</a>`
-    : null;
+function footerHtml(brand: EmailBrand, footer: EmailFooter): string {
+  const link = (url: string, label: string): string =>
+    `<a href="${escapeHtml(url)}" style="color:${PALETTE.muted};">${escapeHtml(label)}</a>`;
+
+  // Joined with a middot, and only the links that apply — a footer that
+  // printed "Your account ·" beside nothing would read as a rendering bug.
+  const links = [
+    footer.showAccountLink === false ? null : link(brand.accountUrl, 'Your account'),
+    brand.supportEmail ? link(`mailto:${brand.supportEmail}`, brand.supportEmail) : null,
+    footer.optOut ? link(footer.optOut.url, footer.optOut.label) : null,
+  ].filter((entry): entry is string => entry !== null);
 
   return (
     `<tr><td style="padding:8px 24px 26px 24px;">` +
     `<div style="border-top:1px solid ${PALETTE.border};padding-top:16px;">` +
     `<p style="margin:0 0 8px 0;font-family:${FONT_STACK};font-size:12px;line-height:1.6;` +
-    `color:${PALETTE.faint};">` +
-    `This is a service message about your ZyCart order. You are receiving it because ` +
-    `you placed this order with us.</p>` +
-    `<p style="margin:0;font-family:${FONT_STACK};font-size:12px;line-height:1.6;` +
-    `color:${PALETTE.faint};">` +
-    `<a href="${escapeHtml(brand.accountUrl)}" style="color:${PALETTE.muted};">Your account</a>` +
-    (support ? ` &middot; ${support}` : '') +
-    `</p>` +
+    `color:${PALETTE.faint};">${escapeHtml(footer.reason)}</p>` +
+    (links.length > 0
+      ? `<p style="margin:0;font-family:${FONT_STACK};font-size:12px;line-height:1.6;` +
+        `color:${PALETTE.faint};">${links.join(' &middot; ')}</p>`
+      : '') +
     `</div></td></tr>`
   );
 }
@@ -402,7 +434,7 @@ export function renderEmail(content: EmailContent, brand: EmailBrand): RenderedE
     `border:1px solid ${PALETTE.border};border-radius:14px;">` +
     masthead() +
     `<tr><td style="padding:12px 24px 4px 24px;">${body}</td></tr>` +
-    footerHtml(brand) +
+    footerHtml(brand, content.footer ?? ORDER_FOOTER) +
     `</table>` +
     `<!--[if mso]></td></tr></table><![endif]-->` +
     `</td></tr></table></body></html>`;
@@ -442,13 +474,15 @@ function renderText(content: EmailContent, brand: EmailBrand): string {
   for (const note of content.notes ?? []) blocks.push(note);
   if ((content.notes ?? []).length > 0) blocks.push('');
 
-  blocks.push(
-    '--',
-    'This is a service message about your ZyCart order.',
-    `Your account: ${brand.accountUrl}`,
-  );
+  const footer = content.footer ?? ORDER_FOOTER;
 
+  // The order footer keeps its original, shorter text-part wording, so the
+  // Phase 14 messages read exactly as they always did.
+  blocks.push('--', content.footer ? footer.reason : 'This is a service message about your ZyCart order.');
+
+  if (footer.showAccountLink !== false) blocks.push(`Your account: ${brand.accountUrl}`);
   if (brand.supportEmail) blocks.push(`Support: ${brand.supportEmail}`);
+  if (footer.optOut) blocks.push(`${footer.optOut.label}: ${footer.optOut.url}`);
 
   return `${blocks.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`;
 }

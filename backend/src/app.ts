@@ -6,6 +6,7 @@ import type { Env } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { REQUEST_ID_HEADER, requestContext } from './middleware/requestContext';
 import { apiRouter } from './routes';
+import { LOCAL_UPLOAD_ROOT, LOCAL_UPLOAD_ROUTE } from './services/uploads/storage';
 
 /** The one path whose body must survive as bytes. */
 export const RAZORPAY_WEBHOOK_PATH = '/api/payments/razorpay/webhook';
@@ -44,7 +45,11 @@ export function createApp(env: Env): Express {
        * the error response already contains. Exposing it discloses nothing:
        * the id is random and belongs to the request the caller just made.
        */
-      exposedHeaders: [REQUEST_ID_HEADER],
+      //
+      // `Content-Disposition` for the same reason, from Phase 18: the console's
+      // subscriber export is a download, and without it a cross-origin browser
+      // cannot read the file name the server chose.
+      exposedHeaders: [REQUEST_ID_HEADER, 'Content-Disposition'],
     }),
   );
 
@@ -74,6 +79,32 @@ export function createApp(env: Env): Express {
     req.env = env;
     next();
   });
+
+  /**
+   * Images stored by the local upload provider (Phase 18).
+   *
+   * Mounted only when that provider is in use, so a Cloudinary deployment has
+   * no route that serves files off its own disk at all. The headers are the
+   * point: `Cross-Origin-Resource-Policy: cross-origin` lets the storefront on
+   * another port render them (Helmet's default would block it), and a
+   * `sandbox` CSP means that even a file that somehow was not an image could
+   * run nothing if it were opened directly. No directory listings, no dotfiles.
+   */
+  if (env.UPLOAD_PROVIDER === 'local') {
+    app.use(
+      LOCAL_UPLOAD_ROUTE,
+      express.static(LOCAL_UPLOAD_ROOT, {
+        index: false,
+        dotfiles: 'deny',
+        immutable: true,
+        maxAge: '30d',
+        setHeaders(res) {
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+          res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+        },
+      }),
+    );
+  }
 
   app.use('/api', apiRouter);
 

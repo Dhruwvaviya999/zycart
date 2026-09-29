@@ -33,3 +33,26 @@ export async function getCurrentUserSafe(options?: RequestOptions): Promise<Auth
     return null;
   }
 }
+
+/**
+ * Asks for a password reset link. The answer is the same whether or not the
+ * address has an account, so the form cannot be used to find out.
+ */
+export function requestPasswordReset(email: string): Promise<string> {
+  return sendMessage('post', '/api/auth/forgot-password', { email });
+}
+
+/** Sets a new password from a reset link, and signs this browser in. */
+export function resetPassword(token: string, password: string): Promise<AuthUser> {
+  return send<AuthUser>('post', '/api/auth/reset-password', { token, password });
+}
+
+/** Redeems the link from the verification email. Needs no session. */
+export function verifyEmail(token: string): Promise<string> {
+  return sendMessage('post', '/api/auth/verify-email', { token });
+}
+
+/** Sends a fresh verification link to the signed-in customer. */
+export function resendVerification(): Promise<string> {
+  return sendMessage('post', '/api/auth/verify-email/resend');
+}

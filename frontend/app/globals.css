@@ -437,3 +437,27 @@
 .animate-rise {
   animation: zy-rise 0.62s var(--ease-brand) both;
 }
+
+/*
+ * Printing (Phase 18).
+ *
+ * Only the tax invoice is designed to be printed, and it is printed from the
+ * browser — "Save as PDF" is how a customer gets a PDF. A4 with a modest margin
+ * is what an accountant's printer expects; colours are forced to print exactly
+ * as specified so the invoice's rules and headings survive the "save ink"
+ * defaults, and the page background is dropped so a dark theme on screen never
+ * becomes a black page on paper.
+ */
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

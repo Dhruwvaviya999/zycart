@@ -164,6 +164,77 @@ const envSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((value) => value === 'true'),
+
+    /**
+     * The seller, as a tax invoice names it (Phase 18).
+     *
+     * Public facts, printed on every invoice — none of them is a credential.
+     * The GSTIN is optional because a store may run in development without
+     * one; production without one is flagged by readiness, because invoices
+     * then cannot be *tax* invoices. The seller's state is read from the
+     * GSTIN's first two digits, and `STORE_STATE` exists only for a store that
+     * has no GSTIN to read it from.
+     */
+    STORE_LEGAL_NAME: z.string().trim().min(1).max(120).default('ZyCart'),
+    STORE_GSTIN: z
+      .string()
+      .trim()
+      .transform((value) => value.toUpperCase())
+      .pipe(
+        z
+          .string()
+          .regex(
+            /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/,
+            'must be a 15-character GSTIN, for example 24ABCDE1234F1Z5',
+          ),
+      )
+      .optional(),
+    STORE_ADDRESS: z.string().trim().min(1).max(300).optional(),
+    STORE_STATE: z.string().trim().min(2).max(60).optional(),
+
+    /**
+     * Where uploaded product images are kept (Phase 18).
+     *
+     * `local` writes them to this machine's disk and serves them from
+     * `/api/uploads`, which is right for a laptop and wrong for anything
+     * serverless — a Vercel function's disk does not outlive the request.
+     * `cloudinary` sends them to Cloudinary, whose URLs are permanent and
+     * served from its CDN. Readiness warns about `local` in production.
+     */
+    UPLOAD_PROVIDER: z.enum(['local', 'cloudinary']).default('local'),
+    CLOUDINARY_CLOUD_NAME: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9_-]+$/, 'must be the cloud name from the Cloudinary dashboard')
+      .optional(),
+    CLOUDINARY_API_KEY: z.string().trim().regex(/^\d+$/, 'must be the numeric API key').optional(),
+    CLOUDINARY_API_SECRET: z
+      .string()
+      .trim()
+      .min(10, 'looks too short to be an API secret')
+      .optional(),
+    CLOUDINARY_FOLDER: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9_\-/]+$/, 'may contain letters, numbers, -, _ and /')
+      .max(100)
+      .default('zycart/products'),
+
+    /**
+     * This API's own public origin, for building the URLs of images the local
+     * provider stores. Unused by `cloudinary`, whose URLs come from Cloudinary.
+     */
+    API_PUBLIC_URL: z
+      .string()
+      .refine((value) => {
+        try {
+          const url = new URL(value);
+          return url.protocol === 'http:' || url.protocol === 'https:';
+        } catch {
+          return false;
+        }
+      }, 'must be an absolute http:// or https:// address')
+      .optional(),
   })
   /**
    * The mock provider answers from a fixed script. It exists so tool and
@@ -266,6 +337,33 @@ const envSchema = z
           message:
             'is required when EMAIL_PROVIDER=smtp - set it, or use EMAIL_PROVIDER=mock to run ' +
             'without a mail server',
+        });
+      }
+    }
+  })
+  /**
+   * Half-configured uploads, refused for the same reason half-configured mail
+   * is: `UPLOAD_PROVIDER=cloudinary` promises that images will be stored, and a
+   * deployment that made the promise without credentials would fail the first
+   * time an administrator pressed Upload, not at boot.
+   */
+  .superRefine((env, ctx) => {
+    if (env.UPLOAD_PROVIDER !== 'cloudinary') return;
+
+    const required = [
+      'CLOUDINARY_CLOUD_NAME',
+      'CLOUDINARY_API_KEY',
+      'CLOUDINARY_API_SECRET',
+    ] as const;
+
+    for (const key of required) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message:
+            'is required when UPLOAD_PROVIDER=cloudinary - set it, or use UPLOAD_PROVIDER=local ' +
+            'to keep uploads on this machine',
         });
       }
     }

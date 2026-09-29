@@ -12,6 +12,9 @@ export interface SeedCategory {
   slug: string;
   description: string;
   image: string;
+  /** Percent; see `GST_RATES`. Illustrative rates for development, not tax advice. */
+  gstRate: number;
+  hsnCode: string;
 }
 
 export interface SeedBrand {
@@ -45,6 +48,32 @@ export interface SeedProduct {
   createdAt: string;
 }
 
+/** Development coupons. `perUserLimit` 1 matches what the console defaults to. */
+export const seedCoupons = [
+  {
+    code: 'WELCOME10',
+    description: '10% off, up to ₹500, on orders over ₹999',
+    type: 'PERCENT' as const,
+    value: 10,
+    maxDiscount: 500,
+    minOrderValue: 999,
+    usageLimit: null,
+    perUserLimit: 1,
+    isActive: true,
+  },
+  {
+    code: 'FLAT200',
+    description: '₹200 off orders over ₹2,499',
+    type: 'FLAT' as const,
+    value: 200,
+    maxDiscount: null,
+    minOrderValue: 2499,
+    usageLimit: 500,
+    perUserLimit: 1,
+    isActive: true,
+  },
+];
+
 export const seedCategories: SeedCategory[] = [
   {
     name: 'Electronics',
@@ -52,6 +81,8 @@ export const seedCategories: SeedCategory[] = [
     description: 'Audio, wearables and machines',
     image:
       'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=80',
+    gstRate: 18,
+    hsnCode: '8518',
   },
   {
     name: 'Fashion',
@@ -59,6 +90,8 @@ export const seedCategories: SeedCategory[] = [
     description: 'Everyday layers worth keeping',
     image:
       'https://images.unsplash.com/photo-1512436991641-6745cdb1723f?auto=format&fit=crop&w=700&q=80',
+    gstRate: 5,
+    hsnCode: '6109',
   },
   {
     name: 'Footwear',
@@ -66,6 +99,8 @@ export const seedCategories: SeedCategory[] = [
     description: 'Court, road and everything after',
     image:
       'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&w=700&q=80',
+    gstRate: 18,
+    hsnCode: '6404',
   },
   {
     name: 'Accessories',
@@ -73,6 +108,8 @@ export const seedCategories: SeedCategory[] = [
     description: 'The pieces that finish the outfit',
     image:
       'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=700&q=80',
+    gstRate: 18,
+    hsnCode: '4202',
   },
   {
     name: 'Home',
@@ -80,6 +117,8 @@ export const seedCategories: SeedCategory[] = [
     description: 'Objects for the everyday',
     image:
       'https://images.unsplash.com/photo-1610701596007-11502861dcfa?auto=format&fit=crop&w=700&q=80',
+    gstRate: 18,
+    hsnCode: '6912',
   },
   {
     name: 'Beauty',
@@ -87,6 +126,8 @@ export const seedCategories: SeedCategory[] = [
     description: 'Short ingredient lists, honest claims',
     image:
       'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=700&q=80',
+    gstRate: 18,
+    hsnCode: '3304',
   },
 ];
 

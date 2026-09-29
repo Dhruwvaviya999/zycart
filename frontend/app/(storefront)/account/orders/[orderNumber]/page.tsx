@@ -2,8 +2,7 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { ArrowLeft, ArrowRight, MapPin, RotateCcw, Wallet } from 'lucide-react';
-import { Separator } from '@/components/ui/separator';
+import { ArrowLeft, ArrowRight, FileText, MapPin, RotateCcw, Wallet } from 'lucide-react';
 import { CancelOrderDialog } from '@/components/order/cancel-order-dialog';
 import { EmailedUpdate } from '@/components/order/emailed-update';
 import { ReturnRequestDialog } from '@/components/order/return-request-dialog';
@@ -18,6 +17,7 @@ import {
 } from '@/components/payment/payment-status';
 import { OrderStatusBadge } from '@/components/order/order-status-badge';
 import { OrderTimeline } from '@/components/order/order-timeline';
+import { PriceBreakdown } from '@/components/order/price-breakdown';
 import { ApiError } from '@/services/api';
 import { getOrderById } from '@/services/order.service';
 import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
@@ -230,33 +230,11 @@ export default async function OrderDetailPage({
           <div className="rounded-2xl border border-border bg-surface p-5">
             <h3 className="text-h4">Summary</h3>
 
-            <dl className="mt-4 space-y-2.5">
-              <Row label="Subtotal">{formatPrice(order.pricing.subtotal)}</Row>
-              <Row label="Shipping">
-                {order.pricing.shipping === 0 ? (
-                  <span className="text-muted-foreground">Not charged</span>
-                ) : (
-                  formatPrice(order.pricing.shipping)
-                )}
-              </Row>
-              <Row label="Taxes">
-                {order.pricing.tax === 0 ? (
-                  <span className="text-muted-foreground">Not charged</span>
-                ) : (
-                  formatPrice(order.pricing.tax)
-                )}
-              </Row>
-              {order.pricing.discount > 0 && (
-                <Row label="Discount">−{formatPrice(order.pricing.discount)}</Row>
-              )}
-            </dl>
-
-            <Separator className="my-4" />
-
-            <div className="flex items-baseline justify-between">
-              <span className="text-small font-semibold">Total</span>
-              <span className="text-price">{formatPrice(order.pricing.total)}</span>
-            </div>
+            <PriceBreakdown
+              pricing={order.pricing}
+              couponCode={order.coupon?.code}
+              className="mt-4"
+            />
 
             {/* Only when money has actually come back. A partial refund would
                 otherwise be invisible beside a "Paid" badge. */}
@@ -268,6 +246,8 @@ export default async function OrderDetailPage({
                 </span>
               </div>
             )}
+
+            <InvoiceLink order={order} />
           </div>
 
           <div className="rounded-2xl border border-border p-5">
@@ -417,11 +397,41 @@ function ReturnsPanel({ order }: { order: Order }) {
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="text-small flex items-center justify-between gap-4">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-medium">{children}</dd>
-    </div>
-  );
+/**
+ * The tax invoice, when there is one to show.
+ *
+ * The server decides: `invoice.available` is true once the order has shipped
+ * and carries a tax breakdown. Before it ships the customer is told when to
+ * expect one; an order from before invoices existed says nothing, rather than
+ * promising a document that will never appear.
+ */
+function InvoiceLink({ order }: { order: Order }) {
+  if (order.invoice.available) {
+    return (
+      <Link
+        href={`/invoice/${encodeURIComponent(order.orderNumber)}`}
+        target="_blank"
+        rel="noopener"
+        className="focus-ring text-small mt-4 flex items-center justify-between gap-2 rounded-xl border border-border px-3.5 py-2.5 font-medium transition-colors hover:border-foreground/25"
+      >
+        <span className="inline-flex items-center gap-2">
+          <FileText className="size-4 text-muted-foreground" aria-hidden />
+          Tax invoice
+        </span>
+        {order.invoice.number && (
+          <span className="text-caption text-muted-foreground">{order.invoice.number}</span>
+        )}
+      </Link>
+    );
+  }
+
+  if (['PENDING', 'CONFIRMED', 'PROCESSING'].includes(order.status)) {
+    return (
+      <p className="text-caption mt-4 text-muted-foreground">
+        Your tax invoice will be ready here once the order ships.
+      </p>
+    );
+  }
+
+  return null;
 }

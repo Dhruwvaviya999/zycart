@@ -60,10 +60,21 @@ export default async function AdminNotificationPage({
     );
   }
 
-  const entityHref =
-    delivery.entityType === 'RETURN'
-      ? `/admin/returns/${encodeURIComponent(delivery.entityLabel)}`
-      : `/admin/orders/${encodeURIComponent(delivery.entityLabel)}`;
+  /**
+   * Where the thing this message was about can be opened.
+   *
+   * Orders and returns have pages of their own. From Phase 18 a message can
+   * also be about an account, a cart or a newsletter address, whose label is
+   * the address itself — so those open the list they belong to, filtered to it.
+   */
+  const label = encodeURIComponent(delivery.entityLabel);
+  const entityHref = {
+    ORDER: `/admin/orders/${label}`,
+    RETURN: `/admin/returns/${label}`,
+    USER: `/admin/customers?search=${label}`,
+    CART: `/admin/customers?search=${label}`,
+    SUBSCRIBER: `/admin/subscribers?search=${label}`,
+  }[delivery.entityType];
 
   return (
     <>

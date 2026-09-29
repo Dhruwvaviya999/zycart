@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { AuthError } from '@/components/auth/auth-error';
+import { SelectField } from '@/components/common/select-field';
 import { AdminEmpty, AdminTable, StatusBadge, Td, Th, Tr } from '@/components/admin/admin-ui';
 import { ConfirmDialog } from '@/components/admin/confirm-dialog';
 import { fieldErrors, toErrorMessage } from '@/services/api';
@@ -20,7 +21,13 @@ import {
   updateBrand,
   updateCategory,
 } from '@/services/admin.service';
-import type { AdminTaxonomyRow, TaxonomyInput } from '@/types/admin';
+import { formatRate } from '@/lib/format';
+import {
+  DEFAULT_GST_RATE,
+  GST_RATES,
+  type AdminTaxonomyRow,
+  type TaxonomyInput,
+} from '@/types/admin';
 
 export type TaxonomyKind = 'category' | 'brand';
 
@@ -32,7 +39,8 @@ const API = {
 /**
  * Categories and brands, managed with one component.
  *
- * They differ in two details — a category has a description and an `image`, a
+ * They differ in a few details — a category has a description, an `image` and
+ * (from Phase 18) the GST rate and HSN code its products are sold under; a
  * brand has a `logo` — and are otherwise the same screen: a short list, an
  * inline editor, and a delete that the server refuses while products still
  * point at it. Two near-identical screens would have drifted apart.
@@ -78,6 +86,7 @@ export function TaxonomyManager({ kind, rows }: { kind: TaxonomyKind; rows: Admi
               <>
                 <Th>{kind === 'category' ? 'Category' : 'Brand'}</Th>
                 <Th className="hidden md:table-cell">Slug</Th>
+                {kind === 'category' && <Th>GST</Th>}
                 <Th align="right">Products</Th>
                 <Th>Status</Th>
                 <Th align="right">
@@ -104,6 +113,11 @@ export function TaxonomyManager({ kind, rows }: { kind: TaxonomyKind; rows: Admi
                 <Td className="hidden text-muted-foreground md:table-cell">
                   <code className="text-caption">{row.slug}</code>
                 </Td>
+                {kind === 'category' && (
+                  <Td>
+                    <GstCell row={row} />
+                  </Td>
+                )}
                 <Td align="right">
                   {row.productCount > 0 ? (
                     <Link
@@ -198,6 +212,27 @@ export function TaxonomyManager({ kind, rows }: { kind: TaxonomyKind; rows: Admi
         }}
       />
     </>
+  );
+}
+
+/**
+ * The rate a category's products are sold at, and whether anybody chose it.
+ *
+ * A category nobody has configured follows the store default; saying
+ * "default" beside the number keeps that visible, so an operator can tell a
+ * deliberate 18% from an inherited one.
+ */
+function GstCell({ row }: { row: AdminTaxonomyRow }) {
+  const rate = row.gstRate ?? null;
+
+  return (
+    <span className="tabular-nums">
+      {formatRate(rate ?? DEFAULT_GST_RATE)}
+      {rate === null && <span className="text-caption ml-1 text-muted-foreground">default</span>}
+      {row.hsnCode && (
+        <span className="text-caption block text-muted-foreground">HSN {row.hsnCode}</span>
+      )}
+    </span>
   );
 }
 
@@ -299,6 +334,11 @@ function TaxonomyFields({
   const [description, setDescription] = useState(row?.description ?? '');
   const [image, setImage] = useState(row?.image ?? '');
   const [isActive, setIsActive] = useState(row?.isActive ?? true);
+  // `''` is "follow the store default", which the server stores as null.
+  const [gstRate, setGstRate] = useState(
+    row?.gstRate === null || row?.gstRate === undefined ? '' : String(row.gstRate),
+  );
+  const [hsnCode, setHsnCode] = useState(row?.hsnCode ?? '');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
@@ -310,6 +350,11 @@ function TaxonomyFields({
 
     if (name.trim().length < 2) {
       setFields({ name: 'Give it a name of at least 2 characters.' });
+      return;
+    }
+
+    if (kind === 'category' && hsnCode.trim() && !/^(\d{4}|\d{6}|\d{8})$/.test(hsnCode.trim())) {
+      setFields({ hsnCode: 'An HSN code is 4, 6 or 8 digits.' });
       return;
     }
 
@@ -326,6 +371,8 @@ function TaxonomyFields({
         ? {
             description: description.trim() || undefined,
             image: image.trim() || undefined,
+            gstRate: gstRate === '' ? null : Number(gstRate),
+            hsnCode: hsnCode.trim(),
           }
         : { logo: image.trim() || undefined }),
     };
@@ -398,6 +445,52 @@ function TaxonomyFields({
           className="mt-1.5"
         />
       </div>
+
+      {kind === 'category' && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label htmlFor="taxonomy-gst" className="text-caption font-medium">
+              GST rate
+            </label>
+            <SelectField
+              id="taxonomy-gst"
+              value={gstRate}
+              onValueChange={setGstRate}
+              clearLabel={`Store default (${formatRate(DEFAULT_GST_RATE)})`}
+              placeholder={`Store default (${formatRate(DEFAULT_GST_RATE)})`}
+              options={GST_RATES.map((rate) => ({ value: String(rate), label: formatRate(rate) }))}
+              disabled={saving}
+              fullWidth
+              className="mt-1.5"
+            />
+            <p className="text-caption min-h-4 pt-1 text-muted-foreground">
+              Applies to orders placed from now on.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="taxonomy-hsn" className="text-caption font-medium">
+              HSN code <span className="font-normal text-muted-foreground">(optional)</span>
+            </label>
+            <Input
+              id="taxonomy-hsn"
+              inputMode="numeric"
+              value={hsnCode}
+              onChange={(event) => setHsnCode(event.target.value.replace(/\D/g, '').slice(0, 8))}
+              placeholder="e.g. 6404"
+              disabled={saving}
+              aria-invalid={Boolean(fields.hsnCode) || undefined}
+              className="mt-1.5"
+            />
+            <p
+              role={fields.hsnCode ? 'alert' : undefined}
+              className="text-caption min-h-4 pt-1 text-destructive"
+            >
+              {fields.hsnCode ?? ''}
+            </p>
+          </div>
+        </div>
+      )}
 
       <label className="focus-within:ring-ring/45 flex cursor-pointer items-center gap-2.5 rounded-lg py-1 focus-within:ring-[3px]">
         <input

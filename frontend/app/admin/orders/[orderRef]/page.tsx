@@ -2,12 +2,23 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowRight, Boxes, CreditCard, History, MapPin, RotateCcw, TriangleAlert, User } from 'lucide-react';
+import {
+  ArrowRight,
+  Boxes,
+  CreditCard,
+  FileText,
+  History,
+  MapPin,
+  RotateCcw,
+  TriangleAlert,
+  User,
+} from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { AdminError, AdminPageHeader, StatusBadge } from '@/components/admin/admin-ui';
 import { FulfillmentActionBar } from '@/components/admin/fulfillment-action-bar';
 import { OrderStatusControl } from '@/components/admin/order-status-control';
 import { ShipmentPanel } from '@/components/admin/shipment-panel';
+import { PriceBreakdown } from '@/components/order/price-breakdown';
 import {
   attentionTone,
   humanise,
@@ -148,30 +159,21 @@ export default async function AdminOrderPage({ params }: PageProps<'/admin/order
 
             <Separator className="my-4" />
 
-            <dl className="space-y-2">
-              <Row label="Subtotal">{formatPrice(order.pricing.subtotal)}</Row>
-              <Row label="Shipping">
-                {order.pricing.shipping === 0 ? (
-                  <span className="text-muted-foreground">Not charged</span>
-                ) : (
-                  formatPrice(order.pricing.shipping)
-                )}
-              </Row>
-              <Row label="Tax">
-                {order.pricing.tax === 0 ? (
-                  <span className="text-muted-foreground">Not charged</span>
-                ) : (
-                  formatPrice(order.pricing.tax)
-                )}
-              </Row>
-              {order.pricing.discount > 0 && (
-                <Row label="Discount">−{formatPrice(order.pricing.discount)}</Row>
-              )}
-              <Separator className="my-2" />
-              <Row label="Total" strong>
-                {formatPrice(order.pricing.total)}
-              </Row>
-            </dl>
+            <PriceBreakdown pricing={order.pricing} couponCode={order.coupon?.code} />
+
+            {/* The same document the customer can open, built by the same
+                server function — offered only once the server says it exists. */}
+            {order.invoice.available && (
+              <Link
+                href={`/invoice/${encodeURIComponent(order.orderNumber)}`}
+                target="_blank"
+                rel="noopener"
+                className="focus-ring text-small mt-4 inline-flex items-center gap-2 rounded-md font-medium hover:underline"
+              >
+                <FileText className="size-4 text-muted-foreground" aria-hidden />
+                Tax invoice{order.invoice.number ? ` ${order.invoice.number}` : ''}
+              </Link>
+            )}
           </Panel>
 
           <Panel title="History" icon={History}>

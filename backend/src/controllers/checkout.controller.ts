@@ -9,10 +9,15 @@ function currentUserId(req: Request): string {
 }
 
 export async function getSummary(req: Request, res: Response): Promise<void> {
-  const { addressId } = checkoutSummaryQuerySchema.parse(req.query);
+  const { addressId, couponCode } = checkoutSummaryQuerySchema.parse(req.query);
 
   res.json({
     success: true,
-    data: await checkoutService.getCheckoutSummary(req.env, currentUserId(req), addressId),
+    data: await checkoutService.getCheckoutSummary(
+      req.env,
+      currentUserId(req),
+      addressId,
+      couponCode,
+    ),
   });
 }

@@ -54,6 +54,9 @@ export function secretValues(env: Env): string[] {
     razorpay?.webhookSecret,
     email.smtp?.password,
     email.smtp?.user,
+    // Phase 18. The cloud name and API key identify the account and appear in
+    // every image URL; the secret signs uploads and must appear nowhere.
+    env.CLOUDINARY_API_SECRET,
   ].filter((value): value is string => typeof value === 'string' && value.length > 0);
 }
 

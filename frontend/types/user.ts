@@ -29,8 +29,14 @@ export interface AuthUser {
   role: UserRole;
   isActive: boolean;
   isEmailVerified: boolean;
+  /** The optional messages this customer has agreed to. Transactional mail is not optional. */
+  emailPreferences: EmailPreferences;
   createdAt: string;
   addresses: Address[];
+}
+
+export interface EmailPreferences {
+  cartReminders: boolean;
 }
 
 export interface RegisterInput {

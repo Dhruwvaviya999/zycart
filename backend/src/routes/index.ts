@@ -7,6 +7,7 @@ import { cartRouter } from './cart.routes';
 import { categoryRouter } from './category.routes';
 import { checkoutRouter } from './checkout.routes';
 import { healthRouter } from './health.routes';
+import { newsletterRouter } from './newsletter.routes';
 import { orderRouter } from './order.routes';
 import { paymentRouter } from './payment.routes';
 import { productRouter } from './product.routes';
@@ -25,6 +26,7 @@ apiRouter.use(healthRouter);
 // before any storefront router gets a chance to match a path.
 apiRouter.use(adminRouter);
 apiRouter.use(authRouter);
+apiRouter.use(newsletterRouter);
 apiRouter.use(aiRouter);
 apiRouter.use(searchRouter);
 apiRouter.use(recommendationRouter);

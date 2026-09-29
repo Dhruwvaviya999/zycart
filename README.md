@@ -374,6 +374,13 @@ Open <http://localhost:3000>. The storefront reads its catalogue from the API, s
 | `/admin/operations` | Orders that need a person, and fulfilment queue depth       |
 | `/admin/notifications` | Every transactional email, its state and a safe retry    |
 | `/admin/activity`   | Audit trail — who changed what, and when                    |
+| `/admin/coupons`    | Coupons — create, edit, switch off, see every use            |
+| `/admin/subscribers` | The newsletter list and its CSV export                      |
+| `/invoice/[orderRef]` | The printable tax invoice, once an order has shipped       |
+| `/forgot-password`, `/reset-password` | Account recovery by single-use link        |
+| `/verify-email`     | Where the verification email lands                          |
+| `/newsletter/confirm`, `/newsletter/unsubscribe` | Double opt-in, and leaving       |
+| `/email-preferences/cart-reminders` | One-click opt-out from cart reminders        |
 
 Shopper-facing routes live in the `(storefront)` route group, which gives them
 the navbar, promo bar and footer. The console has its own shell and inherits
@@ -408,6 +415,7 @@ Run from the repository root:
 | `pnpm returns:verify`  | Exercise returns, shipments and races against a real replica set   |
 | `pnpm notifications:verify` | Exercise transactional email, the drain and races              |
 | `pnpm notifications:drain`  | Send deliveries a crash stranded (`--help` for options)        |
+| `pnpm reminders:send`  | Cart and failed-payment reminders — schedule it (`--help`, `--dry-run`) |
 | `pnpm payments:verify` | Exercise the Razorpay boundary against a real replica set          |
 | `pnpm health:verify`   | Exercise the health surface against a real MongoDB (read-only)     |
 | `pnpm smoke:deploy`    | Pre-deploy check: production builds, real startup, health, read-only API (`--help`) |
@@ -418,7 +426,7 @@ Backend checks, run from `backend/`:
 
 | Command                     | Effect                                                             |
 | --------------------------- | ------------------------------------------------------------------ |
-| `pnpm test`                 | 656 unit tests — logging, health, smoke, payments, email, drain, AI, discovery, inventory, operations, returns; no database |
+| `pnpm test`                 | 715 unit tests — pricing, coupons, invoices, accounts, logging, health, smoke, payments, email, drain, AI, discovery, inventory, operations, returns; no database |
 | `pnpm ai:verify`            | 43 checks of every AI tool against a real MongoDB                  |
 | `pnpm discovery:verify`     | 63 checks of search, similarity and recommendations                |
 | `pnpm inventory:verify`     | 48 checks of stock adjustment, concurrency and the ledger          |
@@ -524,6 +532,20 @@ Per application:
 | `SMTP_USER`               | Group‡   | none                    | SMTP username — **server-only**                                             |
 | `SMTP_PASSWORD`           | Group‡   | none                    | SMTP password — **server-only**                                             |
 | `SMTP_SECURE`             | No       | `false`                 | `true` for implicit TLS on connect                                          |
+| `STORE_LEGAL_NAME`        | No       | `ZyCart`                | Seller name printed on invoices                                             |
+| `STORE_GSTIN`             | No       | none                    | Makes invoices *tax* invoices; its first two digits give the seller's state |
+| `STORE_ADDRESS`           | No       | none                    | Seller address on invoices; lines separated by `\|`                        |
+| `STORE_STATE`             | No       | none                    | Seller's state, only when there is no GSTIN                                 |
+| `UPLOAD_PROVIDER`         | No       | `local`                 | `local` (disk, development) or `cloudinary` (production)                    |
+| `CLOUDINARY_CLOUD_NAME`   | Group§   | none                    | Cloudinary account                                                          |
+| `CLOUDINARY_API_KEY`      | Group§   | none                    | Cloudinary API key                                                          |
+| `CLOUDINARY_API_SECRET`   | Group§   | none                    | Signs uploads — **server-only**, registered with the log redactor           |
+| `CLOUDINARY_FOLDER`       | No       | `zycart/products`       | Upload folder                                                               |
+| `API_PUBLIC_URL`          | No       | `http://localhost:$PORT` | Origin for images the local provider stores                                |
+
+§ Required as a set once `UPLOAD_PROVIDER=cloudinary`. `local` is fine on a
+laptop and warned about in production, where a serverless disk does not outlive
+the request.
 
 ‡ Required as a set once `EMAIL_PROVIDER=smtp`, and refused at startup if any is
 missing — a deployment that promises delivery and has no mail server would
@@ -656,9 +678,27 @@ anything else is replaced with a generated id rather than rejected.
 | `PATCH`  | `/api/users/me/addresses/:id`         | ✓    | Update an address          |
 | `DELETE` | `/api/users/me/addresses/:id`         | ✓    | Delete an address          |
 | `PATCH`  | `/api/users/me/addresses/:id/default` | ✓    | Set the default address    |
+| `PATCH`  | `/api/users/me/preferences`           | ✓    | Optional emails (cart reminders) |
+| `POST`   | `/api/auth/forgot-password`           | —    | Email a reset link (same answer either way) |
+| `POST`   | `/api/auth/reset-password`            | —    | New password from a link; signs in |
+| `POST`   | `/api/auth/verify-email`              | —    | Redeem a verification link |
+| `POST`   | `/api/auth/verify-email/resend`       | ✓    | Send a fresh verification link |
+| `POST`   | `/api/email-preferences/cart-reminders/opt-out` | signed link | Stop cart reminders |
 
 Sessions are a signed JWT in an HTTP-only cookie. Details and security notes are
 in [docs/phase-4.md](docs/phase-4.md).
+
+Reset and verification links carry a 256-bit single-use token of which only the
+SHA-256 is stored, and which never reaches the notification record — see
+[docs/phase-18.md](docs/phase-18.md).
+
+### Newsletter
+
+| Method | Path                          | Auth        | Purpose                                  |
+| ------ | ----------------------------- | ----------- | ---------------------------------------- |
+| `POST` | `/api/newsletter/subscribe`   | —           | Join, pending confirmation (double opt-in) |
+| `POST` | `/api/newsletter/confirm`     | —           | Redeem the confirmation link             |
+| `POST` | `/api/newsletter/unsubscribe` | signed link | Leave the list                           |
 
 ### Cart and wishlist
 
@@ -685,11 +725,18 @@ Prices and stock are always the server's, never the browser's — see
 
 | Method | Path                           | Auth | Purpose                              |
 | ------ | ------------------------------ | ---- | ------------------------------------ |
-| `GET`  | `/api/checkout/summary`        | ✓    | Live cart, addresses, blockers       |
+| `GET`  | `/api/checkout/summary`        | ✓    | Live cart, addresses, blockers; `?couponCode=` prices a coupon |
 | `GET`  | `/api/orders`                  | ✓    | Paginated order history              |
-| `POST` | `/api/orders`                  | ✓    | Place an order (`COD` or `RAZORPAY`) |
+| `POST` | `/api/orders`                  | ✓    | Place an order (`COD` or `RAZORPAY`, optional `couponCode`) |
 | `GET`  | `/api/orders/:orderRef`        | ✓    | One order, by number or id           |
-| `POST` | `/api/orders/:orderRef/cancel` | ✓    | Cancel and restore stock             |
+| `POST` | `/api/orders/:orderRef/cancel` | ✓    | Cancel, restore stock, release the coupon |
+| `GET`  | `/api/orders/:orderRef/invoice` | ✓   | The tax invoice, once the order has shipped |
+
+From Phase 18 prices include GST: `total = subtotal − discount + shipping`, and
+`pricing.tax` reports how much of the total is GST. Delivery is ₹99 below ₹999
+of goods (after discount) and free above it. A coupon is a *code* in the
+request, never an amount — the server re-prices it against the basket when the
+order is placed.
 
 Orders are snapshots: renaming, repricing or deleting a product never changes
 what a past order says. Stock moves inside a MongoDB transaction, so a
@@ -880,6 +927,16 @@ the router, so a route added later cannot be unprotected by omission.
 | `GET`    | `/api/admin/reviews`                  | Every review, filterable by status             |
 | `GET`    | `/api/admin/reviews/:reviewId`        | One review + its order evidence                |
 | `PATCH`  | `/api/admin/reviews/:reviewId/status` | Approve / reject                               |
+| `GET`    | `/api/admin/orders/:orderRef/invoice` | The order's tax invoice                        |
+| `GET`    | `/api/admin/coupons`                  | Coupons, filterable by state                   |
+| `POST`   | `/api/admin/coupons`                  | Create (audited)                               |
+| `GET`    | `/api/admin/coupons/:id`              | One coupon + recent uses                       |
+| `PATCH`  | `/api/admin/coupons/:id`              | Update — the code is immutable                 |
+| `DELETE` | `/api/admin/coupons/:id`              | Delete — refused once used                     |
+| `GET`    | `/api/admin/subscribers`              | The newsletter list                            |
+| `GET`    | `/api/admin/subscribers/summary`      | Counts by status                               |
+| `GET`    | `/api/admin/subscribers/export`       | Confirmed addresses as CSV, with unsubscribe links |
+| `POST`   | `/api/admin/uploads/images`           | Store one product image (raw body, 5 MB)       |
 
 Five things are deliberately absent:
 
@@ -1119,10 +1176,29 @@ theme-aware in both engines, the ⌘K and Esc badges left the search field — t
 shortcuts stayed — and removing the Esc pill exposed that a phone had no
 visible way out of a full-screen search at all.
 
+Phase 18 filled in six things earlier phases had left as placeholders. Checkout
+prices a delivery charge below a ₹999 free-delivery line and extracts GST from
+GST-inclusive prices by category — the formula every earlier order already
+satisfied, since all of them carried `tax: 0` — and a printable tax invoice,
+numbered gap-free per financial year inside the transaction that ships the
+order, splits the tax into CGST and SGST or IGST from the two parties' states.
+Coupons are evaluated by pure rules and redeemed when an order commits, exactly
+as stock is taken: atomically and with limits enforced for cash on delivery,
+honoured for a payment already captured. Forgotten passwords and email
+verification run on single-use links whose token is hashed at rest and never
+written to the notification record — it rides the outbox in memory, which is
+also why such a message cannot be re-sent. The newsletter form finally stores
+something, as a pending address confirmed by double opt-in and exported with
+its own signed unsubscribe link. Seven new messages join the template registry;
+the two about things that did not happen — an abandoned cart, an unretried
+payment — come from `pnpm reminders:send`, run by cron like the drain. And
+product photos upload from the form, typed by their own bytes rather than by
+anything the uploader claimed, to local disk or Cloudinary.
+
 Later phases can build on that foundation: a shipping-provider integration behind
 the shipment domain Phase 13 modelled, SMS and in-app notification beside the
-email layer, more events through the template registry that already carries
-four, exchanges and store credit, semantic and vector search, review summaries,
-image search, saved conversations, and a granular permission model for staff who
-should see stock without being able to move it. None of them require reopening
-the boundaries these phases established.
+email layer, credit notes for returns, category-restricted coupons, exchanges and
+store credit, semantic and vector search, review summaries, image search, saved
+conversations, and a granular permission model for staff who should see stock
+without being able to move it. None of them require reopening the boundaries
+these phases established.

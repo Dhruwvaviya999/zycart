@@ -105,14 +105,18 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
         </FormField>
 
         <div className="-mt-1 flex justify-end">
-          {/* Not built yet, so it is shown as unavailable rather than as a link
-              that goes nowhere. */}
-          <span
-            className="text-caption cursor-not-allowed text-muted-foreground"
-            title="Password recovery is coming soon"
+          {/* Carries the address already typed, so nobody has to type it twice
+              on the way to the reset form. */}
+          <Link
+            href={
+              email.trim()
+                ? `/forgot-password?email=${encodeURIComponent(email.trim())}`
+                : '/forgot-password'
+            }
+            className="focus-ring text-caption rounded-sm font-medium text-brand hover:underline"
           >
             Forgot password?
-          </span>
+          </Link>
         </div>
 
         <Button

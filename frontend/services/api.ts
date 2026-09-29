@@ -235,6 +235,63 @@ export async function sendMessage(method: Method, path: string, body?: unknown):
 }
 
 /**
+ * Sends a file as the request body, raw, and unwraps the answer (Phase 18).
+ *
+ * The image upload takes the bytes themselves with the file's own type rather
+ * than a multipart form, so the one call needs the one header the JSON client
+ * default would otherwise override. Failures come back as `ApiError`s like
+ * every other call, so a form renders them the same way.
+ */
+export async function sendFile<TData>(
+  path: string,
+  file: Blob,
+  options?: { timeoutMs?: number },
+): Promise<TData> {
+  try {
+    const { data } = await api.post<ApiResponse<TData>>(path, file, {
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      timeout: options?.timeoutMs ?? 60_000,
+    });
+
+    if (!data.success || data.data === undefined) {
+      throw new ApiError(data.message ?? 'The API returned an unexpected response');
+    }
+
+    return data.data;
+  } catch (error) {
+    throw error instanceof ApiError ? error : toApiError(error);
+  }
+}
+
+/**
+ * Fetches a file the API serves as an attachment — the subscriber export — and
+ * returns it with the name the server chose.
+ */
+export async function downloadFile(path: string): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const response = await api.get<Blob>(path, { responseType: 'blob', timeout: 60_000 });
+
+    const disposition = String(response.headers['content-disposition'] ?? '');
+    const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'download';
+
+    return { blob: response.data, filename };
+  } catch (error) {
+    // Asked for a blob, an error body arrives as one too — read it back into
+    // the JSON envelope so the message the API wrote is the one shown.
+    if (error instanceof AxiosError && error.response?.data instanceof Blob) {
+      try {
+        const payload = JSON.parse(await error.response.data.text()) as ApiResponse;
+        throw new ApiError(payload.message ?? toErrorMessage(error), error.response.status);
+      } catch (parsed) {
+        if (parsed instanceof ApiError) throw parsed;
+      }
+    }
+
+    throw error instanceof ApiError ? error : toApiError(error);
+  }
+}
+
+/**
  * Field-level messages from a Zod failure, so a form can put each one beside the
  * input it belongs to instead of dumping them all on top.
  */

@@ -88,6 +88,28 @@ export const LOG_EVENTS = [
   'ai_request_completed',
   'ai_request_failed',
   'ai_provider_failed',
+
+  /* Promotions (Phase 18) ------------------------------------------- */
+  'coupon_redeemed',
+  /** An online order kept its discount past the coupon's limit; see the payment service. */
+  'coupon_overredeemed',
+
+  /* Accounts (Phase 18) ---------------------------------------------- */
+  'password_reset_requested',
+  'password_reset_completed',
+  'email_verified',
+
+  /* Newsletter (Phase 18) -------------------------------------------- */
+  'newsletter_subscription_requested',
+  'newsletter_confirmed',
+  'newsletter_unsubscribed',
+
+  /* Uploads (Phase 18) ----------------------------------------------- */
+  'upload_stored',
+  'upload_rejected',
+
+  /* Reminders (Phase 18) --------------------------------------------- */
+  'reminder_queued',
 ] as const;
 
 /** The only names `logger.*` will accept. */

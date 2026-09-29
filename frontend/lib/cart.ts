@@ -1,5 +1,13 @@
 import type { CartLine, ProductSummary } from '@/types/product';
 
+/**
+ * The delivery rule, as the cart page estimates it.
+ *
+ * Must match `FREE_SHIPPING_THRESHOLD` and `STANDARD_SHIPPING_FEE` in the
+ * backend's `config/commerce.ts`. The cart uses these only to preview; checkout
+ * reads the server's own `shippingPolicy` and the server prices the order, so a
+ * drift here would show a wrong estimate but could never charge a wrong amount.
+ */
 export const FREE_SHIPPING_THRESHOLD = 999;
 export const SHIPPING_FEE = 99;
 

@@ -1,17 +1,22 @@
 import type { Metadata } from 'next';
 import { AccountPanel } from '@/components/account/account-panel';
+import { EmailPreferencesForm } from '@/components/account/email-preferences-form';
 import { LogoutButton } from '@/components/account/logout-button';
 import { PasswordForm } from '@/components/account/password-form';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
+import { getSessionUser } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Settings',
-  description: 'Password, appearance and session settings.',
+  description: 'Password, email, appearance and session settings.',
 };
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  // The layout has already resolved it; `cache` makes this free.
+  const user = await getSessionUser();
+
   return (
     <div className="space-y-12">
       <AccountPanel
@@ -20,6 +25,12 @@ export default function SettingsPage() {
       >
         <PasswordForm />
       </AccountPanel>
+
+      {user && (
+        <AccountPanel title="Emails" description="Which optional messages ZyCart may send you.">
+          <EmailPreferencesForm initial={user.emailPreferences} />
+        </AccountPanel>
+      )}
 
       <AccountPanel title="Appearance" description="How ZyCart looks on this device.">
         <div className="flex max-w-md items-center justify-between gap-4 rounded-2xl border border-border px-5 py-4">

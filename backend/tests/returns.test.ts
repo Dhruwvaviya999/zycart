@@ -366,12 +366,14 @@ describe('refund amounts', () => {
     assert.equal(refundableUnitPrice(discounted, 1000), 900);
   });
 
-  it('adds tax back proportionally, because the customer paid it', () => {
+  it('does not add GST back, because it is already inside the unit price', () => {
+    // ₹2,000 of goods at 18% contains ₹305.08 of GST. Refunding a ₹1,000 unit
+    // refunds its GST with it; adding the tax on again would refund it twice.
     const taxed = order({
-      pricing: { subtotal: 2000, shipping: 0, discount: 0, tax: 360, total: 2360 },
+      pricing: { subtotal: 2000, shipping: 0, discount: 0, tax: 305.08, total: 2000 },
     });
 
-    assert.equal(refundableUnitPrice(taxed, 1000), 1180);
+    assert.equal(refundableUnitPrice(taxed, 1000), 1000);
   });
 
   it('never refunds shipping', () => {
@@ -385,7 +387,7 @@ describe('refund amounts', () => {
 
   it('produces only whole rupees, whatever the proportions', () => {
     const awkward = order({
-      pricing: { subtotal: 999, shipping: 0, discount: 137, tax: 71, total: 933 },
+      pricing: { subtotal: 999, shipping: 99, discount: 137, tax: 146.63, total: 961 },
     });
 
     for (const price of [1, 7, 99, 333, 999]) {

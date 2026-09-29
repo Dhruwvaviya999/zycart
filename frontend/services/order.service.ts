@@ -1,5 +1,6 @@
 import { request, requestList, send, type RequestOptions } from '@/services/api';
 import type { CheckoutSummary } from '@/types/checkout';
+import type { Invoice } from '@/types/invoice';
 import type {
   CancellationReason,
   Order,
@@ -8,13 +9,26 @@ import type {
   PaymentMethod,
 } from '@/types/order';
 
+export interface CheckoutSummaryParams {
+  addressId?: string;
+  /**
+   * A code to price the checkout with. A code that does not apply is not an
+   * error: the summary comes back without the discount and with `couponError`.
+   */
+  couponCode?: string;
+}
+
 export function getCheckoutSummary(
-  addressId?: string,
+  params: CheckoutSummaryParams = {},
   options?: RequestOptions,
 ): Promise<CheckoutSummary> {
+  const query: Record<string, string> = {};
+  if (params.addressId) query.addressId = params.addressId;
+  if (params.couponCode) query.couponCode = params.couponCode;
+
   return request<CheckoutSummary>(
     '/api/checkout/summary',
-    addressId ? { addressId } : undefined,
+    Object.keys(query).length > 0 ? query : undefined,
     options,
   );
 }
@@ -29,8 +43,27 @@ export function getCheckoutSummary(
 export function createOrder(
   addressId: string,
   paymentMethod: PaymentMethod = 'COD',
+  couponCode?: string,
 ): Promise<Order> {
-  return send<Order>('post', '/api/orders', { addressId, paymentMethod });
+  // The code only — what it is worth is decided on the server, again, against
+  // the basket as it is when the order is placed.
+  return send<Order>('post', '/api/orders', {
+    addressId,
+    paymentMethod,
+    ...(couponCode ? { couponCode } : {}),
+  });
+}
+
+/**
+ * The tax invoice for one of the customer's own orders. Refused with a reason
+ * until the order ships, and for orders placed before invoices existed.
+ */
+export function getOrderInvoice(orderRef: string, options?: RequestOptions): Promise<Invoice> {
+  return request<Invoice>(
+    `/api/orders/${encodeURIComponent(orderRef)}/invoice`,
+    undefined,
+    options,
+  );
 }
 
 export interface OrderListParams {

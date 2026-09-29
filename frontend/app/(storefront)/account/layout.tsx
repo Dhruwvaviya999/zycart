@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { AccountHeader } from '@/components/account/account-header';
 import { AccountNavigation } from '@/components/account/account-navigation';
+import { VerifyEmailBanner } from '@/components/account/verify-email-banner';
 import { Breadcrumbs } from '@/components/common/breadcrumbs';
 import { Container } from '@/components/layout/container';
 import { getSessionUser } from '@/lib/server-auth';
@@ -26,6 +27,15 @@ export default async function AccountLayout({ children }: LayoutProps<'/account'
       <div className="mt-5">
         <AccountHeader user={user} />
       </div>
+
+      {/* On every account page until the address is verified — it is where
+          every receipt and reset link goes. See the banner for why it blocks
+          nothing. */}
+      {!user.isEmailVerified && (
+        <div className="mt-6">
+          <VerifyEmailBanner email={user.email} />
+        </div>
+      )}
 
       <div className="mt-9 grid gap-9 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-12">
         <AccountNavigation />

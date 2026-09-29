@@ -1,30 +1,81 @@
+import { FREE_SHIPPING_THRESHOLD, gstRateOf, STANDARD_SHIPPING_FEE } from '../config/commerce';
 import { isRazorpayConfigured, type Env } from '../config/env';
+import { Product } from '../models/product.model';
 import { User } from '../models/user.model';
 import { AppError } from '../utils/AppError';
 import { getCart, type ResolvedCart, type ResolvedCartItem } from './cart.service';
+import { lookupCoupon } from './coupons/coupon.service';
+import { priceOrder, type Pricing } from './pricing/pricing';
 
 /**
  * The money on an order, and on the checkout that precedes it.
  *
- * Shipping, discount and tax are zero because ZyCart has no carrier, coupon or
- * tax engine yet — not because they were forgotten. They are carried explicitly
- * so the phases that introduce them change values, not shapes.
+ * Phase 6 carried shipping, discount and tax as zeros so that the phase which
+ * introduced them would change values rather than shapes. Phase 18 is that
+ * phase: the numbers now come from `priceOrder`, which both this preview and
+ * order placement call with the same lines.
  */
-export interface Pricing {
-  subtotal: number;
-  shipping: number;
+export type { Pricing } from './pricing/pricing';
+
+/** The GST facts of a product: its category's rate, and the HSN code to print. */
+export interface TaxFacts {
+  gstRate: number;
+  hsnCode: string;
+}
+
+/**
+ * Looks up the GST rate and HSN code for each product, by id.
+ *
+ * One query, populated through the category — the rate belongs to the kind of
+ * goods, and the category is where this catalogue says what kind of goods a
+ * product is. A product whose category has no rate set gets the default rate,
+ * through the same `gstRateOf` order placement uses, so the preview and the
+ * order cannot disagree about a category nobody has configured.
+ */
+export async function taxFactsFor(productIds: readonly string[]): Promise<Map<string, TaxFacts>> {
+  if (productIds.length === 0) return new Map();
+
+  const products = await Product.find({ _id: { $in: productIds } })
+    .select('category')
+    .populate('category', 'gstRate hsnCode');
+
+  return new Map(
+    products.map((product) => {
+      const category = product.category as unknown as {
+        gstRate?: number | null;
+        hsnCode?: string;
+      } | null;
+
+      return [
+        String(product._id),
+        { gstRate: gstRateOf(category), hsnCode: category?.hsnCode ?? '' },
+      ] as const;
+    }),
+  );
+}
+
+/** A coupon that applies, as the checkout shows it. */
+export interface CheckoutCoupon {
+  code: string;
+  description: string;
   discount: number;
-  tax: number;
-  total: number;
 }
 
-export function priceCart(subtotal: number): Pricing {
-  const shipping = 0;
-  const discount = 0;
-  const tax = 0;
-
-  return { subtotal, shipping, discount, tax, total: subtotal + shipping + tax - discount };
+/**
+ * The delivery rule, stated alongside the prices it produced.
+ *
+ * Sent so the page can say "add ₹120 more for free delivery" from the server's
+ * own threshold, rather than from a copy of the number that could drift.
+ */
+export interface ShippingPolicy {
+  freeAbove: number;
+  fee: number;
 }
+
+export const SHIPPING_POLICY: ShippingPolicy = {
+  freeAbove: FREE_SHIPPING_THRESHOLD,
+  fee: STANDARD_SHIPPING_FEE,
+};
 
 /** Something that must be resolved before an order can be placed. */
 export interface CheckoutIssue {
@@ -51,6 +102,17 @@ export interface CheckoutAddress {
 export interface CheckoutSummary {
   items: ResolvedCartItem[];
   pricing: Pricing;
+  /** The coupon that was asked for and applies. Null when none was asked for, or it does not. */
+  coupon: CheckoutCoupon | null;
+  /**
+   * Why the coupon that was asked for does not apply, in words for the customer.
+   *
+   * A refused coupon is not an error response: the rest of the summary is still
+   * exactly what the customer needs to see, priced without the discount, with
+   * the reason beside the field they typed into.
+   */
+  couponError: string | null;
+  shippingPolicy: ShippingPolicy;
   addresses: CheckoutAddress[];
   selectedAddressId: string | null;
   /** Empty means the order can be placed. */
@@ -142,6 +204,7 @@ export async function getCheckoutSummary(
   env: Env,
   userId: string,
   requestedAddressId?: string,
+  couponCode?: string,
 ): Promise<CheckoutSummary> {
   const [cart, user] = await Promise.all([
     getCart(userId),
@@ -161,9 +224,46 @@ export async function getCheckoutSummary(
 
   const issues = findBlockingIssues(cart);
 
+  // The lines the cart already counts in its subtotal — anything unavailable
+  // or out of stock contributes nothing there, and so nothing here either.
+  const payable = cart.items.filter(
+    (item): item is ResolvedCartItem & { product: NonNullable<ResolvedCartItem['product']> } =>
+      item.product !== null && item.availability !== 'out_of_stock',
+  );
+
+  const facts = await taxFactsFor(payable.map((item) => item.product.id));
+
+  let coupon: CheckoutCoupon | null = null;
+  let couponError: string | null = null;
+
+  if (couponCode) {
+    const lookup = await lookupCoupon(couponCode, userId, cart.subtotal);
+
+    if (lookup.applicable) {
+      coupon = {
+        code: lookup.applied.code,
+        description: lookup.applied.description,
+        discount: lookup.applied.discount,
+      };
+    } else {
+      couponError = lookup.message;
+    }
+  }
+
+  const { pricing } = priceOrder(
+    payable.map((item) => ({
+      lineTotal: item.lineTotal,
+      gstRate: facts.get(item.product.id)?.gstRate ?? gstRateOf(null),
+    })),
+    coupon?.discount ?? 0,
+  );
+
   return {
     items: cart.items,
-    pricing: priceCart(cart.subtotal),
+    pricing,
+    coupon,
+    couponError,
+    shippingPolicy: SHIPPING_POLICY,
     addresses,
     selectedAddressId: selected?.id ?? null,
     issues,

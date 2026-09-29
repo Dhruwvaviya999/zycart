@@ -8,6 +8,26 @@ const compact = new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFra
 
 export const formatPrice = (value: number) => inr.format(value);
 
+const inrExact = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/**
+ * A tax figure, to the paisa: `₹180.51`.
+ *
+ * The one place the storefront shows paise. Everything a customer is charged is
+ * whole rupees and goes through `formatPrice`; GST extracted from those prices
+ * rarely comes out whole, and rounding it for display would print a tax figure
+ * that disagrees with the invoice.
+ */
+export const formatExactPrice = (value: number) => inrExact.format(value);
+
+/** `18%`, or `0.25%` for the rates that are not whole numbers. */
+export const formatRate = (rate: number) => `${String(rate)}%`;
+
 export const formatCount = (value: number) => compact.format(value);
 
 export function discountPercent(price: number, compareAtPrice?: number | null) {

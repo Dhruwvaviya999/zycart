@@ -5,3 +5,6 @@ dist/
 !.env.example
 *.log
 .DS_Store
+
+# Product images stored by UPLOAD_PROVIDER=local (Phase 18)
+uploads/

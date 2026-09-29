@@ -20,6 +20,7 @@
     "returns:verify": "tsx src/utils/verify-returns.ts",
     "notifications:verify": "tsx src/utils/verify-notifications.ts",
     "notifications:drain": "tsx src/utils/drain-notifications.ts",
+    "reminders:send": "tsx src/utils/send-reminders.ts",
     "payments:verify": "tsx src/utils/verify-payments.ts",
     "health:verify": "tsx src/utils/verify-health.ts",
     "smoke:deploy": "tsx src/utils/smoke-deploy.ts",

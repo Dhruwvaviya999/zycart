@@ -8,6 +8,7 @@ import {
   Package,
   RotateCcw,
   ShoppingCart,
+  TicketPercent,
   Truck,
   UserCog,
   type LucideIcon,
@@ -101,6 +102,7 @@ const ENTITY_ICON: Record<AuditEntity, LucideIcon> = {
   SHIPMENT: Truck,
   RETURN: RotateCcw,
   NOTIFICATION: Mail,
+  COUPON: TicketPercent,
 };
 
 /** Where an entity can still be opened. A deleted product has nowhere to go. */
@@ -132,6 +134,9 @@ function entityHref(entry: AuditLogRow): string | null {
      */
     case 'NOTIFICATION':
       return `/admin/notifications/${entry.entityId}`;
+    // A deleted coupon has nowhere to go; any other opens on its own page.
+    case 'COUPON':
+      return entry.action === 'COUPON_DELETED' ? null : `/admin/coupons/${entry.entityId}`;
   }
 }
 

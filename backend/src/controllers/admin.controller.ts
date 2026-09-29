@@ -4,6 +4,7 @@ import * as customerService from '../services/admin/customer.service';
 import * as dashboardService from '../services/admin/dashboard.service';
 import * as adminOrderService from '../services/admin/order.service';
 import * as adminReviewService from '../services/admin/review.service';
+import { getAdminInvoice } from '../services/invoices/invoice.service';
 import * as brandService from '../services/brand.service';
 import * as categoryService from '../services/category.service';
 import * as productService from '../services/product.service';
@@ -177,6 +178,11 @@ export async function listOrders(req: Request, res: Response): Promise<void> {
 
 export async function getOrder(req: Request, res: Response): Promise<void> {
   res.json({ success: true, data: await adminOrderService.getOrder(orderRef(req)) });
+}
+
+/** The same invoice the customer sees, built by the same function. */
+export async function getOrderInvoice(req: Request, res: Response): Promise<void> {
+  res.json({ success: true, data: await getAdminInvoice(req.env, orderRef(req)) });
 }
 
 /**

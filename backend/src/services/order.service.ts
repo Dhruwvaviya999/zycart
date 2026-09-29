@@ -1,4 +1,5 @@
 import mongoose, { Types } from 'mongoose';
+import { gstRateOf } from '../config/commerce';
 import type { Env } from '../config/env';
 import { Cart } from '../models/cart.model';
 import {
@@ -12,15 +13,18 @@ import {
 import { Product } from '../models/product.model';
 import { Shipment } from '../models/shipment.model';
 import { AppError } from '../utils/AppError';
+import { logger } from '../utils/logger';
 import { generateOrderNumber } from '../utils/orderNumber';
 import { isObjectId } from '../validators/common';
 import type { CancelOrderInput, OrderQuery } from '../validators/order.validator';
-import { priceCart, resolveAddress } from './checkout.service';
+import { resolveAddress } from './checkout.service';
 import { record } from './activity/activity.service';
 import { recordAudit, type AuditActor } from './admin/audit.service';
+import { lookupCoupon, redeemCoupon, releaseCoupon } from './coupons/coupon.service';
 import { syncShipmentToOrderStatus } from './fulfillment/shipment-sync';
 import { findOrderShipment, type ShipmentView } from './fulfillment/shipment-view';
 import { recordMovement } from './inventory/inventory.service';
+import { nextInvoiceNumber } from './invoices/invoice-number';
 import {
   lastNotifiedAt,
   NotificationOutbox,
@@ -28,8 +32,10 @@ import {
 } from './notifications/notification.service';
 import {
   buildOrderDeliveredPayload,
+  buildOrderPlacedPayload,
   buildOrderShippedPayload,
 } from './notifications/payloads';
+import { priceOrder } from './pricing/pricing';
 import { returnability, type Returnability } from './returns/return-policy';
 import { listOrderReturns, type ReturnSummary } from './returns/return-view';
 
@@ -58,6 +64,7 @@ interface PlannedLine {
 async function buildOrderItems(lines: PlannedLine[], session: mongoose.ClientSession) {
   const products = await Product.find({ _id: { $in: lines.map((line) => line.productId) } })
     .populate('brand', 'name')
+    .populate('category', 'gstRate hsnCode')
     .session(session);
 
   const byId = new Map(products.map((product) => [String(product._id), product]));
@@ -89,8 +96,13 @@ async function buildOrderItems(lines: PlannedLine[], session: mongoose.ClientSes
     }
 
     const brand = product.brand as unknown as { name?: string } | null;
+    const category = product.category as unknown as
+      | { gstRate?: number | null; hsnCode?: string }
+      | null;
 
-    // The snapshot. Everything the order page will ever show is copied now.
+    // The snapshot. Everything the order page will ever show is copied now —
+    // from Phase 18 that includes the GST rate the goods are sold at, so a rate
+    // changed next month cannot rewrite this order's invoice.
     return {
       product: product._id,
       productName: product.name,
@@ -103,6 +115,8 @@ async function buildOrderItems(lines: PlannedLine[], session: mongoose.ClientSes
       lineTotal: product.price * line.quantity,
       selectedColor: line.selectedColor,
       selectedSize: line.selectedSize,
+      gstRate: gstRateOf(category),
+      hsnCode: category?.hsnCode ?? '',
     };
   });
 }
@@ -195,26 +209,46 @@ export async function clearPurchasedCartLines(
   );
 }
 
+/** What a customer's checkout asks for. The server decides everything else. */
+export interface PlaceOrderInput {
+  addressId: string;
+  paymentMethod: PaymentMethod;
+  couponCode?: string;
+}
+
 /**
  * Places the order.
  *
- * What runs inside the transaction now depends on how the order will be paid.
+ * What runs inside the transaction depends on how the order will be paid.
  *
  * Cash on delivery is unchanged from Phase 6: validate, snapshot, take stock,
- * write the order, clear the bought cart lines — all or nothing.
+ * write the order, clear the bought cart lines — all or nothing. From Phase 18
+ * the same transaction also redeems the coupon, with its limits enforced, and
+ * records the confirmation email.
  *
- * Online payment stops after writing the order. Stock is **not** taken and the
- * cart is **not** cleared, because at this moment nothing has been paid and
- * most Razorpay Checkout windows that open are never completed. Holding
- * inventory for every abandoned attempt would make the last unit of a popular
- * product unbuyable by anyone who actually intends to pay. Both happen instead
- * at payment finalisation, in one transaction of their own.
+ * Online payment stops after writing the order. Stock is **not** taken, the
+ * cart is **not** cleared and the coupon is **not** redeemed, because at this
+ * moment nothing has been paid and most Razorpay Checkout windows that open are
+ * never completed. Holding inventory — or a limited promotion — for every
+ * abandoned attempt would make it unavailable to anyone who actually intends to
+ * pay. All three happen instead at payment finalisation, in one transaction of
+ * their own.
+ *
+ * ## The price is computed here, again
+ *
+ * The checkout page showed the customer a total. Nothing it showed is trusted:
+ * the lines are re-read from the catalogue, the coupon is re-evaluated against
+ * the basket as it is now, and `priceOrder` — the function that produced the
+ * figure on the page — produces the figure that is charged. If anything moved
+ * in between, the order is refused or the coupon is, and the customer sees the
+ * checkout again rather than a total they did not agree to.
  */
 export async function createOrder(
+  env: Env,
   userId: string,
-  addressId: string,
-  paymentMethod: PaymentMethod,
+  input: PlaceOrderInput,
 ): Promise<string> {
+  const { addressId, paymentMethod, couponCode } = input;
   const address = await resolveAddress(userId, addressId);
 
   const cart = await Cart.findOne({ user: userId });
@@ -234,16 +268,55 @@ export async function createOrder(
   const takesStockNow = paymentMethod === 'COD';
 
   const session = await mongoose.startSession();
+  const outbox = new NotificationOutbox();
 
   try {
     let orderNumber = '';
 
+    /**
+     * What this order redeemed, carried out of the transaction for the log.
+     *
+     * A box rather than a plain `let`, for the reason the payment service
+     * gives: it is written inside a callback, and TypeScript cannot see that
+     * the callback has run by the time it is read.
+     */
+    const redeemed: { current: { code: string; discount: number } | null } = { current: null };
+
     await session.withTransaction(async () => {
+      // Reset per attempt: `withTransaction` re-runs this callback on a write
+      // conflict, and a verdict from an aborted attempt must not survive it.
+      redeemed.current = null;
+
       // Validated for both methods: an online order is still only offered for
       // items that are available right now, even though the stock is taken later.
       const items = await buildOrderItems(lines, session);
 
       const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+
+      /**
+       * The coupon, evaluated against this basket as it is at this moment.
+       *
+       * Refused outright rather than silently dropped: a customer who pressed
+       * "Place order" beside a discount must not be charged the full price
+       * because the code expired a minute ago. They are sent back to a checkout
+       * that says why, and choose again.
+       */
+      const lookup = couponCode ? await lookupCoupon(couponCode, userId, subtotal) : null;
+
+      if (lookup && !lookup.applicable) {
+        throw new AppError(`${lookup.message} Remove the coupon to continue.`, 409);
+      }
+
+      const applied = lookup?.applicable ? lookup.applied : null;
+
+      const priced = priceOrder(
+        items.map((item) => ({ lineTotal: item.lineTotal, gstRate: item.gstRate })),
+        applied?.discount ?? 0,
+      );
+
+      // Each line carries its share of the discount and its own tax split, from
+      // the same computation that produced the total.
+      const pricedItems = items.map((item, index) => ({ ...item, ...priced.lines[index] }));
 
       // Retried rather than pre-checked: the unique index is the authority on
       // whether a number is free, and a collision is a one-in-a-million event.
@@ -258,7 +331,7 @@ export async function createOrder(
               {
                 orderNumber: candidate,
                 user: new Types.ObjectId(userId),
-                items,
+                items: pricedItems,
                 shippingAddress: {
                   fullName: address.fullName,
                   phone: address.phone,
@@ -270,12 +343,22 @@ export async function createOrder(
                   postalCode: address.postalCode,
                   country: address.country,
                 },
-                pricing: priceCart(subtotal),
+                pricing: priced.pricing,
                 payment: {
                   method: paymentMethod,
                   status: 'PENDING',
                   provider: paymentMethod === 'RAZORPAY' ? 'razorpay' : null,
                 },
+                coupon: applied
+                  ? {
+                      coupon: applied.coupon._id,
+                      code: applied.code,
+                      description: applied.description,
+                      type: applied.coupon.type,
+                      value: applied.coupon.value,
+                      discount: priced.pricing.discount,
+                    }
+                  : null,
                 status: 'PENDING',
                 stockCommitted: takesStockNow,
                 // Remembered for the online path, which clears the cart later.
@@ -318,6 +401,46 @@ export async function createOrder(
       if (takesStockNow) {
         await clearPurchasedCartLines(userId, orderedItemIds, session);
       }
+
+      if (takesStockNow && applied) {
+        await redeemCoupon(
+          {
+            couponId: applied.coupon._id,
+            code: applied.code,
+            userId,
+            orderId: created._id,
+            orderNumber: created.orderNumber,
+            discount: priced.pricing.discount,
+          },
+          session,
+          { enforce: true },
+        );
+
+        redeemed.current = { code: applied.code, discount: priced.pricing.discount };
+      }
+
+      /**
+       * A cash-on-delivery order is committed now, so the customer is told now.
+       * An online order's confirmation waits for its payment — see
+       * `finalizeSuccessfulPayment`.
+       */
+      if (takesStockNow) {
+        const order = created;
+
+        await queueNotification(
+          {
+            event: 'ORDER_PLACED',
+            entityType: 'ORDER',
+            entityId: order._id,
+            entityLabel: order.orderNumber,
+            orderNumber: order.orderNumber,
+            userId: order.user as Types.ObjectId,
+            buildPayload: (recipient) => buildOrderPlacedPayload(recipient.firstName, order),
+          },
+          session,
+          outbox,
+        );
+      }
     });
 
     /**
@@ -329,6 +452,18 @@ export async function createOrder(
     for (const line of lines) {
       record({ userId, event: 'purchase', productId: line.productId });
     }
+
+    if (redeemed.current) {
+      logger.info('coupon_redeemed', {
+        code: redeemed.current.code,
+        orderNumber,
+        discount: redeemed.current.discount,
+      });
+    }
+
+    // After the commit, and unable to throw: the order is placed whatever a
+    // mail server does next.
+    await outbox.flush(env);
 
     return orderNumber;
   } finally {
@@ -512,6 +647,26 @@ export interface OrderDetail extends Omit<OrderListItem, 'preview'> {
   deliveredAt: string | null;
   updatedAt: string;
   canCancel: boolean;
+  /** The coupon the order used, as it was then. Null when none was. */
+  coupon: { code: string; description: string; discount: number } | null;
+  /**
+   * The tax invoice, once the order has shipped.
+   *
+   * `available` is the server's answer to "can an invoice be shown?", so the
+   * page offers the link only when following it would succeed.
+   */
+  invoice: { number: string | null; issuedAt: string | null; available: boolean };
+}
+
+/**
+ * Whether this order's invoice can be shown now.
+ *
+ * Shipped or delivered, and carrying a tax breakdown. An order shipped before
+ * Phase 18 has neither a breakdown nor a number, and says so rather than
+ * producing a document with guessed figures on it.
+ */
+export function invoiceAvailable(order: OrderDoc): boolean {
+  return (order.status === 'SHIPPED' || order.status === 'DELIVERED') && hasTaxBreakdown(order);
 }
 
 export function toDetail(order: OrderDoc): OrderDetail {
@@ -534,6 +689,18 @@ export function toDetail(order: OrderDoc): OrderDetail {
     cancelledAt: order.cancelledAt ? order.cancelledAt.toISOString() : null,
     deliveredAt: order.deliveredAt ? order.deliveredAt.toISOString() : null,
     canCancel: canCancel(order),
+    coupon: order.coupon
+      ? {
+          code: order.coupon.code,
+          description: order.coupon.description ?? '',
+          discount: order.coupon.discount,
+        }
+      : null,
+    invoice: {
+      number: order.invoice?.number ?? null,
+      issuedAt: order.invoice?.issuedAt ? order.invoice.issuedAt.toISOString() : null,
+      available: invoiceAvailable(order),
+    },
   };
 }
 
@@ -748,11 +915,33 @@ async function applyCancellation(
     order.stockCommitted = false;
   }
 
+  /**
+   * The coupon's use comes back too (Phase 18), in the same transaction, so a
+   * cancelled order cannot go on counting against a limited promotion or
+   * against the customer's own allowance. Idempotent, and a no-op for an order
+   * that never redeemed — an online order cancelled before it was paid.
+   */
+  if (order.coupon) await releaseCoupon(order._id, session);
+
   order.status = 'CANCELLED';
   order.cancellationReason = reason;
   order.cancelledAt = new Date();
 
   await order.save({ session });
+}
+
+/**
+ * Whether an order carries the tax facts a GST invoice is made of.
+ *
+ * True for every order placed from Phase 18. Orders from before it recorded no
+ * rate on their lines, and an invoice reconstructed from today's rates would be
+ * a document asserting something nobody decided at the time.
+ */
+export function hasTaxBreakdown(order: Pick<OrderDoc, 'items'>): boolean {
+  return (
+    order.items.length > 0 &&
+    order.items.every((item) => typeof item.gstRate === 'number' && item.taxAmount !== null)
+  );
 }
 
 /**
@@ -825,6 +1014,17 @@ export async function transitionOrderStatus(
      * so this cannot be reached twice, and the guard says so anyway.
      */
     if (next === 'DELIVERED' && !order.deliveredAt) order.deliveredAt = new Date();
+
+    /**
+     * The tax invoice is numbered as the goods leave (Phase 18).
+     *
+     * Inside this transaction, so the number and the dispatch commit together:
+     * a shipment that rolls back gives its number back, and the series stays
+     * free of gaps. See `invoice-number.ts` for why dispatch is the moment.
+     */
+    if (next === 'SHIPPED' && !order.invoice?.number && hasTaxBreakdown(order)) {
+      order.set('invoice', { number: await nextInvoiceNumber(session), issuedAt: new Date() });
+    }
 
     await order.save({ session });
   }

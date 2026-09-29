@@ -23,9 +23,27 @@ export interface CheckoutIssue {
   message: string;
 }
 
+/** A coupon that applies, as the checkout shows it. */
+export interface CheckoutCoupon {
+  code: string;
+  description: string;
+  discount: number;
+}
+
+/** The server's delivery rule, so the page never carries its own copy. */
+export interface ShippingPolicy {
+  freeAbove: number;
+  fee: number;
+}
+
 export interface CheckoutSummary {
   items: CartItem[];
   pricing: OrderPricing;
+  /** The coupon that was asked for and applies; null otherwise. */
+  coupon: CheckoutCoupon | null;
+  /** Why the coupon that was asked for does not apply, in the customer's words. */
+  couponError: string | null;
+  shippingPolicy: ShippingPolicy;
   addresses: CheckoutAddress[];
   selectedAddressId: string | null;
   issues: CheckoutIssue[];

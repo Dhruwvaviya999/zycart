@@ -1,11 +1,15 @@
 import 'dotenv/config';
 import { randomInt } from 'node:crypto';
 import mongoose from 'mongoose';
+import { gstRateOf } from '../config/commerce';
 import { connectDatabase } from '../config/database';
+// Registered for the category populate below; nothing else in this script loads it.
+import '../models/category.model';
 import { Order } from '../models/order.model';
 import { Product } from '../models/product.model';
 import { Review } from '../models/review.model';
 import { User } from '../models/user.model';
+import { priceOrder } from '../services/pricing/pricing';
 import { generateOrderNumber } from './orderNumber';
 
 /**
@@ -132,6 +136,12 @@ type UserDoc = InstanceType<typeof User>;
 function buildItem(product: ProductDoc, quantity: number) {
   const colors = product.colors ?? [];
   const sizes = (product.sizes ?? []).filter((size) => size.inStock);
+  // Populated by the query below. The rate is copied onto the line exactly as
+  // checkout copies it, so a demo order's invoice reads like a real one's.
+  const category = product.category as unknown as {
+    gstRate?: number | null;
+    hsnCode?: string;
+  } | null;
 
   return {
     product: product._id,
@@ -146,6 +156,8 @@ function buildItem(product: ProductDoc, quantity: number) {
     selectedColor: colors.length > 0 ? pick(colors).name : null,
     selectedSize: sizes.length > 0 ? pick(sizes).label : null,
     returnedQuantity: 0,
+    gstRate: gstRateOf(category),
+    hsnCode: category?.hsnCode ?? '',
   };
 }
 
@@ -236,9 +248,15 @@ async function createOrder(spec: OrderSpec, customer: UserDoc, products: Product
   // One to three distinct products per order, one or two units each.
   const lineCount = 1 + randomInt(3);
   const chosen = [...products].sort(() => Math.random() - 0.5).slice(0, lineCount);
-  const items = chosen.map((product) => buildItem(product, 1 + randomInt(2)));
+  const built = chosen.map((product) => buildItem(product, 1 + randomInt(2)));
 
-  const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+  // Priced by the same function checkout uses, so delivery, GST and the total
+  // obey the rules a real order does (Phase 18). No coupon on demo orders.
+  const priced = priceOrder(
+    built.map((item) => ({ lineTotal: item.lineTotal, gstRate: item.gstRate })),
+  );
+  const items = built.map((item, index) => ({ ...item, ...priced.lines[index] }));
+
   const placedAt = daysAgo(spec.placedDaysAgo);
 
   const deliveredAt =
@@ -290,7 +308,7 @@ async function createOrder(spec: OrderSpec, customer: UserDoc, products: Product
         postalCode: address.postalCode,
         country: address.country,
       },
-      pricing: { subtotal, shipping: 0, discount: 0, tax: 0, total: subtotal },
+      pricing: priced.pricing,
       payment,
       status: spec.status,
       // Standing in for history: no stock was taken, so none can come back.
@@ -322,7 +340,10 @@ async function seed(): Promise<void> {
   const customers = await ensureDemoCustomers();
   console.log(`${customers.length} demo customer(s) ready (@${DEMO_EMAIL_DOMAIN})`);
 
-  const products = await Product.find({ isActive: true, stock: { $gt: 0 } });
+  const products = await Product.find({ isActive: true, stock: { $gt: 0 } }).populate(
+    'category',
+    'gstRate hsnCode',
+  );
   if (products.length === 0) throw new Error('No active products — run `pnpm seed` first');
   console.log(`${products.length} active product(s) to order from\n`);
 

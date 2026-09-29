@@ -42,3 +42,25 @@ export const loginSchema = z
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+
+/**
+ * A single-use link's token, as it arrives back from the email.
+ *
+ * Bounded both ways: anything shorter than a real token cannot be one, and
+ * anything longer is not worth hashing to find out.
+ */
+const linkTokenSchema = z.string().trim().min(16, 'is not a valid link').max(200);
+
+export const forgotPasswordSchema = z.object({ email: normalisedEmail }).strict();
+
+export const resetPasswordSchema = z
+  .object({
+    token: linkTokenSchema,
+    password: passwordSchema,
+  })
+  .strict();
+
+export const verifyEmailSchema = z.object({ token: linkTokenSchema }).strict();
+
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

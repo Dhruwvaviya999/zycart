@@ -7,21 +7,38 @@ import { AlertTriangle, Check, Loader2, Lock, MapPin, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { AuthError } from '@/components/auth/auth-error';
 import { CheckoutSummaryPanel } from '@/components/checkout/checkout-summary-panel';
+import { CouponField } from '@/components/checkout/coupon-field';
 import { PaymentFailed, type PaymentFailureKind } from '@/components/payment/payment-failed';
 import { PaymentMethodSelector } from '@/components/payment/payment-method-selector';
 import { PaymentProcessing } from '@/components/payment/payment-processing';
 import { useRazorpayPayment } from '@/hooks/use-razorpay-payment';
 import { toErrorMessage } from '@/services/api';
-import { createOrder } from '@/services/order.service';
+import { createOrder, getCheckoutSummary } from '@/services/order.service';
 import { useCartStore } from '@/store/cart-store';
 import { formatPrice } from '@/lib/format';
 import type { PaymentMethod } from '@/types/order';
 import type { CheckoutSummary } from '@/types/checkout';
 import { cn } from '@/lib/utils';
 
-export function CheckoutClient({ summary }: { summary: CheckoutSummary }) {
+export function CheckoutClient({ summary: initial }: { summary: CheckoutSummary }) {
   const router = useRouter();
   const refreshCart = useCartStore((state) => state.refresh);
+
+  /**
+   * The summary priced with the applied coupon, once one has been applied.
+   *
+   * Null means "whatever the server rendered", which is also what a
+   * `router.refresh()` updates — so without a coupon the page keeps following
+   * the server exactly as it did before Phase 18, and with one it holds the
+   * re-priced summary the coupon produced.
+   */
+  const [priced, setPriced] = useState<CheckoutSummary | null>(null);
+  const summary = priced ?? initial;
+
+  /** The code currently applied. The server re-checks it when the order is placed. */
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponBusy, setCouponBusy] = useState(false);
 
   const [addressId, setAddressId] = useState(summary.selectedAddressId ?? '');
   const [method, setMethod] = useState<PaymentMethod>(
@@ -57,19 +74,66 @@ export function CheckoutClient({ summary }: { summary: CheckoutSummary }) {
     return false;
   }
 
+  /**
+   * Re-prices the checkout with a code and shows whatever the server decided.
+   *
+   * A code that does not apply comes back as a summary priced without it, plus
+   * the reason — so the page is never left showing a discount the order would
+   * not get.
+   */
+  async function applyCoupon(code: string) {
+    setCouponBusy(true);
+    setCouponError(null);
+
+    try {
+      const next = await getCheckoutSummary({
+        addressId: addressId || undefined,
+        couponCode: code,
+      });
+
+      setPriced(next);
+      setCouponCode(next.coupon?.code ?? null);
+      setCouponError(next.coupon ? null : (next.couponError ?? 'That code is not valid.'));
+    } catch (cause) {
+      setCouponError(toErrorMessage(cause));
+    } finally {
+      setCouponBusy(false);
+    }
+  }
+
+  function removeCoupon() {
+    setPriced(null);
+    setCouponCode(null);
+    setCouponError(null);
+    router.refresh();
+  }
+
+  /**
+   * Brings the summary back in line with the server after a refused order.
+   *
+   * The catalogue may have moved on, or the coupon may have expired, since the
+   * page loaded. With a coupon applied the summary is re-priced with it — which
+   * also surfaces why it no longer applies, if it does not; without one the
+   * server-rendered page is simply refreshed.
+   */
+  async function resync() {
+    if (couponCode) await applyCoupon(couponCode);
+    else router.refresh();
+  }
+
   /** Cash on delivery: the Phase 6 path, untouched. */
   async function placeCodOrder() {
     setPlacing(true);
     setError(undefined);
 
     try {
-      const order = await createOrder(addressId, 'COD');
+      const order = await createOrder(addressId, 'COD', couponCode ?? undefined);
       await refreshCart();
       router.replace(`/order-confirmation/${order.orderNumber}`);
     } catch (cause) {
       setError(toErrorMessage(cause));
       // The catalogue may have moved on — re-read so the issues list is current.
-      router.refresh();
+      await resync();
       setPlacing(false);
     }
   }
@@ -89,12 +153,12 @@ export function CheckoutClient({ summary }: { summary: CheckoutSummary }) {
       setError(undefined);
 
       try {
-        const order = await createOrder(addressId, 'RAZORPAY');
+        const order = await createOrder(addressId, 'RAZORPAY', couponCode ?? undefined);
         orderId = order.id;
         setPlacedOrderId(order.id);
       } catch (cause) {
         setError(toErrorMessage(cause));
-        router.refresh();
+        await resync();
         setPlacing(false);
         return;
       } finally {
@@ -304,7 +368,23 @@ export function CheckoutClient({ summary }: { summary: CheckoutSummary }) {
       </div>
 
       <aside className="lg:sticky lg:top-24">
-        <CheckoutSummaryPanel items={summary.items} pricing={summary.pricing} />
+        <CheckoutSummaryPanel
+          items={summary.items}
+          pricing={summary.pricing}
+          couponCode={summary.coupon?.code}
+          shippingPolicy={summary.shippingPolicy}
+        >
+          <CouponField
+            applied={summary.coupon}
+            error={couponError}
+            busy={couponBusy}
+            // An online order that exists already has its price, coupon
+            // included; changing the code now would describe a different order.
+            disabled={busy || Boolean(placedOrderId)}
+            onApply={applyCoupon}
+            onRemove={removeCoupon}
+          />
+        </CheckoutSummaryPanel>
 
         <div className="mt-4">
           <AuthError message={error} />

@@ -169,6 +169,35 @@ export function checkReadiness(env: Env): ReadinessReport {
     });
   }
 
+  /* Uploads and invoices (Phase 18) ---------------------------------- */
+
+  /**
+   * A warning rather than an error: a store that only ever pastes image URLs
+   * into the product form never touches the provider. It is reported because a
+   * serverless deployment's disk does not outlive the request, and an upload
+   * that "worked" would be a broken image an hour later.
+   */
+  if (production && env.UPLOAD_PROVIDER === 'local') {
+    findings.push({
+      key: 'UPLOAD_PROVIDER',
+      severity: 'warning',
+      message:
+        'is "local" in production. Uploaded product images are written to this machine’s disk, ' +
+        'which does not survive a redeploy — and on a serverless platform, not even the request. ' +
+        'Set UPLOAD_PROVIDER=cloudinary and the CLOUDINARY_ variables.',
+    });
+  }
+
+  if (production && !env.STORE_GSTIN) {
+    findings.push({
+      key: 'STORE_GSTIN',
+      severity: 'warning',
+      message:
+        'is not set, so invoices are issued as plain invoices rather than tax invoices and cannot ' +
+        'say which state the store supplies from. A GST-registered store must set it.',
+    });
+  }
+
   /* Logging ---------------------------------------------------------- */
 
   if (production && env.LOG_FORMAT === 'text') {
@@ -197,6 +226,8 @@ export function checkReadiness(env: Env): ReadinessReport {
           : 'configured (test)'
         : 'not configured',
       Assistant: env.AI_ENABLED ? (ai ? `configured (${ai.provider})` : 'not configured') : 'disabled',
+      Uploads: env.UPLOAD_PROVIDER === 'cloudinary' ? 'cloudinary' : 'local disk',
+      Invoices: env.STORE_GSTIN ? 'tax invoices (GSTIN set)' : 'plain invoices (no GSTIN)',
       Logging: `${env.LOG_LEVEL} · ${env.LOG_FORMAT ?? 'default for environment'}`,
     },
   };

@@ -102,6 +102,29 @@ const orderItemSchema = new Schema(
      * and `verify-returns` asserts this counter against the return collection.
      */
     returnedQuantity: { type: Number, required: true, default: 0, min: 0 },
+
+    /**
+     * The tax facts of this line, frozen at purchase (Phase 18).
+     *
+     * A category's GST rate can change, and a product can move between
+     * categories; neither may rewrite what an invoice for this order says. So
+     * the rate, the HSN code and the split of the line into taxable value and
+     * tax are copied here once, by the same `priceOrder` call that produced the
+     * total the customer paid.
+     *
+     * `discountShare` is this line's part of any coupon discount, in whole
+     * rupees — the shares of an order always sum exactly to its discount.
+     * `taxableValue` and `taxAmount` are carried to the paisa; see
+     * `services/pricing/pricing.ts` for why tax is the one place paise appear.
+     *
+     * Null on every line bought before GST was computed. Those orders have no
+     * breakdown to show, and nothing reconstructs one from today's rates.
+     */
+    discountShare: { type: Number, min: 0, default: 0 },
+    gstRate: { type: Number, min: 0, default: null },
+    hsnCode: { type: String, default: '' },
+    taxableValue: { type: Number, min: 0, default: null },
+    taxAmount: { type: Number, min: 0, default: null },
   },
   baseSchemaOptions,
 );
@@ -123,11 +146,20 @@ const shippingAddressSchema = new Schema(
 );
 
 /**
- * Historical totals. Shipping, discount and tax are stored as zero rather than
- * omitted, so the phases that introduce them change the numbers without
- * changing the shape.
+ * Historical totals.
  *
- * Whole rupees, always. Paise exist only inside a call to the Razorpay API.
+ * Until Phase 18 shipping, discount and tax were stored as zero rather than
+ * omitted, so the phase that introduced them changed the numbers without
+ * changing the shape — which is what it did.
+ *
+ * `total = subtotal − discount + shipping`. GST is *contained* in those
+ * figures, because catalogue prices are tax-inclusive; `tax` reports how much
+ * of the total it is, and is never added to it. Every order written before
+ * Phase 18 has `tax: 0`, so the formula reads them exactly as it always did.
+ *
+ * Whole rupees for everything charged. The two tax figures are carried to the
+ * paisa, because GST extracted from a whole-rupee price rarely comes out whole
+ * and an invoice may not round it away.
  */
 const pricingSchema = new Schema(
   {
@@ -136,6 +168,46 @@ const pricingSchema = new Schema(
     discount: { type: Number, required: true, min: 0, default: 0 },
     tax: { type: Number, required: true, min: 0, default: 0 },
     total: { type: Number, required: true, min: 0 },
+    /** The GST inside `shipping`, already counted in `tax`. */
+    shippingTax: { type: Number, min: 0, default: 0 },
+    /** The rate delivery was taxed at — the highest rate in the basket. */
+    shippingGstRate: { type: Number, min: 0, default: null },
+  },
+  { _id: false },
+);
+
+/**
+ * The coupon this order used, as it was at the time.
+ *
+ * A copy rather than only a reference: an administrator can switch a code off,
+ * change its value or delete it outright, and none of that may change what this
+ * order says it was given. The reference is kept so a cancellation can hand
+ * the use back to the right coupon.
+ */
+const orderCouponSchema = new Schema(
+  {
+    coupon: { type: Schema.Types.ObjectId, ref: 'Coupon', required: true },
+    code: { type: String, required: true },
+    description: { type: String, default: '' },
+    type: { type: String, required: true },
+    value: { type: Number, required: true },
+    /** Whole rupees, and always equal to `pricing.discount`. */
+    discount: { type: Number, required: true, min: 0 },
+  },
+  { _id: false },
+);
+
+/**
+ * The tax invoice, once there is one.
+ *
+ * Numbered when the goods are supplied — the moment the order ships — from a
+ * gap-free sequence per financial year. See `services/invoices` for why the
+ * number is not issued at checkout.
+ */
+const orderInvoiceSchema = new Schema(
+  {
+    number: { type: String, required: true },
+    issuedAt: { type: Date, required: true },
   },
   { _id: false },
 );
@@ -211,6 +283,12 @@ const orderSchema = new Schema(
     shippingAddress: { type: shippingAddressSchema, required: true },
     pricing: { type: pricingSchema, required: true },
     payment: { type: paymentSchema, required: true },
+
+    /** Null when no coupon was used, and on every order before Phase 18. */
+    coupon: { type: orderCouponSchema, default: null },
+
+    /** Null until the order ships. */
+    invoice: { type: orderInvoiceSchema, default: null },
 
     status: { type: String, enum: ORDER_STATUSES, required: true, default: 'PENDING' },
 
@@ -295,6 +373,23 @@ orderSchema.index(
 
 /** Resolves a webhook that arrives against a superseded attempt. */
 orderSchema.index({ 'payment.supersededRazorpayOrderIds': 1 });
+
+/**
+ * An invoice number identifies one invoice, for ever.
+ *
+ * Partial for the same reason as the Razorpay index above: every order that has
+ * not shipped stores null, and a plain unique index would admit only one.
+ */
+orderSchema.index(
+  { 'invoice.number': 1 },
+  { unique: true, partialFilterExpression: { 'invoice.number': { $type: 'string' } } },
+);
+
+/**
+ * The reminder job's failed-payment sweep: unpaid online orders by how long
+ * ago they last changed.
+ */
+orderSchema.index({ 'payment.status': 1, status: 1, updatedAt: -1 });
 
 export type OrderDocument = InferSchemaType<typeof orderSchema>;
 

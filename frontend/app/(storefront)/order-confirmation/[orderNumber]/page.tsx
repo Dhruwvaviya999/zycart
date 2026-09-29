@@ -5,6 +5,7 @@ import { notFound, redirect } from 'next/navigation';
 import { Check, Clock, CircleAlert, MapPin, Undo2, Wallet, X, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { PriceBreakdown } from '@/components/order/price-breakdown';
 import { Container } from '@/components/layout/container';
 import { PayNowButton } from '@/components/payment/pay-now-button';
 import { PaymentConfirming } from '@/components/payment/payment-confirming';
@@ -178,6 +179,12 @@ export default async function OrderConfirmationPage({
               );
             })}
           </ul>
+
+          <Separator className="my-6" />
+
+          {/* The figures the order was actually priced at — coupon, delivery
+              and the GST inside them — so the total above is explained. */}
+          <PriceBreakdown pricing={order.pricing} couponCode={order.coupon?.code} />
 
           <Separator className="my-6" />
 

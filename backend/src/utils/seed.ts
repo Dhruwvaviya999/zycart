@@ -4,9 +4,10 @@ import { connectDatabase, disconnectDatabase } from '../config/database';
 import { loadEnv } from '../config/env';
 import { Brand } from '../models/brand.model';
 import { Category } from '../models/category.model';
+import { Coupon } from '../models/coupon.model';
 import { InventoryMovement } from '../models/inventory-movement.model';
 import { Product } from '../models/product.model';
-import { seedBrands, seedCategories, seedProducts } from './seed-data';
+import { seedBrands, seedCategories, seedCoupons, seedProducts } from './seed-data';
 
 /**
  * Replaces the catalogue collections with the development dataset.
@@ -108,6 +109,28 @@ async function seedDatabase(): Promise<void> {
   console.log(
     `  featured ${counts.featured} · best sellers ${counts.bestSellers} · ` +
       `new arrivals ${counts.newArrivals} · out of stock ${counts.outOfStock}`,
+  );
+
+  /**
+   * Two starter coupons (Phase 18), so checkout has something to apply.
+   *
+   * Inserted only if absent, never replaced: unlike the catalogue, coupons are
+   * not cleared by this script, because a coupon that orders have used is
+   * history, and re-seeding must not reset its usage count.
+   */
+  let seededCoupons = 0;
+
+  for (const coupon of seedCoupons) {
+    const result = await Coupon.updateOne(
+      { code: coupon.code },
+      { $setOnInsert: coupon },
+      { upsert: true },
+    );
+    seededCoupons += result.upsertedCount;
+  }
+
+  console.log(
+    `Seeded ${seededCoupons} new coupon(s): ${seedCoupons.map((coupon) => coupon.code).join(', ')}`,
   );
 }
 

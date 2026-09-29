@@ -48,17 +48,46 @@ import { baseSchemaOptions } from './shared';
  * distinction is what stops "your order has shipped" going out because a parcel
  * reached EXCEPTION — an exception implies the order is already SHIPPED, so no
  * transition into SHIPPED occurs and no event is raised.
+ *
+ * ## Phase 18
+ *
+ * Seven more, each closing a gap a customer used to fall into:
+ *
+ * - **ORDER_PLACED** — the order committed: placed on cash on delivery, or paid.
+ * - **PAYMENT_FAILED** — an online payment failed and was not retried. Raised
+ *   by the reminder job after a grace period, not at the failure, because most
+ *   failed attempts are retried within a minute and an email saying "your
+ *   payment failed" beside a confirmation saying it succeeded is worse than
+ *   silence.
+ * - **ABANDONED_CART** — a signed-in customer's cart sat untouched. Also raised
+ *   by the reminder job, and the only message here a customer can switch off.
+ * - **WELCOME** — an address was verified.
+ * - **EMAIL_VERIFICATION**, **PASSWORD_RESET**, **NEWSLETTER_CONFIRMATION** — the
+ *   three messages that carry a single-use link. See `NotificationOutbox` for
+ *   why those links are never stored here.
  */
 export const NOTIFICATION_EVENTS = [
   'ORDER_SHIPPED',
   'ORDER_DELIVERED',
   'RETURN_APPROVED',
   'REFUND_COMPLETED',
+  'ORDER_PLACED',
+  'PAYMENT_FAILED',
+  'ABANDONED_CART',
+  'WELCOME',
+  'EMAIL_VERIFICATION',
+  'PASSWORD_RESET',
+  'NEWSLETTER_CONFIRMATION',
 ] as const;
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
 
-/** Which collection the event is about. Mirrors `AUDIT_ENTITIES`' vocabulary. */
-export const NOTIFICATION_ENTITIES = ['ORDER', 'RETURN'] as const;
+/**
+ * Which collection the event is about. Mirrors `AUDIT_ENTITIES`' vocabulary.
+ *
+ * USER for account messages, SUBSCRIBER for the newsletter's confirmation —
+ * whose recipient is an address, not an account — and CART for reminders.
+ */
+export const NOTIFICATION_ENTITIES = ['ORDER', 'RETURN', 'USER', 'SUBSCRIBER', 'CART'] as const;
 export type NotificationEntity = (typeof NOTIFICATION_ENTITIES)[number];
 
 /**
@@ -157,8 +186,13 @@ const notificationDeliverySchema = new Schema(
      * who changes their email tomorrow does not retroactively change where
      * today's shipping notice was sent — which is what the record has to say to
      * be worth keeping.
+     *
+     * From Phase 18 the recipient is a customer *or* a newsletter subscriber,
+     * and exactly one of these two references is set. The address is resolved
+     * from whichever it is, by the service, in the same way.
      */
-    user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    user: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    subscriber: { type: Schema.Types.ObjectId, ref: 'Subscriber', default: null },
     recipientEmail: { type: String, required: true, maxlength: 254 },
     /** For the greeting. Empty when the account has no usable name. */
     recipientName: { type: String, default: '', maxlength: 160 },

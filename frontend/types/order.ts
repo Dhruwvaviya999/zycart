@@ -57,6 +57,17 @@ export interface OrderItem {
    * left" rather than offering a quantity that would be refused.
    */
   returnedQuantity: number;
+  /**
+   * The line's tax facts, frozen at purchase (Phase 18). Its share of the
+   * order's discount in whole rupees; the GST rate it was sold at; its taxable
+   * value and tax, to the paisa. Null on every line bought before GST was
+   * computed.
+   */
+  discountShare?: number;
+  gstRate?: number | null;
+  hsnCode?: string;
+  taxableValue?: number | null;
+  taxAmount?: number | null;
 }
 
 export interface OrderShippingAddress {
@@ -71,13 +82,39 @@ export interface OrderShippingAddress {
   country: string;
 }
 
-/** Whole rupees. Shipping, discount and tax are zero until those engines exist. */
+/**
+ * The money on an order or a checkout.
+ *
+ * `total = subtotal − discount + shipping`, all whole rupees. From Phase 18
+ * prices include GST, so `tax` is how much of the total is GST — to the paisa —
+ * and is never added to it. Orders placed before then carry `tax: 0`.
+ */
 export interface OrderPricing {
   subtotal: number;
   shipping: number;
   discount: number;
   tax: number;
   total: number;
+  /** The GST inside `shipping`, already counted in `tax`. */
+  shippingTax?: number;
+  shippingGstRate?: number | null;
+}
+
+/** The coupon an order used, as it was when the order was placed. */
+export interface OrderCoupon {
+  code: string;
+  description: string;
+  discount: number;
+}
+
+/**
+ * The tax invoice. Numbered when the order ships; `available` is the server's
+ * answer to whether one can be shown now.
+ */
+export interface OrderInvoiceRef {
+  number: string | null;
+  issuedAt: string | null;
+  available: boolean;
 }
 
 export interface OrderPayment {
@@ -126,6 +163,9 @@ export interface Order extends Omit<OrderListItem, 'preview'> {
   deliveredAt: string | null;
   updatedAt: string;
   canCancel: boolean;
+  /** Null when no coupon was used. */
+  coupon: OrderCoupon | null;
+  invoice: OrderInvoiceRef;
 
   /**
    * Null when nothing has been dispatched, and for every order placed before

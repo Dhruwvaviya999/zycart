@@ -19,6 +19,7 @@
     "returns:verify": "pnpm --filter zycart-backend returns:verify",
     "notifications:verify": "pnpm --filter zycart-backend notifications:verify",
     "notifications:drain": "pnpm --filter zycart-backend notifications:drain",
+    "reminders:send": "pnpm --filter zycart-backend reminders:send",
     "payments:verify": "pnpm --filter zycart-backend payments:verify",
     "health:verify": "pnpm --filter zycart-backend health:verify",
     "smoke:deploy": "pnpm --filter zycart-backend smoke:deploy",

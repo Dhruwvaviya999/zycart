@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ORDER_STATUSES, PAYMENT_METHODS } from '../models/order.model';
 import { objectIdSchema } from './common';
+import { couponCodeSchema } from './coupon.validator';
 
 /** Kept short and fixed: a free-text box here buys nothing. */
 export const CANCELLATION_REASONS = [
@@ -25,6 +26,12 @@ export const createOrderSchema = z
      * separate, verified step.
      */
     paymentMethod: z.enum(PAYMENT_METHODS).default('COD'),
+    /**
+     * A code to apply, not a discount to grant. What it is worth — if anything —
+     * is decided on the server against the basket as it is when the order is
+     * placed; there is still no field through which a client names an amount.
+     */
+    couponCode: couponCodeSchema.optional(),
   })
   .strict();
 

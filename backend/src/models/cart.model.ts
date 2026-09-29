@@ -23,9 +23,27 @@ const cartSchema = new Schema(
     // remembering to check first.
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     items: { type: [cartItemSchema], default: [] },
+
+    /**
+     * When the reminder job last dealt with this cart (Phase 18).
+     *
+     * "Dealt with" rather than "reminded": the job also records a cart it
+     * decided *not* to remind — the customer switched reminders off, or nothing
+     * left in it can be bought — so that it does not reconsider the same basket
+     * on every run. Either way the cart is eligible again only once it has
+     * changed since this moment *and* a cooldown has passed, so a customer who
+     * leaves one basket alone hears about it once.
+     *
+     * Written with `timestamps: false`, so the job's own write does not look
+     * like the customer touching the cart.
+     */
+    reminderHandledAt: { type: Date, default: null },
   },
   baseSchemaOptions,
 );
+
+/** The reminder job's sweep: carts by how long ago they last changed. */
+cartSchema.index({ updatedAt: 1 });
 
 export type CartDocument = InferSchemaType<typeof cartSchema>;
 

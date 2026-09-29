@@ -60,6 +60,19 @@ export const AUDIT_ACTIONS = [
    * other one.
    */
   'NOTIFICATION_RETRIED',
+
+  /**
+   * Promotions, from Phase 18.
+   *
+   * A coupon is money the store has decided to give away, so who created one,
+   * who changed its value and who removed it are exactly the questions an
+   * audit trail exists to answer. A customer *using* a coupon is not here, for
+   * the reason RETURN_REQUESTED is not: it is not an administrative act, and
+   * the redemption record already says it happened.
+   */
+  'COUPON_CREATED',
+  'COUPON_UPDATED',
+  'COUPON_DELETED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -72,6 +85,8 @@ export const AUDIT_ENTITIES = [
   'RETURN',
   /** A customer communication delivery record; see Phase 14. */
   'NOTIFICATION',
+  /** A promotional code; see Phase 18. */
+  'COUPON',
 ] as const;
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number];
 

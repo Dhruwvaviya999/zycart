@@ -9,6 +9,9 @@ import { AppError } from '../utils/AppError';
 import { logger, serializeError } from '../utils/logger';
 import { paiseMatchRupees, rupeesToPaise } from '../utils/money';
 import * as razorpay from './razorpay.service';
+import { redeemCoupon } from './coupons/coupon.service';
+import { NotificationOutbox, queueNotification } from './notifications/notification.service';
+import { buildOrderPlacedPayload } from './notifications/payloads';
 import {
   AvailabilityError,
   clearPurchasedCartLines,
@@ -17,6 +20,7 @@ import {
   toDetail,
   type OrderDetail,
 } from './order.service';
+import { totalOf } from './pricing/pricing';
 import { applyRefundOutcome } from './returns/refund.service';
 import { webhookEnvelopeSchema, type WebhookEnvelope } from '../validators/payment.validator';
 
@@ -64,7 +68,7 @@ export const isOnlinePaymentAvailable = (env: Env): boolean => isRazorpayConfigu
  * rather than merely intended. A mismatch means the document was tampered with
  * or corrupted, and either way no money should move.
  */
-function assertOrderTotalIntact(order: OrderDoc): void {
+export function assertOrderTotalIntact(order: OrderDoc): void {
   for (const item of order.items) {
     if (item.unitPrice * item.quantity !== item.lineTotal) {
       throw new AppError('This order is no longer available for payment.', 409);
@@ -72,9 +76,36 @@ function assertOrderTotalIntact(order: OrderDoc): void {
   }
 
   const subtotal = order.items.reduce((sum, item) => sum + item.lineTotal, 0);
-  const total = subtotal + order.pricing.shipping + order.pricing.tax - order.pricing.discount;
+
+  /**
+   * GST is inside the price, so it is not a term here (Phase 18). `totalOf` is
+   * the one statement of the formula; every order written before Phase 18 has
+   * `tax: 0`, so it reads them exactly as the additive formula did.
+   */
+  //
+  // Named field by field: `order.pricing` is a Mongoose subdocument, and
+  // spreading one copies its internals rather than its fields — which would
+  // make every total NaN and refuse every payment.
+  const total = totalOf({
+    subtotal,
+    shipping: order.pricing.shipping,
+    discount: order.pricing.discount,
+  });
 
   if (subtotal !== order.pricing.subtotal || total !== order.pricing.total) {
+    throw new AppError('This order is no longer available for payment.', 409);
+  }
+
+  /**
+   * The discount must be exactly the sum of what the lines carry.
+   *
+   * `priceOrder` spreads it across the lines so that they always add up; an
+   * order where they do not has been edited by something other than checkout,
+   * and the discount it claims is not one ZyCart computed.
+   */
+  const shares = order.items.reduce((sum, item) => sum + (item.discountShare ?? 0), 0);
+
+  if (shares !== order.pricing.discount) {
     throw new AppError('This order is no longer available for payment.', 409);
   }
 
@@ -394,6 +425,15 @@ export async function finalizeSuccessfulPayment(
    */
   const unfulfillable: { reason: string | null } = { reason: null };
 
+  /**
+   * What this payment's coupon redemption found, carried out of the
+   * transaction in a box for the same reason `unfulfillable` is.
+   */
+  const coupon: { redeemed: boolean; overLimit: boolean } = { redeemed: false, overLimit: false };
+
+  // The confirmation email, queued in the transaction and attempted after it.
+  const outbox = new NotificationOutbox();
+
   let result: FinalizeResult;
 
   try {
@@ -401,6 +441,8 @@ export async function finalizeSuccessfulPayment(
       // Reset per attempt: withTransaction re-runs this callback on a write
       // conflict, and a stale verdict from the losing attempt must not survive.
       unfulfillable.reason = null;
+      coupon.redeemed = false;
+      coupon.overLimit = false;
 
       const claimed = await Order.findOneAndUpdate(
         {
@@ -447,6 +489,48 @@ export async function finalizeSuccessfulPayment(
 
       await clearPurchasedCartLines(claimed.user, claimed.sourceCartItemIds, session);
 
+      /**
+       * The coupon is redeemed now that the order has committed (Phase 18).
+       *
+       * Without enforcing its limits: the customer has already paid the
+       * discounted price, and refusing here would mean refunding a captured
+       * payment over a promotion. See `redeemCoupon` for how far that can let a
+       * limit be exceeded, and why it is reported rather than hidden.
+       */
+      if (claimed.coupon) {
+        const outcome = await redeemCoupon(
+          {
+            couponId: claimed.coupon.coupon,
+            code: claimed.coupon.code,
+            userId: claimed.user,
+            orderId: claimed._id,
+            orderNumber: claimed.orderNumber,
+            discount: claimed.pricing.discount,
+          },
+          session,
+          { enforce: false },
+        );
+
+        coupon.redeemed = true;
+        coupon.overLimit = outcome.overLimit;
+      }
+
+      // The order is confirmed in this transaction, so the customer is told in
+      // it. An abandoned payment never reaches this line, and never gets mail.
+      await queueNotification(
+        {
+          event: 'ORDER_PLACED',
+          entityType: 'ORDER',
+          entityId: claimed._id,
+          entityLabel: claimed.orderNumber,
+          orderNumber: claimed.orderNumber,
+          userId: claimed.user,
+          buildPayload: (recipient) => buildOrderPlacedPayload(recipient.firstName, claimed),
+        },
+        session,
+        outbox,
+      );
+
       return { outcome: 'FINALIZED', order: claimed };
     });
   } catch (error) {
@@ -465,6 +549,27 @@ export async function finalizeSuccessfulPayment(
       razorpayPaymentId: payment.id,
       method: payment.method ?? 'unknown',
     });
+
+    if (coupon.redeemed && result.order.coupon) {
+      logger.info('coupon_redeemed', {
+        code: result.order.coupon.code,
+        orderNumber: result.order.orderNumber,
+        discount: result.order.pricing.discount,
+      });
+    }
+
+    // A promotion that ran over its limit is the store's decision to review,
+    // not a fault, so it is a warning an operator can search for.
+    if (coupon.overLimit && result.order.coupon) {
+      logger.warn('coupon_overredeemed', {
+        code: result.order.coupon.code,
+        orderNumber: result.order.orderNumber,
+      });
+    }
+
+    // After the commit, and unable to throw: the order is paid and confirmed
+    // whatever a mail server does next.
+    await outbox.flush(env);
   }
 
   return result;

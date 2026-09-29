@@ -152,6 +152,13 @@ export interface AdminTaxonomyRow {
   /** How many products point at it — the number that decides whether it can go. */
   productCount: number;
   createdAt: string;
+  /**
+   * A category's GST rate and HSN code (Phase 18). Absent on brands, which
+   * carry no tax facts. `gstRate` is null when nobody has set one, and the
+   * console says which default applies rather than showing a blank.
+   */
+  gstRate?: number | null;
+  hsnCode?: string;
 }
 
 /** The shape a category and a brand have in common, once loaded. */
@@ -165,6 +172,8 @@ interface TaxonomyDocument {
   logo?: string;
   isActive: boolean;
   createdAt: Date;
+  gstRate?: number | null;
+  hsnCode?: string;
 }
 
 /** Name or slug, the two things an operator would type. */
@@ -209,6 +218,7 @@ async function withProductCounts(
     isActive: row.isActive,
     productCount: byId.get(String(row._id)) ?? 0,
     createdAt: row.createdAt.toISOString(),
+    ...(field === 'category' ? { gstRate: row.gstRate ?? null, hsnCode: row.hsnCode ?? '' } : {}),
   }));
 }
 

@@ -1,10 +1,12 @@
 import bcrypt from 'bcrypt';
 import { User, type UserRole } from '../models/user.model';
 import { AppError } from '../utils/AppError';
+import { verifyLink } from '../utils/signed-links';
 import { isObjectId } from '../validators/common';
 import type {
   CreateAddressInput,
   UpdateAddressInput,
+  UpdatePreferencesInput,
   UpdateProfileInput,
 } from '../validators/user.validator';
 
@@ -33,6 +35,8 @@ export interface SafeUser {
   role: UserRole;
   isActive: boolean;
   isEmailVerified: boolean;
+  /** The optional messages this customer has agreed to (Phase 18). */
+  emailPreferences: { cartReminders: boolean };
   createdAt: string;
   addresses: SafeAddress[];
 }
@@ -63,6 +67,9 @@ export function toSafeUser(user: UserDoc): SafeUser {
     role: user.role,
     isActive: user.isActive,
     isEmailVerified: user.isEmailVerified,
+    // `!== false`, so an account from before Phase 18 — which has no stored
+    // preference — reads as the default rather than as opted out.
+    emailPreferences: { cartReminders: user.emailPreferences?.cartReminders !== false },
     createdAt: (user.createdAt ?? new Date()).toISOString(),
     addresses: user.addresses.map(toSafeAddress),
   };
@@ -108,6 +115,45 @@ export async function updateProfile(userId: string, input: UpdateProfileInput): 
 
   await user.save();
   return toSafeUser(user);
+}
+
+export async function updatePreferences(
+  userId: string,
+  input: UpdatePreferencesInput,
+): Promise<SafeUser> {
+  const user = await loadUser(userId);
+
+  user.set('emailPreferences.cartReminders', input.cartReminders);
+  await user.save();
+
+  return toSafeUser(user);
+}
+
+/**
+ * Switches cart reminders off from the link at the foot of one, with no
+ * sign-in.
+ *
+ * The link's signature is the authority; see `utils/signed-links.ts`. A link
+ * for an account that no longer exists, or one that has been tampered with, is
+ * refused with the same message, and applying it twice is harmless.
+ */
+export async function optOutOfCartReminders(
+  secret: string,
+  userId: string,
+  signature: string,
+): Promise<void> {
+  if (!isObjectId(userId) || !verifyLink(secret, 'cart-reminders-opt-out', userId, signature)) {
+    throw new AppError('This link is not valid. You can change reminders from your account.', 400);
+  }
+
+  const result = await User.updateOne(
+    { _id: userId },
+    { $set: { 'emailPreferences.cartReminders': false } },
+  );
+
+  if (result.matchedCount === 0) {
+    throw new AppError('This link is not valid. You can change reminders from your account.', 400);
+  }
 }
 
 /**

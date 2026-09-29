@@ -16,6 +16,7 @@ import {
   type NotificationEntity,
   type NotificationEvent,
 } from '../../models/notification-delivery.model';
+import { Subscriber } from '../../models/subscriber.model';
 import { User } from '../../models/user.model';
 import { AppError } from '../../utils/AppError';
 import { logger, serializeError } from '../../utils/logger';
@@ -25,7 +26,12 @@ import { startOfDaysAgo } from '../admin/audit.service';
 import { EmailDeliveryError, type EmailProvider } from './provider';
 import type { EmailBrand } from './render';
 import { getEmailProvider } from './runtime';
-import { renderNotification, templateFor } from './templates';
+import {
+  MissingSecretsError,
+  renderNotification,
+  SECRET_BEARING_EVENTS,
+  templateFor,
+} from './templates';
 
 /**
  * What ZyCart tells customers, and whether it managed to.
@@ -73,15 +79,25 @@ export interface Recipient {
   fullName: string;
 }
 
-export interface NotificationIntent {
+interface NotificationIntentBase {
   event: NotificationEvent;
   entityType: NotificationEntity;
   entityId: Types.ObjectId;
   /** The reference a customer would quote. Forms half of the idempotency key. */
   entityLabel: string;
+  /**
+   * What makes this occurrence distinct, when an entity can raise the same
+   * event more than once (Phase 18).
+   *
+   * An order ships once, so `ORDER_SHIPPED:ZY10482` identifies the only message
+   * there will ever be. A customer can ask for a password reset every week, so
+   * the reset's key is `PASSWORD_RESET:<token id>` instead — still
+   * server-generated, still unique per message, still legible in a shell.
+   * Defaults to `entityLabel`, which is every Phase 14 caller unchanged.
+   */
+  keyReference?: string;
   /** The order behind a return, so one search finds everything about a sale. */
   orderNumber: string;
-  userId: Types.ObjectId;
   /**
    * How to shape the message, given the recipient this service resolved.
    *
@@ -92,6 +108,26 @@ export interface NotificationIntent {
    */
   buildPayload: (recipient: Recipient) => unknown;
 }
+
+/**
+ * Who a message is for, named by reference — never by address.
+ *
+ * A customer account, or (from Phase 18) a newsletter subscriber. Exactly one;
+ * the types make "both" and "neither" unrepresentable. Either way the address is
+ * read by this service from ZyCart's own records, so the rule above holds for
+ * subscribers exactly as it does for customers.
+ */
+export type NotificationIntent = NotificationIntentBase &
+  (
+    | { userId: Types.ObjectId; subscriberId?: never }
+    | { subscriberId: Types.ObjectId; userId?: never }
+  );
+
+/**
+ * Values a message needs that must never be stored: `{ token }` for the three
+ * messages that carry a single-use link. See `EmailTemplate.secrets`.
+ */
+export type NotificationSecrets = Record<string, string>;
 
 /**
  * The deliveries created by one business operation, to be attempted after it
@@ -111,16 +147,27 @@ export interface NotificationIntent {
  * begins with an atomic claim that matches nothing for a row that was rolled
  * back or already claimed. Correctness comes from the claim, not from the
  * collector being tidy.
+ *
+ * ## Secrets ride here, and only here (Phase 18)
+ *
+ * A password reset link must reach an inbox without ever being written to the
+ * database — the delivery record included. So the one place the raw token
+ * exists between the request that minted it and the email that carries it is
+ * this object, in memory, for the length of the request. When the outbox has
+ * been flushed it is cleared, and the token exists nowhere except the message.
  */
 export class NotificationOutbox {
-  private readonly ids = new Map<string, Types.ObjectId>();
+  private readonly entries = new Map<
+    string,
+    { id: Types.ObjectId; secrets?: NotificationSecrets }
+  >();
 
-  collect(id: Types.ObjectId | null): void {
-    if (id) this.ids.set(String(id), id);
+  collect(id: Types.ObjectId | null, secrets?: NotificationSecrets): void {
+    if (id) this.entries.set(String(id), { id, secrets });
   }
 
   get size(): number {
-    return this.ids.size;
+    return this.entries.size;
   }
 
   /**
@@ -132,9 +179,9 @@ export class NotificationOutbox {
    * rows and logged; the caller's response is unaffected.
    */
   async flush(env: Env): Promise<void> {
-    for (const id of this.ids.values()) {
+    for (const { id, secrets } of this.entries.values()) {
       try {
-        await deliverAutomatically(env, id);
+        await deliverAutomatically(env, id, secrets);
       } catch (error) {
         logger.error('notification_failed', {
           reason: 'unexpected',
@@ -144,7 +191,7 @@ export class NotificationOutbox {
       }
     }
 
-    this.ids.clear();
+    this.entries.clear();
   }
 }
 
@@ -174,10 +221,23 @@ const isDuplicateKey = (error: unknown): boolean =>
  * refund has completed.
  */
 async function resolveRecipient(
-  userId: Types.ObjectId,
+  intent: NotificationIntent,
   session: mongoose.ClientSession,
 ): Promise<Recipient | null> {
-  const user = await User.findById(userId).select('email firstName lastName').session(session);
+  /**
+   * A newsletter subscriber is an address with no name attached, so the
+   * greeting falls back to its neutral form. The address comes from the
+   * subscriber record, by id, exactly as a customer's comes from their account.
+   */
+  if (intent.subscriberId) {
+    const subscriber = await Subscriber.findById(intent.subscriberId)
+      .select('email')
+      .session(session);
+
+    return subscriber?.email ? { email: subscriber.email, firstName: '', fullName: '' } : null;
+  }
+
+  const user = await User.findById(intent.userId).select('email firstName lastName').session(session);
 
   if (!user?.email) return null;
 
@@ -203,8 +263,16 @@ export async function queueNotification(
   intent: NotificationIntent,
   session: mongoose.ClientSession,
   outbox?: NotificationOutbox,
+  /**
+   * The values a secret-bearing message needs at send time (Phase 18).
+   *
+   * Handed straight to the outbox and never to the database. A caller that
+   * raises a secret-bearing event without an outbox has made a message that
+   * can never be sent, so that combination is refused outright.
+   */
+  secrets?: NotificationSecrets,
 ): Promise<Types.ObjectId | null> {
-  const key = notificationKey(intent.event, intent.entityLabel);
+  const key = notificationKey(intent.event, intent.keyReference ?? intent.entityLabel);
 
   /**
    * The cheap check first, so the ordinary duplicate — the same event
@@ -218,8 +286,15 @@ export async function queueNotification(
 
   if (existing) return null;
 
-  const recipient = await resolveRecipient(intent.userId, session);
   const template = templateFor(intent.event);
+
+  if (template.requiresSecrets && (!outbox || !secrets)) {
+    throw new Error(
+      `${intent.event} carries a single-use link and must be queued with an outbox and its secrets`,
+    );
+  }
+
+  const recipient = await resolveRecipient(intent, session);
 
   /**
    * Built even when there is no recipient, so the row still says what would
@@ -249,7 +324,8 @@ export async function queueNotification(
     entityId: intent.entityId,
     entityLabel: intent.entityLabel,
     orderNumber: intent.orderNumber,
-    user: intent.userId,
+    user: intent.userId ?? null,
+    subscriber: intent.subscriberId ?? null,
     template: template.name,
     templateVersion: template.version,
     payload,
@@ -285,7 +361,7 @@ export async function queueNotification(
 
     // A row with no recipient is never handed to the outbox: there is nothing
     // to attempt, and a claim on it would only burn an attempt to fail again.
-    if (recipient) outbox?.collect(created._id);
+    if (recipient) outbox?.collect(created._id, secrets);
 
     return created._id;
   } catch (error) {
@@ -393,12 +469,18 @@ export const staleSendingBefore = (now: Date = new Date()): Date =>
  *
  * `SENT` appears in none of them. A message the provider has accepted is never
  * re-sent by any path in this file.
+ *
+ * Neither drain mode claims a secret-bearing message (Phase 18). Its link lived
+ * only in the memory of the request that raised it, so a drain could claim it
+ * and do nothing but record a failure — and exit non-zero, paging somebody for
+ * a customer who has almost certainly asked for another link already.
  */
 function eligibilityFilter(
   mode: AttemptMode,
   now: Date,
 ): QueryFilter<NotificationDeliveryDocument> {
   const withBudget = { attempts: { $lt: MAX_AUTOMATIC_ATTEMPTS } };
+  const recoverable = { event: { $nin: [...SECRET_BEARING_EVENTS] } };
   // Typed as the delivery status it is, so the literal narrows for Mongoose
   // rather than widening to `string` inside an object literal.
   const abandoned: QueryFilter<NotificationDeliveryDocument> = {
@@ -412,11 +494,18 @@ function eligibilityFilter(
     case 'manual':
       return { $or: [{ status: { $in: ['PENDING', 'FAILED'] } }, abandoned] };
     case 'drain':
-      return { status: 'PENDING', ...withBudget };
+      return { status: 'PENDING', ...withBudget, ...recoverable };
     case 'drain-stale':
-      return { $or: [{ status: 'PENDING', ...withBudget }, abandoned] };
+      return {
+        $or: [{ status: 'PENDING', ...withBudget, ...recoverable }, { ...abandoned, ...recoverable }],
+      };
   }
 }
+
+/** Why a secret-bearing message cannot be attempted again, in one sentence. */
+const SECRET_GONE_REASON =
+  'This message carried a single-use link that ZyCart does not store, so it cannot be sent ' +
+  'again. The customer can request a new one.';
 
 /**
  * The ids a drain could work on, without claiming any of them.
@@ -465,7 +554,7 @@ export async function eligibleForDrain(
 async function attemptDelivery(
   env: Env,
   id: Types.ObjectId,
-  options: { mode: AttemptMode },
+  options: { mode: AttemptMode; secrets?: NotificationSecrets },
 ): Promise<AttemptOutcome> {
   const now = new Date();
 
@@ -517,7 +606,12 @@ async function attemptDelivery(
   let message;
 
   try {
-    const rendered = renderNotification(claimed.event, claimed.payload, emailBrand(env));
+    const rendered = renderNotification(
+      claimed.event,
+      claimed.payload,
+      emailBrand(env),
+      options.secrets,
+    );
 
     message = {
       to: claimed.recipientEmail,
@@ -531,7 +625,13 @@ async function attemptDelivery(
         template: rendered.template,
       },
     };
-  } catch {
+  } catch (error) {
+    // The link is gone, not malformed — say that rather than blaming the data.
+    if (error instanceof MissingSecretsError) {
+      await recordFailure(id, SECRET_GONE_REASON, { terminal: true, permanent: true }, provider.name);
+      return { result: 'FAILED', reason: SECRET_GONE_REASON, permanent: true };
+    }
+
     /**
      * The stored snapshot no longer satisfies its template's schema. Permanent
      * by definition: retrying re-reads the same snapshot. The message names the
@@ -684,22 +784,55 @@ export function deliverForDrain(
  * is left PENDING with its attempts recorded, visible on the notifications
  * screen, and retryable by hand. What it must never do is loop.
  */
-async function deliverAutomatically(env: Env, id: Types.ObjectId): Promise<AttemptOutcome> {
+async function deliverAutomatically(
+  env: Env,
+  id: Types.ObjectId,
+  secrets?: NotificationSecrets,
+): Promise<AttemptOutcome> {
   const startedAt = Date.now();
 
   for (let round = 0; round < MAX_AUTOMATIC_ATTEMPTS; round += 1) {
-    const outcome = await attemptDelivery(env, id, { mode: 'automatic' });
+    const outcome = await attemptDelivery(env, id, { mode: 'automatic', secrets });
 
     if (outcome.result !== 'RETRYABLE') return outcome;
 
     const delay = AUTOMATIC_RETRY_DELAYS_MS[round];
-    if (delay === undefined) return outcome;
-    if (Date.now() - startedAt + delay > AUTOMATIC_RETRY_DEADLINE_MS) return outcome;
+    if (delay === undefined || Date.now() - startedAt + delay > AUTOMATIC_RETRY_DEADLINE_MS) {
+      return secrets ? abandonSecretBearing(id, outcome) : outcome;
+    }
 
     await sleep(delay);
   }
 
   return { result: 'NOT_ELIGIBLE' };
+}
+
+/**
+ * Closes a secret-bearing message this request could not get out.
+ *
+ * Any other message left PENDING here is picked up later by the drain or an
+ * operator. This one cannot be: its link is about to leave memory with the
+ * request, and a PENDING row that nothing can ever send would sit on the
+ * console looking like work. So it is marked FAILED, with a reason that says
+ * the customer can simply ask again.
+ */
+async function abandonSecretBearing(
+  id: Types.ObjectId,
+  outcome: AttemptOutcome,
+): Promise<AttemptOutcome> {
+  await NotificationDelivery.updateOne(
+    { _id: id, status: 'PENDING' },
+    {
+      $set: {
+        status: 'FAILED',
+        failure: { kind: 'PERMANENT', reason: SECRET_GONE_REASON, at: new Date() },
+      },
+    },
+  );
+
+  return outcome.result === 'RETRYABLE'
+    ? { result: 'FAILED', reason: outcome.reason, permanent: false }
+    : outcome;
 }
 
 /* ---------------------------------------------------------------- */
@@ -811,6 +944,10 @@ function retryability(
 
   if (entry.status === 'SENT') {
     return { canRetry: false, reason: 'This message was already accepted by the provider.', stale };
+  }
+
+  if (SECRET_BEARING_EVENTS.includes(entry.event)) {
+    return { canRetry: false, reason: SECRET_GONE_REASON, stale };
   }
 
   if (entry.status === 'SENDING' && !stale) {

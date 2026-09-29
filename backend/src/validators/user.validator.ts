@@ -62,7 +62,22 @@ export const updateAddressSchema = addressSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'at least one field must be provided');
 
+/**
+ * The optional messages a customer can switch off (Phase 18). One today — cart
+ * reminders — and transactional mail is deliberately not among them.
+ */
+export const updatePreferencesSchema = z.object({ cartReminders: z.boolean() }).strict();
+
+/** The body of the one-click opt-out a reminder email links to. */
+export const cartReminderOptOutSchema = z
+  .object({
+    u: z.string().regex(/^[0-9a-fA-F]{24}$/, 'is not a valid link'),
+    s: z.string().min(20).max(100),
+  })
+  .strict();
+
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type CreateAddressInput = z.infer<typeof addressSchema>;
 export type UpdateAddressInput = z.infer<typeof updateAddressSchema>;

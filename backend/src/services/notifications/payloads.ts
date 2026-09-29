@@ -1,7 +1,10 @@
 import { returnability, type PolicyOrder } from '../returns/return-policy';
 import { MAX_EMAIL_LINES, type EmailLine } from './templates/shared';
+import type { AbandonedCartEmailData } from './templates/abandoned-cart';
 import type { OrderDeliveredEmailData } from './templates/order-delivered';
+import type { OrderPlacedEmailData } from './templates/order-placed';
 import type { OrderShippedEmailData } from './templates/order-shipped';
+import type { PaymentFailedEmailData } from './templates/payment-failed';
 import type { RefundCompletedEmailData } from './templates/refund-completed';
 import type { ReturnApprovedEmailData } from './templates/return-approved';
 
@@ -196,4 +199,89 @@ export function buildRefundCompletedPayload(
     // gateway. Never recomputed from current prices, never from a client.
     amount: request.refund?.amount ?? 0,
   };
+}
+
+/* ---------------------------------------------------------------- */
+/* Phase 18                                                          */
+/* ---------------------------------------------------------------- */
+
+/** The extra order fields the confirmation reads. */
+export interface PayloadPlacedOrder extends PayloadOrder {
+  shippingAddress: { city: string; state: string };
+  coupon?: { code: string } | null;
+}
+
+/**
+ * The confirmation, from the order as committed.
+ *
+ * Every figure is the stored pricing — what the customer was charged or will
+ * pay at the door — and the destination is the city and state only. The full
+ * address is on the order page behind a sign-in; an email is forwarded,
+ * screenshotted and left open on shared screens.
+ */
+export function buildOrderPlacedPayload(
+  customerName: string,
+  order: PayloadPlacedOrder,
+): OrderPlacedEmailData {
+  const { items, hiddenItemCount } = summarise(orderLines(order));
+  const { city, state } = order.shippingAddress;
+
+  return {
+    customerName,
+    orderNumber: order.orderNumber,
+    paymentMethod: order.payment.method === 'RAZORPAY' ? 'RAZORPAY' : 'COD',
+    total: order.pricing.total,
+    shipping: order.pricing.shipping,
+    discount: order.pricing.discount,
+    couponCode: order.coupon?.code ?? '',
+    deliverTo: [city, state].filter(Boolean).join(', '),
+    items,
+    hiddenItemCount,
+  };
+}
+
+export function buildPaymentFailedPayload(
+  customerName: string,
+  order: PayloadOrder,
+): PaymentFailedEmailData {
+  const { items, hiddenItemCount } = summarise(orderLines(order));
+
+  return {
+    customerName,
+    orderNumber: order.orderNumber,
+    total: order.pricing.total,
+    items,
+    hiddenItemCount,
+  };
+}
+
+/** One cart line as the reminder names it. */
+export interface PayloadCartLine {
+  productName: string;
+  quantity: number;
+  selectedColor?: string | null;
+  selectedSize?: string | null;
+}
+
+/**
+ * The reminder, from the lines the customer can still buy.
+ *
+ * The caller passes only lines resolved against the live catalogue and found
+ * purchasable — a reminder about an item that has since been withdrawn would
+ * send somebody to a cart that tells them it is gone.
+ */
+export function buildAbandonedCartPayload(
+  customerName: string,
+  lines: readonly PayloadCartLine[],
+  optOutUrl: string,
+): AbandonedCartEmailData {
+  const { items, hiddenItemCount } = summarise(
+    lines.map((line) => ({
+      name: line.productName,
+      variant: variantOf(line),
+      quantity: line.quantity,
+    })),
+  );
+
+  return { customerName, items, hiddenItemCount, optOutUrl };
 }

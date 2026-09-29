@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { SelectField } from '@/components/common/select-field';
 import { AuthError } from '@/components/auth/auth-error';
 import { ConfirmDialog } from '@/components/admin/confirm-dialog';
+import { ImageUploadButton } from '@/components/admin/image-upload-button';
 import { fieldErrors, toErrorMessage } from '@/services/api';
 import { createProduct, deleteProduct, updateProduct } from '@/services/admin.service';
 import type { AdminProduct, AdminTaxonomyRow, ProductInput } from '@/types/admin';
@@ -27,6 +28,9 @@ import type { AdminProduct, AdminTaxonomyRow, ProductInput } from '@/types/admin
  * renders whatever the API says, field by field, through `fieldErrors`. That
  * keeps one set of rules rather than two that drift.
  */
+/** The most images a product may carry. Matches the server's validator. */
+const MAX_IMAGES = 10;
+
 export function ProductForm({
   product,
   categories,
@@ -70,6 +74,23 @@ export function ProductForm({
     setFields((current) => ({ ...current, [String(key)]: '' }));
   };
 
+  /**
+   * Adds an uploaded image to the list.
+   *
+   * A functional update rather than `update('images', …)`: several uploads
+   * finish one after another inside a single handler, and each must append to
+   * the list as the previous one left it, not to the list as it was when the
+   * handler began.
+   */
+  const addImage = (url: string) => {
+    setForm((current) =>
+      current.images.includes(url)
+        ? current
+        : { ...current, images: [...current.images, url].slice(0, MAX_IMAGES) },
+    );
+    setFields((current) => ({ ...current, images: '' }));
+  };
+
   function validate(): boolean {
     const next: Record<string, string> = {};
 
@@ -77,7 +98,7 @@ export function ProductForm({
     if (form.description.trim().length < 10) {
       next.description = 'The description should be at least 10 characters.';
     }
-    if (form.images.length === 0) next.images = 'Add at least one image URL.';
+    if (form.images.length === 0) next.images = 'Upload or add at least one image.';
     if (!form.category) next.category = 'Choose a category.';
     if (!form.brand) next.brand = 'Choose a brand.';
     if (!editing && !/^[A-Za-z0-9-]{2,40}$/.test(form.sku.trim())) {
@@ -182,8 +203,16 @@ export function ProductForm({
 
           <Card
             title="Images"
-            description="Paste image URLs, as the catalogue already stores them."
+            description="Upload photos, or paste image URLs. The first image is the one shown on cards."
           >
+            <div className="mb-4">
+              <ImageUploadButton
+                onUploaded={addImage}
+                remaining={MAX_IMAGES - form.images.length}
+                disabled={saving}
+              />
+            </div>
+
             <ListEditor
               values={form.images}
               onChange={(images) => update('images', images)}

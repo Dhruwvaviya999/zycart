@@ -5,8 +5,10 @@ import { AppError } from '../utils/AppError';
 import { setAuthCookie } from '../utils/cookies';
 import {
   addressSchema,
+  cartReminderOptOutSchema,
   changePasswordSchema,
   updateAddressSchema,
+  updatePreferencesSchema,
   updateProfileSchema,
 } from '../validators/user.validator';
 
@@ -23,6 +25,29 @@ export async function getMe(req: Request, res: Response): Promise<void> {
 export async function updateMe(req: Request, res: Response): Promise<void> {
   const input = updateProfileSchema.parse(req.body);
   res.json({ success: true, data: await userService.updateProfile(currentUserId(req), input) });
+}
+
+export async function updatePreferences(req: Request, res: Response): Promise<void> {
+  const input = updatePreferencesSchema.parse(req.body);
+  res.json({
+    success: true,
+    data: await userService.updatePreferences(currentUserId(req), input),
+  });
+}
+
+/**
+ * The one-click opt-out from a cart reminder. Public: the signed link is the
+ * authority, not a session.
+ */
+export async function optOutOfCartReminders(req: Request, res: Response): Promise<void> {
+  const { u, s } = cartReminderOptOutSchema.parse(req.body);
+
+  await userService.optOutOfCartReminders(req.env.JWT_SECRET, u, s);
+
+  res.json({
+    success: true,
+    message: 'Cart reminders are off. You can turn them back on from your account settings.',
+  });
 }
 
 /**

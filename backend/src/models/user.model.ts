@@ -58,8 +58,30 @@ const userSchema = new Schema(
 
     role: { type: String, enum: USER_ROLES, default: 'USER' },
     isActive: { type: Boolean, default: true },
+
+    /**
+     * Whether this person has proved they receive mail at `email`.
+     *
+     * Set by following the link ZyCart sends on registration, or by completing
+     * a password reset — which proves the same thing. It gates nothing on its
+     * own: accounts created before Phase 18 are unverified, and refusing them
+     * checkout overnight would be a worse outcome than the one it prevents.
+     */
     isEmailVerified: { type: Boolean, default: false },
     lastLoginAt: { type: Date, default: null },
+
+    /**
+     * Which optional messages this customer is willing to receive.
+     *
+     * Transactional mail — an order confirmation, a shipping notice, a password
+     * reset — is not optional and is not listed here. A cart reminder is a
+     * nudge rather than a service, so it can be switched off: from the account
+     * settings, or from the one-click link at the foot of every reminder.
+     */
+    emailPreferences: {
+      type: new Schema({ cartReminders: { type: Boolean, default: true } }, { _id: false }),
+      default: () => ({}),
+    },
 
     addresses: { type: [addressSchema], default: [] },
   },

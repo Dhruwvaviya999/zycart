@@ -11,6 +11,8 @@ import {
   Layers,
   Mail,
   RotateCcw,
+  Newspaper,
+  TicketPercent,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -76,6 +78,14 @@ export const ADMIN_NAV: AdminNavGroup[] = [
        * unless something is wrong.
        */
       { href: '/admin/returns', label: 'Returns', icon: RotateCcw, nested: true },
+      /**
+       * With orders rather than with the catalogue.
+       *
+       * A coupon changes what an order costs, not what the shop sells, and the
+       * question that brings somebody to it — "why did this customer pay less
+       * than the list price?" — is asked by whoever is looking at the order.
+       */
+      { href: '/admin/coupons', label: 'Coupons', icon: TicketPercent, nested: true },
     ],
   },
   {
@@ -83,6 +93,15 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     items: [
       { href: '/admin/customers', label: 'Customers', icon: Users, nested: true },
       { href: '/admin/reviews', label: 'Reviews', icon: Star, nested: true },
+      /**
+       * Beside customers, and deliberately not merged with them.
+       *
+       * Anybody may join the newsletter without an account, and an address on
+       * the list is a different fact from an account that happens to share it.
+       * It is still a list of people who asked to hear from the store, which is
+       * what this group is — not a campaign tool, which ZyCart does not have.
+       */
+      { href: '/admin/subscribers', label: 'Subscribers', icon: Newspaper },
     ],
   },
   {

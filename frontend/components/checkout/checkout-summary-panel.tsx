@@ -1,23 +1,40 @@
 import Image from 'next/image';
 import { Separator } from '@/components/ui/separator';
+import { PriceBreakdown } from '@/components/order/price-breakdown';
 import { formatPrice } from '@/lib/format';
 import type { CartItem } from '@/types/cart';
+import type { ShippingPolicy } from '@/types/checkout';
 import type { OrderPricing } from '@/types/order';
 
 /**
  * What is being bought and what it costs.
  *
- * Shipping and tax are shown but not costed: there is no carrier or tax engine
- * yet, and naming them with an honest note is better than either hiding them or
- * inventing a number the customer would later be charged differently for.
+ * Until Phase 18 shipping and tax were named here but not costed, with a note
+ * saying so. Both are real now, and so is the discount — every figure below is
+ * the server's `priceOrder`, the same function that will price the order when
+ * it is placed.
+ *
+ * The coupon field is passed in rather than built here, because applying a
+ * code re-prices the whole summary and that state belongs to the checkout.
  */
 export function CheckoutSummaryPanel({
   items,
   pricing,
+  couponCode,
+  shippingPolicy,
+  children,
 }: {
   items: CartItem[];
   pricing: OrderPricing;
+  couponCode?: string | null;
+  shippingPolicy: ShippingPolicy;
+  /** The coupon field, between the lines and the money. */
+  children?: React.ReactNode;
 }) {
+  // Measured on what is paid for the goods, as the server measures it.
+  const goods = pricing.subtotal - pricing.discount;
+  const toFreeDelivery = shippingPolicy.freeAbove - goods;
+
   return (
     <div className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
       <h2 className="text-h4">Order summary</h2>
@@ -60,53 +77,22 @@ export function CheckoutSummaryPanel({
         })}
       </ul>
 
-      <Separator className="my-5" />
-
-      <dl className="space-y-3">
-        <Row label="Subtotal">{formatPrice(pricing.subtotal)}</Row>
-        <Row label="Shipping">
-          <span className="text-muted-foreground">Not yet calculated</span>
-        </Row>
-        <Row label="Taxes">
-          <span className="text-muted-foreground">Not yet calculated</span>
-        </Row>
-        {pricing.discount > 0 && (
-          <Row label="Discount" tone="success">
-            −{formatPrice(pricing.discount)}
-          </Row>
-        )}
-      </dl>
+      {children && (
+        <>
+          <Separator className="my-5" />
+          {children}
+        </>
+      )}
 
       <Separator className="my-5" />
 
-      <div className="flex items-baseline justify-between">
-        <span className="text-h4">Total</span>
-        <span className="text-price-lg">{formatPrice(pricing.total)}</span>
-      </div>
+      <PriceBreakdown pricing={pricing} couponCode={couponCode} size="lg" />
 
-      <p className="text-caption mt-2 text-muted-foreground">
-        Shipping and taxes will be calculated when those services are available. You will not be
-        charged more than the total shown without confirming first.
-      </p>
-    </div>
-  );
-}
-
-function Row({
-  label,
-  tone,
-  children,
-}: {
-  label: string;
-  tone?: 'success';
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="text-small flex items-center justify-between gap-4">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className={tone === 'success' ? 'font-medium text-success' : 'font-medium'}>
-        {children}
-      </dd>
+      {pricing.shipping > 0 && toFreeDelivery > 0 && (
+        <p className="text-caption mt-4 rounded-xl bg-brand-subtle px-3.5 py-2.5 font-medium text-brand">
+          Add {formatPrice(toFreeDelivery)} more for free delivery.
+        </p>
+      )}
     </div>
   );
 }

@@ -1,5 +1,11 @@
 import type { BadgeTone } from '@/components/admin/admin-ui';
-import type { AttentionFlag, MovementType, StockState } from '@/types/admin';
+import type {
+  AttentionFlag,
+  CouponState,
+  MovementType,
+  StockState,
+  SubscriberStatus,
+} from '@/types/admin';
 
 /**
  * How each state is coloured, decided once.
@@ -188,4 +194,39 @@ export function deliveryTone(status: string): BadgeTone {
     default:
       return 'neutral';
   }
+}
+
+/**
+ * A coupon state's tone follows whether anybody should look at it (Phase 18).
+ *
+ * EXHAUSTED is the one warning: a code that ran out while it was still meant
+ * to be running is the only state where an operator may want to act — raise
+ * the limit, or let it go. EXPIRED is neutral, because an end date passing is
+ * a promotion finishing as planned, and INACTIVE is neutral because somebody
+ * chose it. SCHEDULED is brand, like every other state in the console that is
+ * on its way and needs nobody.
+ */
+export function couponStateTone(state: CouponState): BadgeTone {
+  switch (state) {
+    case 'ACTIVE':
+      return 'success';
+    case 'SCHEDULED':
+      return 'brand';
+    case 'EXHAUSTED':
+      return 'warning';
+    case 'EXPIRED':
+    case 'INACTIVE':
+      return 'neutral';
+  }
+}
+
+/**
+ * A subscriber's tone answers the one question the export asks (Phase 18).
+ *
+ * Green is on the list and will be exported; everything else is not. An address
+ * awaiting confirmation is waiting on its owner, not on anybody here, so it is
+ * neutral rather than a warning that would teach operators to chase it.
+ */
+export function subscriberStatusTone(status: SubscriberStatus): BadgeTone {
+  return status === 'SUBSCRIBED' ? 'success' : 'neutral';
 }

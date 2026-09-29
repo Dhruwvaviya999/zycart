@@ -1,5 +1,9 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import * as controller from '../controllers/admin.controller';
+import * as coupons from '../controllers/coupon.controller';
+import * as newsletter from '../controllers/newsletter.controller';
+import * as uploads from '../controllers/upload.controller';
+import { MAX_IMAGE_BYTES } from '../services/uploads/image-sniff';
 import * as fulfillment from '../controllers/fulfillment.controller';
 import * as operations from '../controllers/inventory.controller';
 import * as notifications from '../controllers/notification.controller';
@@ -37,6 +41,30 @@ adminRouter.get('/admin/products/:id', asyncHandler(controller.getProduct));
 adminRouter.patch('/admin/products/:id', asyncHandler(controller.updateProduct));
 adminRouter.delete('/admin/products/:id', asyncHandler(controller.deleteProduct));
 
+/**
+ * Product images (Phase 18).
+ *
+ * The body parser is mounted here, on this one route and after the namespace
+ * guard, rather than globally: only an authenticated administrator can make the
+ * server buffer an image, and nothing else in the API accepts raw bytes except
+ * the Razorpay webhook. The global JSON parser leaves an `image/*` body alone,
+ * which is what lets this one read it.
+ *
+ * Limited per administrator, for the same reason the email retry is: each
+ * request costs a write to somebody else's storage.
+ */
+adminRouter.post(
+  '/admin/uploads/images',
+  rateLimit({
+    windowMs: 60_000,
+    max: 60,
+    keyBy: (req) => `image-upload:${req.user?.id ?? req.ip ?? 'unknown'}`,
+    message: 'Too many uploads. Wait a moment before trying again.',
+  }),
+  express.raw({ type: ['image/*', 'application/octet-stream'], limit: MAX_IMAGE_BYTES }),
+  asyncHandler(uploads.uploadImage),
+);
+
 adminRouter.get('/admin/categories', asyncHandler(controller.listCategories));
 adminRouter.post('/admin/categories', asyncHandler(controller.createCategory));
 adminRouter.patch('/admin/categories/:id', asyncHandler(controller.updateCategory));
@@ -66,6 +94,7 @@ adminRouter.get('/admin/orders', asyncHandler(controller.listOrders));
 adminRouter.patch('/admin/orders/bulk-status', asyncHandler(operations.bulkUpdateOrderStatus));
 
 adminRouter.get('/admin/orders/:orderRef', asyncHandler(controller.getOrder));
+adminRouter.get('/admin/orders/:orderRef/invoice', asyncHandler(controller.getOrderInvoice));
 
 /**
  * Fulfilment state only.
@@ -97,6 +126,30 @@ adminRouter.post(
   '/admin/orders/:orderRef/shipment/status',
   asyncHandler(fulfillment.updateShipmentStatus),
 );
+
+/* Promotions ------------------------------------------------------ */
+
+/**
+ * Coupons (Phase 18).
+ *
+ * Ordinary CRUD, audited. There is deliberately no endpoint that grants a
+ * discount to an order directly: a discount exists only because a customer
+ * applied a code and the checkout priced it, so an administrator can shape what
+ * a code does but cannot hand somebody money off an order that already exists.
+ */
+adminRouter.get('/admin/coupons', asyncHandler(coupons.listCoupons));
+adminRouter.post('/admin/coupons', asyncHandler(coupons.createCoupon));
+adminRouter.get('/admin/coupons/:id', asyncHandler(coupons.getCoupon));
+adminRouter.patch('/admin/coupons/:id', asyncHandler(coupons.updateCoupon));
+adminRouter.delete('/admin/coupons/:id', asyncHandler(coupons.deleteCoupon));
+
+/**
+ * The newsletter list (Phase 18). Read and export only: subscribing and leaving
+ * are acts only the address's owner can perform, through the signed links.
+ */
+adminRouter.get('/admin/subscribers', asyncHandler(newsletter.listSubscribers));
+adminRouter.get('/admin/subscribers/summary', asyncHandler(newsletter.getSubscriberCounts));
+adminRouter.get('/admin/subscribers/export', asyncHandler(newsletter.exportSubscribers));
 
 /* Returns --------------------------------------------------------- */
 
