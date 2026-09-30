@@ -5,6 +5,7 @@ import * as productService from '../product.service';
 import { productQuerySchema } from '../../validators/product.validator';
 import type { AiChatInput, ClientMessage } from '../../validators/ai.validator';
 import { buildSystemPrompt } from './prompts';
+import { readBudget } from './search/budget';
 import { AiProviderError, type AiProvider, type AiToolResult, type AiTurn } from './provider';
 import { executeTool, toolDefinitions, toolsFor, type AiTool } from './tools';
 import type { AiProductView } from './tools/product-view';
@@ -266,7 +267,19 @@ export async function chat(input: AiChatInput, options: AiChatOptions): Promise<
   const system = buildSystemPrompt({ authenticated });
 
   const collected: Collected = { shown: new Map(), comparison: null, actions: [] };
-  const context: ToolContext = { userId: options.userId, shown: collected.shown };
+
+  /**
+   * The budget comes from the message being answered, and only that one. An
+   * earlier "under ₹3,000" followed by "yes, show me the ones above it" is the
+   * customer lifting their own limit, and they are entitled to.
+   */
+  const latest = [...input.messages].reverse().find((message) => message.role === 'user');
+
+  const context: ToolContext = {
+    userId: options.userId,
+    shown: collected.shown,
+    search: { budget: readBudget(latest?.content ?? ''), foundNothing: false },
+  };
   const budget = { remaining: AI_LIMITS.maxToolCalls };
 
   const turns = await buildTurns(input);

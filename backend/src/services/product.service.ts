@@ -227,11 +227,12 @@ async function buildFilter(query: ProductQuery, mode: MatchMode = 'all'): Promis
  */
 async function resolveFilter(
   query: ProductQuery,
+  widen = true,
 ): Promise<{ filter: ProductFilter; total: number; widened: boolean }> {
   const strict = await buildFilter(query);
   const total = await Product.countDocuments(strict);
 
-  if (total > 0 || !query.search || tokenCount(query.search) < WIDENABLE_FROM_TOKENS) {
+  if (!widen || total > 0 || !query.search || tokenCount(query.search) < WIDENABLE_FROM_TOKENS) {
     return { filter: strict, total, widened: false };
   }
 
@@ -290,8 +291,21 @@ async function listByRelevance(query: ProductQuery, filter: ProductFilter, total
   return { items: ranked.slice(skip, skip + query.limit), pagination };
 }
 
-export async function listProducts(query: ProductQuery) {
-  const { filter, total } = await resolveFilter(query);
+export interface ListOptions {
+  /**
+   * Whether a search that matches nothing may widen to "any of these words".
+   *
+   * Right for a shopper typing a sentence into the search bar, who is better
+   * served by near matches than by a blank page. Wrong for the assistant: it
+   * writes its own search terms and can try again with fewer words, and a
+   * widened "running shoes" returns a running *tee* that it would then show as
+   * though it were what the customer asked for.
+   */
+  widen?: boolean;
+}
+
+export async function listProducts(query: ProductQuery, options: ListOptions = {}) {
+  const { filter, total } = await resolveFilter(query, options.widen ?? true);
 
   /**
    * Relevance with nothing to rank is just "newest", and saying so here means a

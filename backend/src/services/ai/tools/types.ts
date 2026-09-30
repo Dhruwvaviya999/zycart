@@ -1,6 +1,7 @@
 import { z, ZodError, type ZodType } from 'zod';
 import { AppError } from '../../../utils/AppError';
 import type { AiToolSchema } from '../provider';
+import type { PriceBounds } from '../search/budget';
 import type { AiProductView } from './product-view';
 
 /**
@@ -19,6 +20,26 @@ export interface ToolContext {
    * stock the database's numbers instead of the model's.
    */
   shown: Map<string, AiProductView>;
+  /**
+   * What this request's searches must respect. Absent outside a chat request —
+   * a verification script calling a tool directly — where nothing is imposed.
+   */
+  search?: SearchGuard;
+}
+
+/**
+ * The customer's own limits for one request, and what its searches have found.
+ *
+ * Kept in code rather than left to the prompt because each search's products
+ * become cards on the page: a model that quietly retries without the budget,
+ * or browses the whole catalogue after finding nothing, puts things in front
+ * of the customer that they said they did not want.
+ */
+export interface SearchGuard {
+  /** Price limits written in the message being answered. Every search is held to them. */
+  budget: PriceBounds;
+  /** Set once a search in this request has matched nothing. */
+  foundNothing: boolean;
 }
 
 export interface AiTool {

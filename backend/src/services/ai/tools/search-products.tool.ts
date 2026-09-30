@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { AI_LIMITS } from '../../../config/ai';
 import * as productService from '../../product.service';
 import { SORT_KEYS, productQuerySchema } from '../../../validators/product.validator';
-import { defineTool } from './types';
+import { limitToBudget, type PriceBounds } from '../search/budget';
+import { ToolError, defineTool, type SearchGuard } from './types';
 import { remember, toProductView, type CatalogueProduct } from './product-view';
 
 /**
@@ -23,7 +24,7 @@ const input = z
       .max(100)
       .optional()
       .describe(
-        "Free text matched against product names, descriptions, tags, brand and category names. Use the customer's own words, minus anything expressed as a filter below.",
+        'The product words, matched against names, descriptions, tags, brands and categories — e.g. "running shoes", not the whole sentence, and without anything expressed as a filter below. Every word must match.',
       ),
     category: z
       .string()
@@ -69,11 +70,23 @@ const input = z
 export const searchProductsTool = defineTool({
   name: 'search_products',
   description:
-    'Search the ZyCart catalogue. Returns a short list of matching products with live prices, ratings and stock. Use this for any request to find, browse, suggest or narrow down products, and again whenever the customer changes what they are looking for.',
+    'Search the ZyCart catalogue. Returns a short list of matching products with live prices, ratings and stock. Every product it returns is shown to the customer as a card, so search only for what they asked for. Use this for any request to find, browse, suggest or narrow down products, and again whenever the customer changes what they are looking for.',
   requiresAuth: false,
   input,
 
   async execute(args, context) {
+    const guard = context.search;
+
+    if (guard && browsesAfterNothing(args, guard)) {
+      throw new ToolError(BROWSE_AFTER_NOTHING);
+    }
+
+    // The customer's own budget, whatever the model sent — see `budget.ts`.
+    const price = limitToBudget(
+      { minPrice: args.minPrice, maxPrice: args.maxPrice },
+      guard?.budget ?? {},
+    );
+
     /**
      * Re-parsed through the storefront's own query schema rather than passed
      * straight through. It is the schema that owns the rules — a price range
@@ -85,8 +98,8 @@ export const searchProductsTool = defineTool({
       ...(args.query ? { search: args.query } : {}),
       ...(args.category ? { category: args.category } : {}),
       ...(args.brand ? { brand: args.brand } : {}),
-      ...(args.minPrice === undefined ? {} : { minPrice: args.minPrice }),
-      ...(args.maxPrice === undefined ? {} : { maxPrice: args.maxPrice }),
+      ...(price.minPrice === undefined ? {} : { minPrice: price.minPrice }),
+      ...(price.maxPrice === undefined ? {} : { maxPrice: price.maxPrice }),
       ...(args.minRating === undefined ? {} : { minRating: args.minRating }),
       ...(args.inStock === undefined ? {} : { inStock: String(args.inStock) }),
       ...(args.sort ? { sort: args.sort } : {}),
@@ -94,21 +107,110 @@ export const searchProductsTool = defineTool({
       limit: Math.min(args.limit, AI_LIMITS.maxSearchLimit),
     });
 
-    const { items, pagination } = await productService.listProducts(query);
+    // No widening to "any of these words": see `ListOptions.widen`.
+    const { items, pagination } = await productService.listProducts(query, { widen: false });
     const products = (items as CatalogueProduct[]).map(toProductView);
 
     remember(context.shown, products);
 
+    const budgetApplied = price.clamped
+      ? { minPrice: price.minPrice, maxPrice: price.maxPrice }
+      : undefined;
+
+    if (pagination.total > 0) {
+      return { returned: products.length, totalMatches: pagination.total, budgetApplied, products };
+    }
+
+    if (guard) guard.foundNothing = true;
+
+    /**
+     * Nothing within the price limits: the closest match outside them, as a
+     * fact for the answer — "the cheapest is ₹4,999" — and not as a card. The
+     * customer decides whether to see products over their budget.
+     */
+    const bounded = price.minPrice !== undefined || price.maxPrice !== undefined;
+    const outside = bounded
+      ? await productService.listProducts(
+          {
+            ...query,
+            minPrice: undefined,
+            maxPrice: undefined,
+            sort: price.maxPrice === undefined ? 'price_desc' : 'price_asc',
+            limit: 1,
+          },
+          { widen: false },
+        )
+      : null;
+
+    const closest = (outside?.items[0] ?? null) as { name?: string; price?: number } | null;
+
     return {
-      returned: products.length,
-      totalMatches: pagination.total,
-      // Said plainly so the assistant offers to widen the search instead of
-      // quietly presenting nothing as though it were the whole catalogue.
-      note:
-        pagination.total === 0
-          ? 'No products matched. Suggest relaxing the budget, the category or the filters.'
+      returned: 0,
+      totalMatches: 0,
+      budgetApplied,
+      outsideBudget:
+        outside && closest?.name && closest.price !== undefined
+          ? {
+              matches: outside.pagination.total,
+              closest: { name: closest.name, price: closest.price },
+            }
           : undefined,
+      note: nothingMatchedNote(price, outside?.pagination.total ?? 0, closest),
       products,
     };
   },
 });
+
+const BROWSE_AFTER_NOTHING =
+  'Nothing matched what the customer asked for, and a search without product words would ' +
+  'only show them unrelated products. Answer now: tell them nothing matched, and offer to ' +
+  'widen the search. Search more widely only if they ask.';
+
+/**
+ * A search that names no product at all — no words, no category, no brand —
+ * after one that found nothing.
+ *
+ * That is the assistant giving up on what the customer asked for and showing
+ * whatever is in the price range instead: kitchen goods for a request for
+ * running shoes. Retrying with other words ("sneakers" after "running shoes")
+ * is still allowed; it is the same request, differently put.
+ */
+export function browsesAfterNothing(
+  args: { query?: string; category?: string; brand?: string },
+  guard: SearchGuard,
+): boolean {
+  return guard.foundNothing && !args.query && !args.category && !args.brand;
+}
+
+const rupees = (amount: number) => `₹${new Intl.NumberFormat('en-IN').format(amount)}`;
+
+/** What the model is told when a search finds nothing — the answer, not a hint to keep looking. */
+export function nothingMatchedNote(
+  price: PriceBounds,
+  matchesOutside: number,
+  closest: { name?: string; price?: number } | null,
+): string {
+  const limit =
+    price.maxPrice !== undefined && price.minPrice !== undefined
+      ? `between ${rupees(price.minPrice)} and ${rupees(price.maxPrice)}`
+      : price.maxPrice !== undefined
+        ? `at or under ${rupees(price.maxPrice)}`
+        : price.minPrice !== undefined
+          ? `at or over ${rupees(price.minPrice)}`
+          : null;
+
+  if (limit && matchesOutside > 0 && closest?.name && closest.price !== undefined) {
+    return (
+      `Nothing matches ${limit}. ${String(matchesOutside)} match outside that price; the ` +
+      `closest is "${closest.name}" at ${rupees(closest.price)}. Tell the customer this plainly ` +
+      'and ask whether they want to see them. Do not show products outside their price unless ' +
+      'they ask.'
+    );
+  }
+
+  return (
+    `No products matched${limit ? ` ${limit}` : ''}. Tell the customer plainly and suggest what ` +
+    'they could change. Do not search again with fewer requirements, or show other products, ' +
+    'unless they ask.'
+  );
+}

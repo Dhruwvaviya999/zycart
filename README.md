@@ -426,7 +426,7 @@ Backend checks, run from `backend/`:
 
 | Command                     | Effect                                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm test`                 | 783 unit tests — try-on, pricing, coupons, invoices, accounts, logging, health, smoke, payments, email, drain, AI, discovery, inventory, operations, returns; no database |
+| `pnpm test`                 | 809 unit tests — try-on, pricing, coupons, invoices, accounts, logging, health, smoke, payments, email, drain, AI, discovery, inventory, operations, returns; no database |
 | `pnpm ai:verify`            | 43 checks of every AI tool against a real MongoDB                  |
 | `pnpm discovery:verify`     | 63 checks of search, similarity and recommendations                |
 | `pnpm inventory:verify`     | 48 checks of stock adjustment, concurrency and the ledger          |
