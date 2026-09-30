@@ -399,7 +399,9 @@ export async function getProduct(idOrSlug: string) {
   const filter: ProductFilter = byId ? { _id: idOrSlug } : { slug: idOrSlug, isActive: true };
 
   const product = await Product.findOne(filter)
-    .populate('category', REFERENCE_FIELDS)
+    // The detail page is the one place a product's category says whether it
+    // can be tried on (Phase 19); the lists have no button to decide about.
+    .populate('category', `${REFERENCE_FIELDS} tryOnEnabled`)
     .populate('brand', REFERENCE_FIELDS);
 
   if (!product) throw new AppError('Product not found', 404);

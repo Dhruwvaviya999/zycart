@@ -159,6 +159,8 @@ export interface AdminTaxonomyRow {
    */
   gstRate?: number | null;
   hsnCode?: string;
+  /** Categories only: whether its products offer virtual try-on (Phase 19). */
+  tryOnEnabled?: boolean;
 }
 
 /** The shape a category and a brand have in common, once loaded. */
@@ -174,6 +176,7 @@ interface TaxonomyDocument {
   createdAt: Date;
   gstRate?: number | null;
   hsnCode?: string;
+  tryOnEnabled?: boolean;
 }
 
 /** Name or slug, the two things an operator would type. */
@@ -218,7 +221,13 @@ async function withProductCounts(
     isActive: row.isActive,
     productCount: byId.get(String(row._id)) ?? 0,
     createdAt: row.createdAt.toISOString(),
-    ...(field === 'category' ? { gstRate: row.gstRate ?? null, hsnCode: row.hsnCode ?? '' } : {}),
+    ...(field === 'category'
+      ? {
+          gstRate: row.gstRate ?? null,
+          hsnCode: row.hsnCode ?? '',
+          tryOnEnabled: row.tryOnEnabled === true,
+        }
+      : {}),
   }));
 }
 

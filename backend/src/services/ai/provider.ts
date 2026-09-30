@@ -119,7 +119,24 @@ export interface AiProvider {
   generateStructured(request: AiStructuredRequest): Promise<unknown>;
 }
 
-export type AiFailureKind = 'timeout' | 'auth' | 'rate_limit' | 'upstream' | 'unknown';
+/**
+ * `rate_limit`, `no_quota` and `daily_quota` are deliberately different
+ * (Phase 19).
+ *
+ * A rate limit is temporary: the allowance refills and the same request
+ * succeeds a minute later. `no_quota` is a key with *no allowance at all* for
+ * the model — a free-tier key asking for a model that has no free tier, which
+ * Google reports as a quota of `limit: 0`. Waiting never helps; somebody has to
+ * enable billing or choose another model, and telling a customer to "try again
+ * in a minute" would be a promise the system cannot keep.
+ *
+ * `daily_quota` sits between them: the account's allowance for the *day* is
+ * spent — Cloudflare's free 10,000 neurons — and comes back by itself, but at
+ * the provider's reset, not in a minute. When the provider says when, it is
+ * carried as `retryAt`.
+ */
+export type AiFailureKind =
+  'timeout' | 'auth' | 'rate_limit' | 'no_quota' | 'daily_quota' | 'upstream' | 'unknown';
 
 /**
  * A provider failure, classified but never quoted.
@@ -132,6 +149,8 @@ export class AiProviderError extends Error {
   constructor(
     message: string,
     public readonly kind: AiFailureKind = 'unknown',
+    /** Epoch milliseconds from which the same request can succeed again, when known. */
+    public readonly retryAt?: number,
   ) {
     super(message);
     this.name = 'AiProviderError';

@@ -125,6 +125,54 @@ const envSchema = z
     AI_RATE_LIMIT_USER: z.coerce.number().int().min(1).max(1_000).default(30),
 
     /**
+     * Virtual try-on (Phase 19). Server-only, every one of them.
+     *
+     * `TRY_ON_PROVIDER` chooses who renders the preview:
+     *
+     * - `gemini` (the default): a Gemini image model. It needs a Gemini API key
+     *   on a project with billing enabled — no Gemini image model has a free
+     *   tier. When the assistant already runs on Gemini its `AI_API_KEY` is
+     *   used; a store whose assistant runs elsewhere sets `TRY_ON_API_KEY`.
+     * - `cloudflare`: FLUX.2 on Cloudflare Workers AI, with
+     *   `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Its free plan comes
+     *   with a daily allowance and refuses, rather than bills, past it — the
+     *   way to offer try-on at no cost.
+     *
+     * `TRY_ON_MODEL` defaults to the chosen provider's model. There is no
+     * `NEXT_PUBLIC_` counterpart to any of this, and never should be: the photo
+     * goes browser → Express → the provider, and no credential leaves Express.
+     *
+     * `TRY_ON_DAILY_LIMIT` is a cost control first. Every try is an image
+     * generation somebody's allowance pays for, so each account gets a fixed
+     * number per day, counted in the database rather than in memory so a
+     * serverless deployment cannot hand out a fresh allowance per instance.
+     */
+    TRY_ON_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((value) => value === 'true'),
+    TRY_ON_PROVIDER: z.enum(['gemini', 'cloudflare']).default('gemini'),
+    TRY_ON_MODEL: z.string().trim().min(3).optional(),
+    TRY_ON_API_KEY: z.string().min(20, 'looks too short to be an API key').optional(),
+    TRY_ON_DAILY_LIMIT: z.coerce.number().int().min(1).max(100).default(10),
+    TRY_ON_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(180_000).default(90_000),
+    /** The account whose Workers AI allowance try-on uses. Not a secret: it appears in API URLs. */
+    CLOUDFLARE_ACCOUNT_ID: z
+      .string()
+      .trim()
+      .regex(
+        /^[0-9a-f]{32}$/i,
+        'should be the 32-character Account ID from the Cloudflare dashboard',
+      )
+      .optional(),
+    /** A token with Workers AI permissions only — never a Global API Key. */
+    CLOUDFLARE_API_TOKEN: z
+      .string()
+      .trim()
+      .min(20, 'looks too short to be an API token')
+      .optional(),
+
+    /**
      * Transactional email (Phase 14). Server-only, every one of them.
      *
      * `SMTP_PASSWORD` in particular must never be published to the browser:
@@ -252,6 +300,36 @@ const envSchema = z
         path: ['AI_PROVIDER'],
         message:
           'is "mock", which returns scripted replies - it must not be used in production. Set AI_PROVIDER=anthropic, or AI_ENABLED=false to run without the assistant',
+      });
+    }
+  })
+  /**
+   * A try-on model belongs to one provider (Phase 19).
+   *
+   * Switching `TRY_ON_PROVIDER` while an old `TRY_ON_MODEL` stays behind in
+   * `.env` would send a Gemini model name to Cloudflare, or the reverse, and
+   * every try would fail at the moment a customer pressed the button. Workers
+   * AI names are unmistakable — `@cf/…` — so the pairing is checked here.
+   */
+  .superRefine((env, ctx) => {
+    if (!env.TRY_ON_ENABLED || !env.TRY_ON_MODEL) return;
+
+    const workersAiModel = /^@(cf|hf)\//.test(env.TRY_ON_MODEL);
+
+    if (env.TRY_ON_PROVIDER === 'cloudflare' && !workersAiModel) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TRY_ON_MODEL'],
+        message: `is "${env.TRY_ON_MODEL}", which is not a Workers AI model, but TRY_ON_PROVIDER is cloudflare - remove TRY_ON_MODEL to use the default, or name a Workers AI model (@cf/...)`,
+      });
+    }
+
+    if (env.TRY_ON_PROVIDER === 'gemini' && workersAiModel) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TRY_ON_MODEL'],
+        message:
+          'is a Workers AI model, but TRY_ON_PROVIDER is gemini - set TRY_ON_PROVIDER=cloudflare, or remove TRY_ON_MODEL to use the default',
       });
     }
   })

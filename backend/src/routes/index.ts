@@ -15,6 +15,7 @@ import { recommendationRouter } from './recommendation.routes';
 import { returnRouter } from './return.routes';
 import { reviewRouter } from './review.routes';
 import { searchRouter } from './search.routes';
+import { tryOnRouter } from './try-on.routes';
 import { userRouter } from './user.routes';
 import { wishlistRouter } from './wishlist.routes';
 
@@ -28,6 +29,7 @@ apiRouter.use(adminRouter);
 apiRouter.use(authRouter);
 apiRouter.use(newsletterRouter);
 apiRouter.use(aiRouter);
+apiRouter.use(tryOnRouter);
 apiRouter.use(searchRouter);
 apiRouter.use(recommendationRouter);
 apiRouter.use(userRouter);

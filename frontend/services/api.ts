@@ -245,12 +245,13 @@ export async function sendMessage(method: Method, path: string, body?: unknown):
 export async function sendFile<TData>(
   path: string,
   file: Blob,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<TData> {
   try {
     const { data } = await api.post<ApiResponse<TData>>(path, file, {
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      headers: { 'Content-Type': file.type || 'application/octet-stream', ...options?.headers },
       timeout: options?.timeoutMs ?? 60_000,
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
 
     if (!data.success || data.data === undefined) {

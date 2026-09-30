@@ -39,6 +39,19 @@ const categorySchema = new Schema(
      * invented code.
      */
     hsnCode: { type: String, trim: true, maxlength: 8, default: '' },
+
+    /**
+     * Whether products in this category can be tried on virtually (Phase 19).
+     *
+     * On the category for the reason GST is: whether something can be worn is
+     * a fact about the kind of goods. Clothing, footwear and accessories can;
+     * a speaker or a lamp cannot, and a try-on button beside one would spend a
+     * paid image generation on a picture of somebody holding a lamp.
+     *
+     * Off by default, so a new category offers nothing until somebody decides
+     * it should.
+     */
+    tryOnEnabled: { type: Boolean, default: false },
   },
   baseSchemaOptions,
 );

@@ -187,6 +187,8 @@ export interface AdminTaxonomyRow {
    */
   gstRate?: number | null;
   hsnCode?: string;
+  /** Categories only: whether its products offer virtual try-on (Phase 19). */
+  tryOnEnabled?: boolean;
 }
 
 export interface AdminCatalogueQuery {
@@ -250,6 +252,8 @@ export interface TaxonomyInput {
   /** Categories only. Null follows the store default. */
   gstRate?: number | null;
   hsnCode?: string;
+  /** Categories only. */
+  tryOnEnabled?: boolean;
 }
 
 /**

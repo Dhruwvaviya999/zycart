@@ -15,6 +15,8 @@ export interface SeedCategory {
   /** Percent; see `GST_RATES`. Illustrative rates for development, not tax advice. */
   gstRate: number;
   hsnCode: string;
+  /** Whether products in it can be tried on virtually (Phase 19). */
+  tryOnEnabled: boolean;
 }
 
 export interface SeedBrand {
@@ -83,6 +85,7 @@ export const seedCategories: SeedCategory[] = [
       'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=80',
     gstRate: 18,
     hsnCode: '8518',
+    tryOnEnabled: false,
   },
   {
     name: 'Fashion',
@@ -92,6 +95,7 @@ export const seedCategories: SeedCategory[] = [
       'https://images.unsplash.com/photo-1512436991641-6745cdb1723f?auto=format&fit=crop&w=700&q=80',
     gstRate: 5,
     hsnCode: '6109',
+    tryOnEnabled: true,
   },
   {
     name: 'Footwear',
@@ -101,6 +105,7 @@ export const seedCategories: SeedCategory[] = [
       'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&w=700&q=80',
     gstRate: 18,
     hsnCode: '6404',
+    tryOnEnabled: true,
   },
   {
     name: 'Accessories',
@@ -110,6 +115,7 @@ export const seedCategories: SeedCategory[] = [
       'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=700&q=80',
     gstRate: 18,
     hsnCode: '4202',
+    tryOnEnabled: true,
   },
   {
     name: 'Home',
@@ -119,6 +125,7 @@ export const seedCategories: SeedCategory[] = [
       'https://images.unsplash.com/photo-1610701596007-11502861dcfa?auto=format&fit=crop&w=700&q=80',
     gstRate: 18,
     hsnCode: '6912',
+    tryOnEnabled: false,
   },
   {
     name: 'Beauty',
@@ -128,6 +135,7 @@ export const seedCategories: SeedCategory[] = [
       'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=700&q=80',
     gstRate: 18,
     hsnCode: '3304',
+    tryOnEnabled: false,
   },
 ];
 

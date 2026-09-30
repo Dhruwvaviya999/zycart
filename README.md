@@ -359,7 +359,7 @@ Open <http://localhost:3000>. The storefront reads its catalogue from the API, s
 ### Routes
 
 | Route               | Page                                                        |
-| ------------------- | ----------------------------------------------------------- |
+| ------------------------------------------------ | ------------------------------------------------------------ |
 | `/`                 | Homepage — hero, categories, trending, promos, best sellers |
 | `/shop`             | Product listing with search, filters and sorting            |
 | `/products/[slug]`  | Product detail — gallery, variants, specs, reviews          |
@@ -399,7 +399,7 @@ additional way in, not a replacement.
 Run from the repository root:
 
 | Command                | Effect                                                             |
-| ---------------------- | ------------------------------------------------------------------ |
+| --------------------------- | ----------------------------------------------------------------------------------- |
 | `pnpm dev`             | Start backend and frontend together                                |
 | `pnpm dev:backend`     | Start the API on port 5000 with reload                             |
 | `pnpm dev:frontend`    | Start Next.js on port 3000                                         |
@@ -425,8 +425,8 @@ Run from the repository root:
 Backend checks, run from `backend/`:
 
 | Command                     | Effect                                                             |
-| --------------------------- | ------------------------------------------------------------------ |
-| `pnpm test`                 | 715 unit tests — pricing, coupons, invoices, accounts, logging, health, smoke, payments, email, drain, AI, discovery, inventory, operations, returns; no database |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test`                 | 783 unit tests — try-on, pricing, coupons, invoices, accounts, logging, health, smoke, payments, email, drain, AI, discovery, inventory, operations, returns; no database |
 | `pnpm ai:verify`            | 43 checks of every AI tool against a real MongoDB                  |
 | `pnpm discovery:verify`     | 63 checks of search, similarity and recommendations                |
 | `pnpm inventory:verify`     | 48 checks of stock adjustment, concurrency and the ledger          |
@@ -479,7 +479,7 @@ See [docs/phase-16.md](docs/phase-16.md).
 Per application:
 
 | Location    | Command               | Effect                               |
-| ----------- | --------------------- | ------------------------------------ |
+| ----------- | --------------------------- | ------------------------------------------------------- |
 | `backend/`  | `pnpm dev`            | `tsx watch src/server.ts`            |
 | `backend/`  | `pnpm build`          | Compile TypeScript to `dist/`        |
 | `backend/`  | `pnpm start`          | Run the compiled server from `dist/` |
@@ -503,7 +503,7 @@ Per application:
 ### `backend/.env`
 
 | Variable                  | Required | Default                 | Description                                                                 |
-| ------------------------- | -------- | ----------------------- | --------------------------------------------------------------------------- |
+| ------------------------- | -------- | -------------------------------------- | --------------------------------------------------------------------------- |
 | `PORT`                    | No       | `5000`                  | API port                                                                    |
 | `NODE_ENV`                | No       | `development`           | development, test, or production                                            |
 | `MONGODB_URI`             | **Yes**  | none                    | Mongoose connection string                                                  |
@@ -533,7 +533,7 @@ Per application:
 | `SMTP_PASSWORD`           | Group‡   | none                    | SMTP password — **server-only**                                             |
 | `SMTP_SECURE`             | No       | `false`                 | `true` for implicit TLS on connect                                          |
 | `STORE_LEGAL_NAME`        | No       | `ZyCart`                | Seller name printed on invoices                                             |
-| `STORE_GSTIN`             | No       | none                    | Makes invoices *tax* invoices; its first two digits give the seller's state |
+| `STORE_GSTIN`             | No       | none                                   | Makes invoices _tax_ invoices; its first two digits give the seller's state |
 | `STORE_ADDRESS`           | No       | none                    | Seller address on invoices; lines separated by `\|`                        |
 | `STORE_STATE`             | No       | none                    | Seller's state, only when there is no GSTIN                                 |
 | `UPLOAD_PROVIDER`         | No       | `local`                 | `local` (disk, development) or `cloudinary` (production)                    |
@@ -542,6 +542,21 @@ Per application:
 | `CLOUDINARY_API_SECRET`   | Group§   | none                    | Signs uploads — **server-only**, registered with the log redactor           |
 | `CLOUDINARY_FOLDER`       | No       | `zycart/products`       | Upload folder                                                               |
 | `API_PUBLIC_URL`          | No       | `http://localhost:$PORT` | Origin for images the local provider stores                                |
+| `TRY_ON_ENABLED`          | No       | `true`                                 | `false` hides virtual try-on everywhere                                     |
+| `TRY_ON_PROVIDER`         | No       | `gemini`                               | `cloudflare` (free daily allowance) or `gemini` (paid)                      |
+| `TRY_ON_MODEL`            | No       | provider's default                     | `@cf/black-forest-labs/flux-2-klein-4b` or `gemini-3.1-flash-image`         |
+| `CLOUDFLARE_ACCOUNT_ID`   | No¶      | none                                   | Workers AI account, when `TRY_ON_PROVIDER=cloudflare`                       |
+| `CLOUDFLARE_API_TOKEN`    | No¶      | none                                   | Workers AI token — **server-only**, registered with the log redactor        |
+| `TRY_ON_API_KEY`          | No¶      | `AI_API_KEY` when `AI_PROVIDER=gemini` | Gemini key — **server-only**                                                |
+| `TRY_ON_DAILY_LIMIT`      | No       | `10`                                   | Tries per account per day (IST); failed tries are given back                |
+| `TRY_ON_TIMEOUT_MS`       | No       | `90000`                                | One image generation's ceiling                                              |
+
+¶ Try-on needs its provider's credentials. **Free:** `TRY_ON_PROVIDER=cloudflare`
+with `CLOUDFLARE_ACCOUNT_ID` and a Workers AI `CLOUDFLARE_API_TOKEN` — the Free
+plan's 10,000 daily neurons cover about 80 previews for the whole store, and
+past that requests are refused, not billed. **Paid:** `gemini` with a key on a
+billing-enabled project (the assistant's own when it runs on Gemini, or
+`TRY_ON_API_KEY`) — no Gemini image model has a free tier.
 
 § Required as a set once `UPLOAD_PROVIDER=cloudinary`. `local` is fine on a
 laptop and warned about in production, where a serverless disk does not outlive
@@ -552,7 +567,7 @@ missing — a deployment that promises delivery and has no mail server would
 record every message as failed until somebody noticed. The default `mock`
 provider renders and records each message and delivers nothing, which is what
 the test suite requires and what lets the admin console be used without a mail
-server. Unlike `AI_PROVIDER=mock` it is *allowed* in production, but the server
+server. Unlike `AI_PROVIDER=mock` it is _allowed_ in production, but the server
 warns loudly at startup and every delivery record names the transport, so
 nothing can be mistaken for a real send.
 
@@ -635,7 +650,7 @@ Identical shape, with `status: "unavailable"` and `checks.database:
 tells a restart loop from an outage.
 
 | Field | Values |
-| ----- | ------ |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
 | `status` | `ok` (HTTP 200), `unavailable` (HTTP 503) |
 | `checks.database` | `ok`, `unavailable` — a real `ping`, bounded at 2 seconds |
 | `checks.email` | `configured`, `mock` — `mock` records messages and delivers nothing. No SMTP connection is opened |
@@ -650,7 +665,7 @@ and is not degraded; a development machine runs mock mail and is not broken. A
 readiness endpoint that returned 503 for either would be removed from the load
 balancer within a week.
 
-Whether a deployment is *permitted* to run that way is a different question,
+Whether a deployment is _permitted_ to run that way is a different question,
 asked by `pnpm smoke:deploy` before the deploy happens.
 
 Every response, on every endpoint, carries a correlation header:
@@ -665,7 +680,7 @@ anything else is replaced with a generated id rather than rejected.
 ### Authentication and accounts
 
 | Method   | Path                                  | Auth | Purpose                    |
-| -------- | ------------------------------------- | ---- | -------------------------- |
+| -------- | ----------------------------------------------- | ----------- | ------------------------------------------- |
 | `POST`   | `/api/auth/register`                  | —    | Create an account          |
 | `POST`   | `/api/auth/login`                     | —    | Start a session            |
 | `POST`   | `/api/auth/logout`                    | —    | End the session            |
@@ -692,10 +707,22 @@ Reset and verification links carry a 256-bit single-use token of which only the
 SHA-256 is stored, and which never reaches the notification record — see
 [docs/phase-18.md](docs/phase-18.md).
 
+### Virtual try-on
+
+| Method | Path                      | Auth     | Purpose                                          |
+| ------ | ------------------------- | -------- | ------------------------------------------------ |
+| `GET`  | `/api/try-on/status`      | optional | Whether try-on is offered; tries left today      |
+| `POST` | `/api/try-on/:productRef` | ✓        | Body: the customer's photo (JPEG/PNG/WebP, 6 MB) |
+
+The photo is the raw request body with `X-Try-On-Consent: granted` and an
+optional `?colour=`. It is never stored or logged; the preview comes back as a
+`data:` URL with `Cache-Control: no-store`. Only categories with try-on switched
+on qualify. See [docs/phase-19.md](docs/phase-19.md).
+
 ### Newsletter
 
 | Method | Path                          | Auth        | Purpose                                  |
-| ------ | ----------------------------- | ----------- | ---------------------------------------- |
+| ------ | ----------------------------- | ----------- | ------------------------------------------ |
 | `POST` | `/api/newsletter/subscribe`   | —           | Join, pending confirmation (double opt-in) |
 | `POST` | `/api/newsletter/confirm`     | —           | Redeem the confirmation link             |
 | `POST` | `/api/newsletter/unsubscribe` | signed link | Leave the list                           |
@@ -724,7 +751,7 @@ Prices and stock are always the server's, never the browser's — see
 ### Checkout and orders
 
 | Method | Path                           | Auth | Purpose                              |
-| ------ | ------------------------------ | ---- | ------------------------------------ |
+| ------ | ------------------------------- | ---- | -------------------------------------------------------------- |
 | `GET`  | `/api/checkout/summary`        | ✓    | Live cart, addresses, blockers; `?couponCode=` prices a coupon |
 | `GET`  | `/api/orders`                  | ✓    | Paginated order history              |
 | `POST` | `/api/orders`                  | ✓    | Place an order (`COD` or `RAZORPAY`, optional `couponCode`) |
@@ -734,7 +761,7 @@ Prices and stock are always the server's, never the browser's — see
 
 From Phase 18 prices include GST: `total = subtotal − discount + shipping`, and
 `pricing.tax` reports how much of the total is GST. Delivery is ₹99 below ₹999
-of goods (after discount) and free above it. A coupon is a *code* in the
+of goods (after discount) and free above it. A coupon is a _code_ in the
 request, never an amount — the server re-prices it against the basket when the
 order is placed.
 
@@ -751,7 +778,7 @@ renders that verdict; it never computes one.
 ### Shipments and returns
 
 | Method | Path                                  | Auth | Purpose                                |
-| ------ | ------------------------------------- | ---- | -------------------------------------- |
+| ------ | -------------------------------- | ---- | ----------------------------------- |
 | `POST` | `/api/orders/:orderRef/returns`       | ✓    | Raise a return on your own order       |
 | `GET`  | `/api/returns`                        | ✓    | Your return requests, paged            |
 | `GET`  | `/api/returns/:returnRef`             | ✓    | One of your returns                    |
@@ -888,7 +915,7 @@ Every path below `/api/admin` passes through `requireAuth` and then
 the router, so a route added later cannot be unprotected by omission.
 
 | Method   | Path                                  | Purpose                                        |
-| -------- | ------------------------------------- | ---------------------------------------------- |
+| -------- | ------------------------------------- | -------------------------------------------------- |
 | `GET`    | `/api/admin/dashboard`                | Metrics, revenue series, attention counts      |
 | `GET`    | `/api/admin/products`                 | Catalogue listing, **including inactive**      |
 | `POST`   | `/api/admin/products`                 | Create                                         |
@@ -1001,7 +1028,7 @@ is refused with `409` and a sentence naming the real quantity.
 #### Fulfilment and returns
 
 | Method  | Path                                              | Purpose                              |
-| ------- | ------------------------------------------------- | ------------------------------------ |
+| ------- | --------------------------------------------- | -------------------------------------- |
 | `POST`  | `/api/admin/orders/:orderRef/shipment`            | Create the parcel                    |
 | `PATCH` | `/api/admin/orders/:orderRef/shipment`            | Correct carrier and tracking details |
 | `POST`  | `/api/admin/orders/:orderRef/shipment/status`     | Move the parcel, and the order       |
@@ -1194,6 +1221,18 @@ the two about things that did not happen — an abandoned cart, an unretried
 payment — come from `pnpm reminders:send`, run by cron like the drain. And
 product photos upload from the form, typed by their own bytes rather than by
 anything the uploader claimed, to local disk or Cloudinary.
+
+Phase 19 added a virtual fitting room. On any product whose category allows
+it, a signed-in customer can upload or take a photo and see themselves wearing
+the product, rendered by Google's Gemini image model (Nano Banana 2). The photo
+is redrawn on the device first — which strips its location metadata — and is
+never stored, logged or cached by ZyCart; the preview goes straight back to the
+browser. Every try is a paid generation, so each account has a daily allowance
+counted in the database with a single conditional upsert, which six concurrent
+tries against a limit of three cannot overspend; a try that produced no
+picture is given back. The prompt insists that the person stays exactly who
+they are — no slimming, no retouching — because a shopper deciding whether
+something suits them must see themselves.
 
 Later phases can build on that foundation: a shipping-provider integration behind
 the shipment domain Phase 13 modelled, SMS and in-app notification beside the

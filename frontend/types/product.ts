@@ -5,6 +5,11 @@ export interface ProductReference {
   id: string;
   name: string;
   slug: string;
+  /**
+   * On a product page's category only: whether products in it can be tried
+   * on virtually (Phase 19). The list endpoints leave it out.
+   */
+  tryOnEnabled?: boolean;
 }
 
 export interface ProductColor {

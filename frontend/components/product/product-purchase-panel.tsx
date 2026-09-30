@@ -7,6 +7,7 @@ import { AiProductCta } from '@/components/ai/ai-cta';
 import { Button } from '@/components/ui/button';
 import { Price } from '@/components/product/price';
 import { QuantitySelector } from '@/components/product/quantity-selector';
+import { TryOnButton } from '@/components/product/try-on-button';
 import { Rating } from '@/components/product/rating';
 import { WishlistButton } from '@/components/product/wishlist-button';
 import { VariantPicker } from '@/components/product/variant-picker';
@@ -203,7 +204,15 @@ export function ProductPurchasePanel({ product }: { product: Product }) {
         product is a step before buying it, so it must not compete with the
         button that does. Renders nothing when the store has no assistant.
       */}
-      <AiProductCta productId={product.id} productName={product.name} className="mt-4" />
+      {/*
+        Try-on sits with the assistant: both help decide, neither buys. It is
+        handed the page's own add-to-cart, so adding from the fitting room
+        applies the same size and colour rules as the button above. Renders
+        nothing for goods that cannot be worn, or when the store has no try-on.
+      */}
+      <TryOnButton product={product} colour={color} onAddToCart={addToCart} className="mt-4" />
+
+      <AiProductCta productId={product.id} productName={product.name} className="mt-3" />
 
       <dl className="text-caption mt-7 flex flex-wrap gap-x-6 gap-y-2 text-muted-foreground">
         <div className="flex gap-1.5">

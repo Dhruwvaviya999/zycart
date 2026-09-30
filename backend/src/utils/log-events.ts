@@ -110,6 +110,12 @@ export const LOG_EVENTS = [
 
   /* Reminders (Phase 18) --------------------------------------------- */
   'reminder_queued',
+
+  /* Virtual try-on (Phase 19) ---------------------------------------- */
+  'try_on_completed',
+  /** The model declined the photo, or returned no image. The try is given back. */
+  'try_on_refused',
+  'try_on_failed',
 ] as const;
 
 /** The only names `logger.*` will accept. */

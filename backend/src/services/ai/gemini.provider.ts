@@ -30,7 +30,10 @@ import {
  * vendor was one new file and one new enum value, which is the entire point of
  * having written the interface that way.
  *
- * Only this file and `anthropic.provider.ts` import a model SDK.
+ * Only this file, `anthropic.provider.ts`, `huggingface.provider.ts` and — from
+ * Phase 19 — `gemini-image.provider.ts` import a model SDK. The image provider
+ * reuses this file's error mapping and timeout, so a try-on and a chat turn
+ * fail in the same vocabulary.
  */
 
 /**
@@ -160,9 +163,23 @@ const thinkingFor = (model: string) => {
 const isQuota = (message: string): boolean =>
   /RESOURCE_EXHAUSTED|quota|rate.?limit|exceeded/i.test(message);
 
+/**
+ * "You never had any" — a quota of zero for this model (Phase 19).
+ *
+ * Google reports it in the same 429 as an exhausted allowance, and the only
+ * difference is in the body: `…free_tier_input_token_count, limit: 0, model:
+ * gemini-3.1-flash-image`. It is what a free-tier key gets for every image
+ * model, since none of them has a free tier, and it never clears on its own.
+ * The negative lookahead keeps `limit: 0` from matching `limit: 05` or
+ * `limit: 000150`.
+ */
+export const hasNoQuota = (message: string): boolean => /\blimit:\s*0(?!\d)/i.test(message);
+
 /** Classifies a thrown SDK error without letting its text escape this process. */
-function toProviderError(error: unknown): AiProviderError {
-  if (error instanceof Error && error.name === 'AbortError') {
+export function toProviderError(error: unknown): AiProviderError {
+  // `AbortSignal.timeout` rejects with a TimeoutError; a caller's own abort is
+  // an AbortError. Both mean the same thing here: no answer arrived in time.
+  if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
     return new AiProviderError('Request aborted', 'timeout');
   }
 
@@ -179,7 +196,18 @@ function toProviderError(error: unknown): AiProviderError {
      * is the only thing that distinguishes them.
      */
     if (status === 429 || (status === 403 && isQuota(error.message))) {
-      return new AiProviderError('Provider quota or rate limit reached', 'rate_limit');
+      /**
+       * Named in the message — the model and the fix — because this is a
+       * configuration problem an operator has to act on, and the log line is
+       * where they will look. It carries no part of Google's body verbatim.
+       */
+      return hasNoQuota(error.message)
+        ? new AiProviderError(
+            'This key has no quota for the model (Google reports limit: 0). Free-tier keys cannot ' +
+              'use models without a free tier — enable billing on the Google AI project.',
+            'no_quota',
+          )
+        : new AiProviderError('Provider quota or rate limit reached', 'rate_limit');
     }
 
     if (status === 401 || status === 403) {
@@ -201,7 +229,7 @@ function toProviderError(error: unknown): AiProviderError {
  * Without it a stalled connection would sit until the service's own request
  * deadline, spending the whole budget on a call that was never going to answer.
  */
-function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+export function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
   const timeout = AbortSignal.timeout(timeoutMs);
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }

@@ -57,6 +57,11 @@ export function secretValues(env: Env): string[] {
     // Phase 18. The cloud name and API key identify the account and appear in
     // every image URL; the secret signs uploads and must appear nowhere.
     env.CLOUDINARY_API_SECRET,
+    // Phase 19. Often the same value as AI_API_KEY; registering it twice is
+    // harmless, and missing it when it differs would not be.
+    env.TRY_ON_API_KEY,
+    // The account id is not secret — it is part of every API URL — the token is.
+    env.CLOUDFLARE_API_TOKEN,
   ].filter((value): value is string => typeof value === 'string' && value.length > 0);
 }
 

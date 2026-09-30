@@ -232,6 +232,9 @@ function GstCell({ row }: { row: AdminTaxonomyRow }) {
       {row.hsnCode && (
         <span className="text-caption block text-muted-foreground">HSN {row.hsnCode}</span>
       )}
+      {row.tryOnEnabled && (
+        <span className="text-caption block text-muted-foreground">Try-on on</span>
+      )}
     </span>
   );
 }
@@ -339,6 +342,7 @@ function TaxonomyFields({
     row?.gstRate === null || row?.gstRate === undefined ? '' : String(row.gstRate),
   );
   const [hsnCode, setHsnCode] = useState(row?.hsnCode ?? '');
+  const [tryOnEnabled, setTryOnEnabled] = useState(row?.tryOnEnabled ?? false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
@@ -373,6 +377,7 @@ function TaxonomyFields({
             image: image.trim() || undefined,
             gstRate: gstRate === '' ? null : Number(gstRate),
             hsnCode: hsnCode.trim(),
+            tryOnEnabled,
           }
         : { logo: image.trim() || undefined }),
     };
@@ -490,6 +495,27 @@ function TaxonomyFields({
             </p>
           </div>
         </div>
+      )}
+
+      {/* Phase 19. Each try is a paid image generation, so only goods that
+          can actually be worn should offer it. */}
+      {kind === 'category' && (
+        <label className="focus-within:ring-ring/45 flex cursor-pointer items-start gap-2.5 rounded-lg py-1 focus-within:ring-[3px]">
+          <input
+            type="checkbox"
+            checked={tryOnEnabled}
+            onChange={(event) => setTryOnEnabled(event.target.checked)}
+            disabled={saving}
+            className="mt-0.5 size-4 accent-brand"
+          />
+          <span>
+            <span className="text-small block font-medium">Virtual try-on</span>
+            <span className="text-caption block text-muted-foreground">
+              Customers can see products in this category on a photo of themselves. For clothing,
+              footwear and accessories.
+            </span>
+          </span>
+        </label>
       )}
 
       <label className="focus-within:ring-ring/45 flex cursor-pointer items-center gap-2.5 rounded-lg py-1 focus-within:ring-[3px]">

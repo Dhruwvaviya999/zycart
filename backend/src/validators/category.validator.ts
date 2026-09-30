@@ -15,6 +15,8 @@ export const createCategorySchema = z.object({
     .refine(isGstRate, `must be one of ${GST_RATES.join(', ')}`)
     .nullable()
     .optional(),
+  /** Whether products in this category offer virtual try-on (Phase 19). */
+  tryOnEnabled: z.boolean().optional(),
   /** 4, 6 or 8 digits, or empty — never a guess. */
   hsnCode: z
     .string()

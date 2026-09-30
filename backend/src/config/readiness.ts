@@ -1,6 +1,7 @@
 import { aiConfig } from './ai';
 import { razorpayConfig, type Env } from './env';
 import { emailConfig } from './notifications';
+import { tryOnConfig, tryOnCredentialKey, tryOnUnavailableReason } from './try-on';
 
 /**
  * Is this configuration fit for the environment it claims to be?
@@ -198,6 +199,26 @@ export function checkReadiness(env: Env): ReadinessReport {
     });
   }
 
+  /* Virtual try-on (Phase 19) ---------------------------------------- */
+
+  /**
+   * A warning, like the assistant's: a store without try-on simply shows no
+   * button. Reported because `TRY_ON_ENABLED` defaults to true, so a
+   * deployment that meant to offer it and has no credential for its provider
+   * would otherwise find out from a product page with nothing on it.
+   */
+  const tryOn = tryOnConfig(env);
+
+  if (production && env.TRY_ON_ENABLED && !tryOn) {
+    findings.push({
+      key: tryOnCredentialKey(env),
+      severity: 'warning',
+      message:
+        `is missing (${tryOnUnavailableReason(env) ?? 'unknown'}), so product pages show no ` +
+        'virtual try-on. Set it, or set TRY_ON_ENABLED=false so the intent is explicit.',
+    });
+  }
+
   /* Logging ---------------------------------------------------------- */
 
   if (production && env.LOG_FORMAT === 'text') {
@@ -225,9 +246,18 @@ export function checkReadiness(env: Env): ReadinessReport {
           ? 'configured (live)'
           : 'configured (test)'
         : 'not configured',
-      Assistant: env.AI_ENABLED ? (ai ? `configured (${ai.provider})` : 'not configured') : 'disabled',
+      Assistant: env.AI_ENABLED
+        ? ai
+          ? `configured (${ai.provider})`
+          : 'not configured'
+        : 'disabled',
       Uploads: env.UPLOAD_PROVIDER === 'cloudinary' ? 'cloudinary' : 'local disk',
       Invoices: env.STORE_GSTIN ? 'tax invoices (GSTIN set)' : 'plain invoices (no GSTIN)',
+      'Try-on': env.TRY_ON_ENABLED
+        ? tryOn
+          ? `configured (${tryOn.model})`
+          : 'not configured'
+        : 'disabled',
       Logging: `${env.LOG_LEVEL} · ${env.LOG_FORMAT ?? 'default for environment'}`,
     },
   };
