@@ -9,7 +9,7 @@ import type { Env } from './env';
  * is never logged, printed at startup, or included in an error message.
  */
 
-export type AiProviderName = 'anthropic' | 'gemini' | 'huggingface' | 'mock';
+export type AiProviderName = 'gemini' | 'huggingface' | 'mock';
 
 /** A provider that is actually usable, with its credentials already resolved. */
   export interface AiConfig {
@@ -29,7 +29,6 @@ export type AiProviderName = 'anthropic' | 'gemini' | 'huggingface' | 'mock';
  * key can actually run.
  */
 const DEFAULT_MODEL: Record<AiProviderName, string> = {
-  anthropic: 'claude-opus-5',
   gemini: 'gemini-3.5-flash-lite',
   /**
    * Hugging Face routes by repository id, and the assistant is useless without

@@ -30,7 +30,7 @@ import {
  * vendor was one new file and one new enum value, which is the entire point of
  * having written the interface that way.
  *
- * Only this file, `anthropic.provider.ts`, `huggingface.provider.ts` and — from
+ * Only this file, `huggingface.provider.ts` and — from
  * Phase 19 — `gemini-image.provider.ts` import a model SDK. The image provider
  * reuses this file's error mapping and timeout, so a try-on and a chat turn
  * fail in the same vocabulary.

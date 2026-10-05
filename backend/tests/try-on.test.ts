@@ -63,7 +63,7 @@ describe('Try-on configuration', () => {
   });
 
   it('never hands Google a key that belongs to another vendor', () => {
-    const env = loadEnv({ ...BASE_ENV, AI_PROVIDER: 'anthropic', AI_API_KEY: GEMINI_KEY });
+    const env = loadEnv({ ...BASE_ENV, AI_PROVIDER: 'huggingface', AI_API_KEY: GEMINI_KEY });
 
     assert.equal(tryOnConfig(env), null);
     assert.match(tryOnUnavailableReason(env) ?? '', /TRY_ON_API_KEY/);

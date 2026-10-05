@@ -70,8 +70,8 @@ function toMessages(system: string, turns: AiTurn[]): OpenAI.ChatCompletionMessa
 
     /**
      * Every result becomes its own `tool` message, which is what the format
-     * requires — there is no batched equivalent of the array of `tool_result`
-     * blocks Anthropic takes. `isError` has no wire representation either, so a
+     * requires — there is no batched equivalent of a single message carrying
+     * every result. `isError` has no wire representation either, so a
      * failed tool is reported to the model the only way this format allows: as
      * its content, which `executeTool` already serialises as an `error` object.
      */

@@ -580,7 +580,7 @@ describe('Gateway configuration', () => {
       loadEnv({
         ...BASE_ENV,
         NODE_ENV: 'production',
-        AI_PROVIDER: 'anthropic',
+        AI_PROVIDER: 'gemini',
         AI_API_KEY: 'k'.repeat(40),
         RAZORPAY_KEY_ID: 'rzp_test_abcdef123456',
         RAZORPAY_KEY_SECRET: 'x'.repeat(24),

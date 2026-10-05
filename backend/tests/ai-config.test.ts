@@ -33,11 +33,11 @@ describe('AI configuration', () => {
   });
 
   it('resolves to the configured provider and model once a key is present', () => {
-    const parsed = env({ AI_API_KEY: 'sk-ant-'.padEnd(40, 'k'), AI_MODEL: 'claude-opus-5' });
+    const parsed = env({ AI_API_KEY: 'AIza-test-'.padEnd(40, 'k'), AI_MODEL: 'gemini-3.5-flash' });
     const config = aiConfig(parsed);
 
-    assert.equal(config?.provider, 'anthropic');
-    assert.equal(config?.model, 'claude-opus-5');
+    assert.equal(config?.provider, 'gemini');
+    assert.equal(config?.model, 'gemini-3.5-flash');
     assert.equal(config?.timeoutMs, 30_000);
   });
 

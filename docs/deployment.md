@@ -136,7 +136,7 @@ Variables. Services within one project share them.
 | `JWT_EXPIRES_IN` | no | Defaults to `7d`. |
 | `LOG_FORMAT` | no | Leave unset. Production resolves to `json`, which is what Vercel's log search can parse. |
 | `LOG_LEVEL` | no | `info`. Raise to `debug` during an incident. |
-| `AI_PROVIDER` | no | `anthropic` or `gemini`. **Never `mock`** — see below. |
+| `AI_PROVIDER` | no | `gemini` or `huggingface`. **Never `mock`** — see below. |
 | `AI_API_KEY` | no | Required for the assistant to answer anything at all. |
 | `AI_ENABLED` | no | `false` hides the assistant entirely, rather than shipping it broken. |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | no | All three, or none. See below. |

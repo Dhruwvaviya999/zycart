@@ -54,7 +54,7 @@ export type TryOnConfig =
  *
  * For Gemini the key is `TRY_ON_API_KEY` when set, and otherwise the
  * assistant's own key — but only when the assistant runs on Gemini. An
- * Anthropic or Hugging Face key would be refused by Google, and passing it
+ * Hugging Face key would be refused by Google, and passing it
  * along would turn a configuration gap into a failure every customer meets at
  * the moment they press the button. Cloudflare needs both its account id and
  * its token; one without the other is no configuration at all.

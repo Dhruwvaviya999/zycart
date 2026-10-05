@@ -157,11 +157,11 @@ describe('Health — subsystem reporting', () => {
   it('tells an assistant that is off from one that is broken', () => {
     assert.equal(aiStatus(env({ AI_ENABLED: 'false' })), 'disabled');
     assert.equal(
-      aiStatus(env({ AI_ENABLED: 'true', AI_PROVIDER: 'anthropic' })),
+      aiStatus(env({ AI_ENABLED: 'true', AI_PROVIDER: 'gemini' })),
       'not_configured',
     );
     assert.equal(
-      aiStatus(env({ AI_ENABLED: 'true', AI_PROVIDER: 'anthropic', AI_API_KEY: SECRETS.aiKey })),
+      aiStatus(env({ AI_ENABLED: 'true', AI_PROVIDER: 'gemini', AI_API_KEY: SECRETS.aiKey })),
       'configured',
     );
   });

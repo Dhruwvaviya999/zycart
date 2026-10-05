@@ -115,7 +115,6 @@ that stop the API booting.
 | Mongoose          | ODM                                |
 | Zod               | Schema and env validation          |
 | Razorpay          | Online payments                    |
-| Anthropic SDK     | AI provider — Claude (server-only) |
 | Google Gen AI SDK | AI provider — Gemini (server-only) |
 | dotenv            | Environment loading                |
 | cors              | Cross-origin access control        |
@@ -315,7 +314,7 @@ blank and the storefront runs exactly as before, with no assistant offered
 anywhere — the server reports which it is at startup:
 
 ```text
-ZyCart AI: anthropic (claude-opus-5)
+ZyCart AI: gemini (gemini-3.5-flash-lite)
 ZyCart AI: not configured - the assistant is unavailable (AI_API_KEY is not set).
 ```
 
@@ -341,7 +340,7 @@ Server listening on http://localhost:5000 (development)
 Health check: http://localhost:5000/api/health
 CORS origin: http://localhost:3000
 Razorpay: not configured - online payment is unavailable and checkout offers cash on delivery only.
-ZyCart AI: anthropic (claude-opus-5)
+ZyCart AI: gemini (gemini-3.5-flash-lite)
 ```
 
 Both optional features report their state on every boot, so "payments are off"
@@ -521,9 +520,9 @@ Per application:
 | `RAZORPAY_KEY_SECRET`     | Group\*  | none                    | Razorpay API secret — **server-only**                                       |
 | `RAZORPAY_WEBHOOK_SECRET` | Group\*  | none                    | Webhook signing secret — **server-only**, and different from the key secret |
 | `AI_ENABLED`              | No       | `true`                  | `false` runs ZyCart with no shopping assistant                              |
-| `AI_PROVIDER`             | No       | `anthropic`             | `anthropic`, `gemini`, or `mock` for tests and offline UI work              |
+| `AI_PROVIDER`             | No       | `gemini`                | `gemini`, `huggingface`, or `mock` for tests and offline UI work            |
 | `AI_API_KEY`              | No†      | none                    | AI provider key — **server-only**; blank means AI features are unavailable  |
-| `AI_MODEL`                | No       | per provider            | Model id. Defaults to `claude-opus-5` or `gemini-2.5-flash`                 |
+| `AI_MODEL`                | No       | per provider            | Model id. Gemini defaults to `gemini-3.5-flash-lite`                        |
 | `AI_TIMEOUT_MS`           | No       | `30000`                 | Per model call; the whole request has its own 55 s deadline                 |
 | `AI_RATE_LIMIT_GUEST`     | No       | `10`                    | Chat requests per minute, per IP                                            |
 | `AI_RATE_LIMIT_USER`      | No       | `30`                    | Chat requests per minute, per account                                       |

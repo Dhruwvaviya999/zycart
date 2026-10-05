@@ -94,7 +94,7 @@ Comparing providers: run once per provider. `AI_PROVIDER`, `AI_MODEL` and
 `AI_API_KEY` set in the shell override `.env`. Then compare the reports:
 
 ```bash
-AI_PROVIDER=anthropic AI_API_KEY=... pnpm ai:eval
+AI_PROVIDER=huggingface AI_API_KEY=... pnpm ai:eval
 pnpm ai:eval --compare eval-reports/*.json
 ```
 

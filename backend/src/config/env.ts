@@ -107,7 +107,7 @@ const envSchema = z
       .enum(['true', 'false'])
       .default('true')
       .transform((value) => value === 'true'),
-    AI_PROVIDER: z.enum(['anthropic', 'gemini', 'huggingface', 'mock']).default('anthropic'),
+    AI_PROVIDER: z.enum(['gemini', 'huggingface', 'mock']).default('gemini'),
     AI_API_KEY: z.string().min(20, 'looks too short to be an API key').optional(),
     /**
      * Left undefined on purpose. Each provider has a different default model,
@@ -299,7 +299,7 @@ const envSchema = z
         code: 'custom',
         path: ['AI_PROVIDER'],
         message:
-          'is "mock", which returns scripted replies - it must not be used in production. Set AI_PROVIDER=anthropic, or AI_ENABLED=false to run without the assistant',
+          'is "mock", which returns scripted replies - it must not be used in production. Set AI_PROVIDER=gemini, or AI_ENABLED=false to run without the assistant',
       });
     }
   })
