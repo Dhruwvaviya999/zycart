@@ -5,7 +5,10 @@ import { useState } from 'react';
 import { Loader2, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { InventoryAdjustDialog } from '@/components/admin/inventory-adjust-dialog';
+import {
+  InventoryAdjustDialog,
+  type AdjustableVariant,
+} from '@/components/admin/inventory-adjust-dialog';
 import { setLowStockThreshold } from '@/services/admin.service';
 import { toErrorMessage } from '@/services/api';
 import type { StockState } from '@/types/admin';
@@ -19,9 +22,14 @@ import type { StockState } from '@/types/admin';
  *
  * The dialog is mounted only while open — there is no reason for twenty closed
  * dialogs to exist behind a page of twenty products.
+ *
+ * With a `target` (Phase 20) it adjusts that one colour and size, which is the
+ * only way a product that tracks stock per variant can be adjusted at all.
+ * Named `target` because `variant` was already the button's look.
  */
 export function AdjustStockButton({
   product,
+  target,
   largeAdjustmentThreshold,
   variant = 'outline',
   size = 'sm',
@@ -36,6 +44,8 @@ export function AdjustStockButton({
     stockState: StockState;
     lowStockThreshold: number;
   };
+  /** The one stock variant to adjust, for a product that tracks stock per variant. */
+  target?: AdjustableVariant;
   largeAdjustmentThreshold: number;
   variant?: 'outline' | 'brand';
   size?: 'sm' | 'cta';
@@ -52,8 +62,14 @@ export function AdjustStockButton({
         onClick={() => setOpen(true)}
         className={className}
         // The product name is in the accessible name because a page of rows
-        // otherwise announces twenty buttons all called "Adjust".
-        aria-label={`Adjust stock for ${product.name}`}
+        // otherwise announces twenty buttons all called "Adjust" — and the
+        // variant's, because a table of variants would announce one product
+        // name twenty times.
+        aria-label={
+          target
+            ? `Adjust stock for ${product.name}, ${target.label}`
+            : `Adjust stock for ${product.name}`
+        }
       >
         <SlidersHorizontal className="size-3.5" data-icon="inline-start" aria-hidden />
         {label}
@@ -64,6 +80,7 @@ export function AdjustStockButton({
           open={open}
           onOpenChange={setOpen}
           product={product}
+          variant={target}
           largeAdjustmentThreshold={largeAdjustmentThreshold}
         />
       )}

@@ -106,7 +106,7 @@ export function scoreSimilarity(source: SimilarityFields, candidate: SimilarityF
  */
 const CANDIDATE_FIELDS =
   'name slug shortDescription images price compareAtPrice category brand sku stock ' +
-  'colors sizes tags rating reviewCount isFeatured isBestSeller isNewArrival createdAt';
+  'colors sizes variants tags rating reviewCount isFeatured isBestSeller isNewArrival createdAt';
 
 const REFERENCE_FIELDS = 'name slug';
 

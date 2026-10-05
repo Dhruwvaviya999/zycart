@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Button } from '@/components/ui/button';
 import { AdminEmpty, StatusBadge } from '@/components/admin/admin-ui';
 import { movementTone, signed } from '@/components/admin/status-tones';
+import { variantLabel } from '@/components/admin/variant-format';
 import { getProductMovements } from '@/services/admin.service';
 import { toErrorMessage } from '@/services/api';
 import { formatDateTime, formatDayLabel, formatTime } from '@/lib/format';
@@ -134,7 +135,7 @@ export function InventoryMovementTimeline({
                         <span className="text-caption mt-0.5 block text-muted-foreground">
                           {formatTime(movement.createdAt)}
                           {movement.actor ? ` · ${movement.actor.name}` : ''}
-                          {` · ${movement.quantityBefore} → ${movement.quantityAfter}`}
+                          {` · ${counts(movement)}`}
                         </span>
 
                         {movement.note && (
@@ -199,6 +200,9 @@ function MovementDetailDialog({
   movement: MovementRow | null;
   onClose: () => void;
 }) {
+  const label = variantLabel(movement?.variant);
+  const variantCounted = movement !== null && hasVariantCounts(movement);
+
   return (
     <Dialog open={movement !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent size="md">
@@ -216,18 +220,33 @@ function MovementDetailDialog({
 
               {movement.reason && <Row label="Reason">{REASON_LABEL[movement.reason]}</Row>}
 
-              <Row label="Stock before">
+              {label && <Row label="Variant">{label}</Row>}
+
+              {/* The variant's own count first when it moved: it is the
+                  shelf the change happened on. The total follows, labelled as
+                  such, because both are true of the one write. */}
+              {variantCounted && movement.variant && (
+                <>
+                  {movement.variant.sku && (
+                    <Row label="Variant SKU">
+                      <span className="font-mono">{movement.variant.sku}</span>
+                    </Row>
+                  )}
+                  <Row label="Variant before">
+                    <span className="tabular-nums">{movement.variant.quantityBefore}</span>
+                  </Row>
+                  <Row label="Variant after">
+                    <span className="tabular-nums">{movement.variant.quantityAfter}</span>
+                  </Row>
+                </>
+              )}
+
+              <Row label={variantCounted ? 'Total before' : 'Stock before'}>
                 <span className="tabular-nums">{movement.quantityBefore}</span>
               </Row>
-              <Row label="Stock after">
+              <Row label={variantCounted ? 'Total after' : 'Stock after'}>
                 <span className="tabular-nums">{movement.quantityAfter}</span>
               </Row>
-
-              {movement.variant && (movement.variant.color ?? movement.variant.size) && (
-                <Row label="Variant">
-                  {[movement.variant.color, movement.variant.size].filter(Boolean).join(' · ')}
-                </Row>
-              )}
 
               {movement.reference && movement.reference.label && (
                 <Row label="Reference">
@@ -285,6 +304,38 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 const unit = (quantityChange: number) => (Math.abs(quantityChange) === 1 ? 'unit' : 'units');
+
+/**
+ * Whether this movement changed one variant's own count (Phase 20).
+ *
+ * Both counts or neither: a movement written before Phase 20, or against a
+ * product that holds one count, names a colour and size as context only, and
+ * printing "null → null" beside it would invent a count that never existed.
+ */
+function hasVariantCounts(movement: MovementRow): boolean {
+  return movement.variant?.quantityBefore != null && movement.variant.quantityAfter != null;
+}
+
+/**
+ * The arithmetic line under a movement.
+ *
+ * `40 → 38` for one count. For a variant, `Black · Size 9: 3 → 1 · total
+ * 40 → 38` — the shelf that moved, then the total, so the ledger's chain of
+ * totals stays readable down the page. A colour and size recorded only as
+ * context (a sale of a product that holds one count) is named beside the
+ * total, without counts of its own.
+ */
+function counts(movement: MovementRow): string {
+  const total = `${movement.quantityBefore} → ${movement.quantityAfter}`;
+  const label = variantLabel(movement.variant);
+
+  if (hasVariantCounts(movement) && movement.variant) {
+    const own = `${movement.variant.quantityBefore} → ${movement.variant.quantityAfter}`;
+    return `${label ? `${label}: ` : ''}${own} · total ${total}`;
+  }
+
+  return label ? `${label} · ${total}` : total;
+}
 
 /**
  * Splits a list into consecutive runs that share a day label.

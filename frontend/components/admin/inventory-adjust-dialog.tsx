@@ -10,6 +10,7 @@ import { SelectField } from '@/components/common/select-field';
 import { AuthError } from '@/components/auth/auth-error';
 import { StatusBadge } from '@/components/admin/admin-ui';
 import { STOCK_LABEL, stockTone } from '@/components/admin/status-tones';
+import { variantLabel } from '@/components/admin/variant-format';
 import { adjustStock } from '@/services/admin.service';
 import { toErrorMessage } from '@/services/api';
 import {
@@ -21,6 +22,14 @@ import {
   type StockState,
 } from '@/types/admin';
 import { cn } from '@/lib/utils';
+
+/** The one variant a dialog adjusts: which, what it is called, and what it holds now. */
+export interface AdjustableVariant {
+  id: string;
+  label: string;
+  sku: string;
+  stock: number;
+}
 
 /**
  * Changing stock, deliberately.
@@ -44,11 +53,20 @@ import { cn } from '@/lib/utils';
  *
  * No optimistic update: this is inventory. The dialog waits for the server,
  * shows what actually happened, and only then refreshes the page behind it.
+ *
+ * ## One variant at a time (Phase 20)
+ *
+ * Given a `variant`, the dialog adjusts that colour and size and nothing else.
+ * Every number it shows and sends — the current stock, the projection, the
+ * counted total's precondition — is then the variant's own count, because that
+ * is what is on the shelf being counted. The product's total moves with it on
+ * the server, and the result panel reports both.
  */
 export function InventoryAdjustDialog({
   open,
   onOpenChange,
   product,
+  variant,
   largeAdjustmentThreshold,
   onAdjusted,
 }: {
@@ -61,8 +79,9 @@ export function InventoryAdjustDialog({
     stock: number;
     stockState: StockState;
     lowStockThreshold: number;
-    variant?: string;
   };
+  /** The variant being adjusted, for a product that tracks stock per variant. */
+  variant?: AdjustableVariant;
   /** Sent by the server, so the console and the API agree on "unusually large". */
   largeAdjustmentThreshold: number;
   /** Called once the change has been confirmed by the server. */
@@ -70,6 +89,12 @@ export function InventoryAdjustDialog({
 }) {
   const router = useRouter();
   const fieldId = useId();
+
+  /**
+   * The count this dialog is about: the variant's when there is one, the
+   * product's otherwise. Read once here so no line below can mix the two.
+   */
+  const current = variant ? variant.stock : product.stock;
 
   const [mode, setMode] = useState<'change' | 'total'>('change');
   const [amount, setAmount] = useState('');
@@ -89,9 +114,9 @@ export function InventoryAdjustDialog({
    */
   const typed = parseAmount(amount);
 
-  const quantityChange = changeFrom(typed, mode, product.stock);
+  const quantityChange = changeFrom(typed, mode, current);
 
-  const projected = quantityChange === null ? product.stock : product.stock + quantityChange;
+  const projected = quantityChange === null ? current : current + quantityChange;
 
   const large = quantityChange !== null && Math.abs(quantityChange) >= largeAdjustmentThreshold;
 
@@ -121,7 +146,7 @@ export function InventoryAdjustDialog({
   function setAmountAndReason(next: string) {
     setAmount(next);
 
-    const changeNext = changeFrom(parseAmount(next), mode, product.stock);
+    const changeNext = changeFrom(parseAmount(next), mode, current);
 
     if (changeNext === null || changeNext === 0) return;
 
@@ -169,11 +194,15 @@ export function InventoryAdjustDialog({
         quantityChange,
         reason,
         ...(note.trim() ? { note: note.trim() } : {}),
-        shownStock: product.stock,
+        shownStock: current,
         // Only the counted-total path sends a precondition. A plain change is
         // correct whatever the current quantity is, and blocking it on a stale
         // screen would fail work that was never wrong.
-        ...(mode === 'total' ? { expectedStock: product.stock } : {}),
+        ...(mode === 'total' ? { expectedStock: current } : {}),
+        // Which bucket the units belong to. Without it, a product that tracks
+        // stock per variant is refused — units in no colour or size are units
+        // nobody can buy.
+        ...(variant ? { variantId: variant.id } : {}),
       });
 
       setResult(adjusted);
@@ -199,16 +228,20 @@ export function InventoryAdjustDialog({
               void submit();
             }}
           >
-            <DialogTitle className="text-h4">Adjust stock</DialogTitle>
+            <DialogTitle className="text-h4">
+              {variant ? `Adjust stock · ${variant.label}` : 'Adjust stock'}
+            </DialogTitle>
             <DialogDescription className="text-caption text-pretty text-muted-foreground">
-              {product.name} · SKU {product.sku}
-              {product.variant ? ` · ${product.variant}` : ''}
+              {product.name} · SKU {variant ? variant.sku : product.sku}
+              {variant && ` · ${product.stock} across every variant`}
             </DialogDescription>
 
             <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-surface/50 px-4 py-3">
               <div>
-                <p className="text-caption text-muted-foreground">Current stock</p>
-                <p className="text-h4 tabular-nums">{product.stock}</p>
+                <p className="text-caption text-muted-foreground">
+                  {variant ? `Current stock · ${variant.label}` : 'Current stock'}
+                </p>
+                <p className="text-h4 tabular-nums">{current}</p>
               </div>
 
               <ArrowRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -331,8 +364,8 @@ export function InventoryAdjustDialog({
                     {quantityChange > 0 ? '+' : '−'}
                     {Math.abs(quantityChange)}
                   </strong>{' '}
-                  units, from {product.stock} to {projected}. That is a large correction — confirm
-                  to apply it.
+                  units, from {current} to {projected}. That is a large correction — confirm to
+                  apply it.
                 </span>
               </p>
             )}
@@ -373,23 +406,42 @@ export function InventoryAdjustDialog({
  * Shown instead of closing silently, because the result can legitimately differ
  * from the projection — and an operator who was shown 34 and got 15 deserves a
  * sentence explaining why rather than a refreshed table.
+ *
+ * For a variant, its own count leads — it is the number the operator typed
+ * against — and the product's total follows, so both statements about the one
+ * write are on screen. The badge describes the total, as it does everywhere
+ * else in the console.
  */
 function AdjustmentDone({ result, onClose }: { result: AdjustmentResult; onClose: () => void }) {
+  const moved = result.variant;
+  const label = moved ? variantLabel(moved) : '';
+
+  // The count the operator was looking at, for the stale sentence below.
+  const before = moved ? (moved.quantityBefore ?? 0) : result.quantityBefore;
+  const after = moved ? (moved.quantityAfter ?? 0) : result.quantityAfter;
+
   return (
     <>
       <DialogTitle className="text-h4">Stock adjusted</DialogTitle>
       <DialogDescription className="text-caption text-muted-foreground">
-        {result.productName} · SKU {result.sku}
+        {result.productName} · SKU {moved?.sku ?? result.sku}
+        {label && ` · ${label}`}
       </DialogDescription>
 
       <p className="text-h4 mt-4 tabular-nums">
-        {result.quantityBefore} <span aria-hidden>→</span>
-        <span className="sr-only">to</span> {result.quantityAfter}
+        {before} <span aria-hidden>→</span>
+        <span className="sr-only">to</span> {after}
         <span className="text-caption ml-2 font-normal text-muted-foreground">
           ({result.quantityChange > 0 ? '+' : '−'}
           {Math.abs(result.quantityChange)} units)
         </span>
       </p>
+
+      {moved && (
+        <p className="text-caption mt-1 text-muted-foreground tabular-nums">
+          Total for the product: {result.quantityBefore} → {result.quantityAfter}
+        </p>
+      )}
 
       <p className="mt-2">
         <StatusBadge tone={stockTone(result.stockState)}>
@@ -399,8 +451,9 @@ function AdjustmentDone({ result, onClose }: { result: AdjustmentResult; onClose
 
       {result.stale && (
         <p className="text-caption mt-3 text-pretty text-muted-foreground">
-          Stock had already moved to {result.quantityBefore} since this form was opened, so the
-          change was applied to that. The units you asked for were still added or removed.
+          Stock{label ? ` for ${label}` : ''} had already moved to {before} since this form was
+          opened, so the change was applied to that. The units you asked for were still added or
+          removed.
         </p>
       )}
 

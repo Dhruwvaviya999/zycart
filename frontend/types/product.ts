@@ -22,6 +22,23 @@ export interface ProductSize {
   inStock: boolean;
 }
 
+/**
+ * One colour-and-size combination with its own count (Phase 20).
+ *
+ * Identified by its pair, not its id: a cart line has only ever recorded the
+ * colour and size the customer chose, and that pair is what the API matches
+ * on. `color` is null on a product that comes in sizes only, `size` on one
+ * that comes in colours only. The id and SKU are carried for completeness; the
+ * storefront never sends either back.
+ */
+export interface ProductVariant {
+  id: string;
+  color: string | null;
+  size: string | null;
+  sku: string;
+  stock: number;
+}
+
 export interface ProductSpecification {
   label: string;
   value: string;
@@ -45,6 +62,14 @@ export interface ProductSummary {
   stock: number;
   colors: ProductColor[];
   sizes: ProductSize[];
+  /**
+   * Stock per combination, from Phase 20. Empty — or, on data cached before
+   * the field existed, missing — for a product that holds one count, which
+   * then behaves exactly as it always did. When present, `stock` is the sum
+   * of these and a combination not listed is not sold. Read it through
+   * `lib/variants.ts` rather than directly, so the two cases stay one rule.
+   */
+  variants?: ProductVariant[];
   tags: string[];
   /** Derived from approved reviews; zero until a product has been reviewed. */
   rating: number;

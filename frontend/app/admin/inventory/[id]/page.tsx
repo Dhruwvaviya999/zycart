@@ -2,9 +2,17 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ExternalLink, History, Layers, Pencil } from 'lucide-react';
+import { Boxes, ExternalLink, History, Layers, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { AdminError, AdminPageHeader, StatusBadge } from '@/components/admin/admin-ui';
+import {
+  AdminError,
+  AdminPageHeader,
+  AdminTable,
+  StatusBadge,
+  Td,
+  Th,
+  Tr,
+} from '@/components/admin/admin-ui';
 import { AdjustStockButton, ThresholdControl } from '@/components/admin/inventory-controls';
 import { InventoryMovementTimeline } from '@/components/admin/inventory-movement-timeline';
 import { STOCK_LABEL, stockTone } from '@/components/admin/status-tones';
@@ -12,6 +20,7 @@ import { ApiError, toErrorMessage } from '@/services/api';
 import { getInventoryItem, getInventorySummary } from '@/services/admin.service';
 import { getSessionCookie } from '@/lib/server-auth';
 import { formatDateTime, formatPrice } from '@/lib/format';
+import type { InventoryDetail } from '@/types/admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,9 +33,17 @@ export const metadata: Metadata = { title: 'Stock' };
  * position at a glance, and change it deliberately. Everything else — the
  * variants, the totals, the timeline — is context for that second decision.
  *
- * Size availability is shown and is **not** editable here. ZyCart holds one
- * sellable quantity per product; a size carries availability, not a count. The
- * panel says so rather than offering a field that would imply otherwise.
+ * ## Two kinds of product (Phase 20)
+ *
+ * A product that holds one count is adjusted as a whole, from the header, as it
+ * always was. Its sizes carry availability rather than counts, shown and not
+ * editable here.
+ *
+ * A product that tracks stock per variant is adjusted one colour and size at a
+ * time, from the table of variants — the header offers no product-level
+ * adjustment, because units that belong to no variant are units nobody can
+ * buy, and the server refuses them. Its total is the sum of the table, and its
+ * size availability follows the counts on its own.
  */
 export default async function AdminInventoryDetailPage({
   params,
@@ -70,18 +87,36 @@ export default async function AdminInventoryDetailPage({
               <Pencil className="size-3.5" data-icon="inline-start" aria-hidden />
               Edit product
             </Button>
-            <AdjustStockButton
-              product={item}
-              largeAdjustmentThreshold={item.largeAdjustmentThreshold}
-              variant="brand"
-              label="Adjust stock"
-            />
+            {/* Only for one count. A product with variants is adjusted per row
+                of the table below, and the server would refuse this. */}
+            {!item.tracksVariants && (
+              <AdjustStockButton
+                product={item}
+                largeAdjustmentThreshold={item.largeAdjustmentThreshold}
+                variant="brand"
+                label="Adjust stock"
+              />
+            )}
           </>
         }
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="space-y-4">
+          {item.tracksVariants && (
+            <Panel
+              title="Stock per variant"
+              icon={Boxes}
+              description={`${item.variants.length} ${
+                item.variants.length === 1 ? 'combination' : 'combinations'
+              } with ${
+                item.variants.length === 1 ? 'its' : 'their'
+              } own count. Adjust each one on its own row — the total above is their sum.`}
+            >
+              <VariantStockTable item={item} />
+            </Panel>
+          )}
+
           <Panel
             title="Stock history"
             icon={History}
@@ -136,8 +171,9 @@ export default async function AdminInventoryDetailPage({
                 question this page has to answer before an operator goes looking
                 for the field on the product form. */}
             <p className="text-caption mt-4 text-pretty text-muted-foreground">
-              Stock only changes through an adjustment, so every change carries a reason and shows
-              up in the history above.
+              {item.tracksVariants
+                ? `This product counts stock per colour and size, so it is adjusted one variant at a time and the ${item.stock} above is their sum. Every change carries a reason and shows up in the stock history.`
+                : 'Stock only changes through an adjustment, so every change carries a reason and shows up in the stock history.'}
             </p>
 
             <Link
@@ -160,25 +196,25 @@ export default async function AdminInventoryDetailPage({
             />
           </Panel>
 
-          <Panel title="Variants" icon={Layers}>
-            {item.variants.length === 0 && item.colors.length === 0 ? (
+          <Panel title="Colours and sizes" icon={Layers}>
+            {item.sizeOptions.length === 0 && item.colors.length === 0 ? (
               <p className="text-caption text-pretty text-muted-foreground">
                 This product has no colour or size options.
               </p>
             ) : (
               <>
-                {item.variants.length > 0 && (
+                {item.sizeOptions.length > 0 && (
                   <>
                     <p className="text-caption font-medium text-muted-foreground">Sizes</p>
                     <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                      {item.variants.map((variant) => (
-                        <li key={variant.label}>
-                          <StatusBadge tone={variant.inStock ? 'success' : 'neutral'}>
-                            {variant.label}
+                      {item.sizeOptions.map((size) => (
+                        <li key={size.label}>
+                          <StatusBadge tone={size.inStock ? 'success' : 'neutral'}>
+                            {size.label}
                             <span className="sr-only">
-                              {variant.inStock ? ' available' : ' unavailable'}
+                              {size.inStock ? ' available' : ' unavailable'}
                             </span>
-                            {!variant.inStock && <span aria-hidden> · off</span>}
+                            {!size.inStock && <span aria-hidden> · off</span>}
                           </StatusBadge>
                         </li>
                       ))}
@@ -193,10 +229,23 @@ export default async function AdminInventoryDetailPage({
                   </>
                 )}
 
+                {/* Two different truths, so two different sentences: on one
+                    product a size is switched on by hand, on the other it is
+                    on exactly when some variant in it has units. */}
                 <p className="text-caption mt-3 text-pretty text-muted-foreground">
-                  Sizes carry availability, not their own count — the {item.stock} units above are
-                  the product&rsquo;s whole sellable stock. Turn a size on or off from the product
-                  editor.
+                  {item.tracksVariants ? (
+                    <>
+                      Size availability follows the variant counts: a size shows as available while
+                      any variant in it has units. Choose which combinations are sold from the
+                      product editor.
+                    </>
+                  ) : (
+                    <>
+                      Sizes carry availability, not their own count — the {item.stock} units above
+                      are the product&rsquo;s whole sellable stock. Turn a size on or off, or start
+                      counting stock per colour and size, from the product editor.
+                    </>
+                  )}
                 </p>
               </>
             )}
@@ -204,6 +253,73 @@ export default async function AdminInventoryDetailPage({
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * Every variant with its own count, and the one way to change each.
+ *
+ * Scarcest first, for the reason the inventory list is: the row an operator
+ * came to restock is the one about to run out. Ties keep the server's order,
+ * which is the order the combinations were listed on the product.
+ *
+ * The badge is judged against the product's threshold — a variant has none of
+ * its own — so a variant can read "Low stock" while the product, holding many
+ * more across every colour and size, does not.
+ */
+function VariantStockTable({ item }: { item: InventoryDetail }) {
+  const rows = [...item.variants].sort((a, b) => a.stock - b.stock);
+
+  return (
+    <AdminTable
+      head={
+        <>
+          <Th>Variant</Th>
+          <Th className="hidden sm:table-cell">SKU</Th>
+          <Th align="right">Stock</Th>
+          <Th className="hidden sm:table-cell">Status</Th>
+          <Th align="right">
+            <span className="sr-only">Actions</span>
+          </Th>
+        </>
+      }
+    >
+      {rows.map((variant) => (
+        <Tr key={variant.id}>
+          <Td>
+            <span className="block font-medium">{variant.label}</span>
+            {/* The SKU and the state fold under the label on a phone, where
+                five columns would not fit beside the button. */}
+            <span className="text-caption block text-muted-foreground sm:hidden">
+              {variant.sku} · {STOCK_LABEL[variant.stockState]}
+            </span>
+          </Td>
+          <Td className="text-caption hidden font-mono text-muted-foreground sm:table-cell">
+            {variant.sku}
+          </Td>
+          <Td align="right" className="font-semibold tabular-nums">
+            {variant.stock}
+          </Td>
+          <Td className="hidden sm:table-cell">
+            <StatusBadge tone={stockTone(variant.stockState)}>
+              {STOCK_LABEL[variant.stockState]}
+            </StatusBadge>
+          </Td>
+          <Td align="right">
+            <AdjustStockButton
+              product={item}
+              target={{
+                id: variant.id,
+                label: variant.label,
+                sku: variant.sku,
+                stock: variant.stock,
+              }}
+              largeAdjustmentThreshold={item.largeAdjustmentThreshold}
+            />
+          </Td>
+        </Tr>
+      ))}
+    </AdminTable>
   );
 }
 

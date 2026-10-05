@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import * as auditService from '../services/admin/audit.service';
 import * as operationsService from '../services/admin/operations.service';
+import { dispatchProductAlerts } from '../services/alerts/alert.service';
 import * as inventoryService from '../services/inventory/inventory.service';
 import { requireActor } from '../utils/actor';
 import { idParamSchema } from '../validators/common';
@@ -56,11 +57,13 @@ export async function getInventoryItem(req: Request, res: Response): Promise<voi
  */
 export async function adjustStock(req: Request, res: Response): Promise<void> {
   const input = adjustStockSchema.parse(req.body);
+  const result = await inventoryService.adjustStock(id(req), input, requireActor(req));
 
-  res.json({
-    success: true,
-    data: await inventoryService.adjustStock(id(req), input, requireActor(req)),
-  });
+  // A restock may answer somebody's back-in-stock alert (Phase 20). After the
+  // commit, never awaited; `pnpm alerts:send` is the guarantee.
+  if (result.quantityChange > 0) dispatchProductAlerts(req.env, result.productId);
+
+  res.json({ success: true, data: result });
 }
 
 export async function setThreshold(req: Request, res: Response): Promise<void> {

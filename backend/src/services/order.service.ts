@@ -20,10 +20,20 @@ import type { CancelOrderInput, OrderQuery } from '../validators/order.validator
 import { resolveAddress } from './checkout.service';
 import { record } from './activity/activity.service';
 import { recordAudit, type AuditActor } from './admin/audit.service';
+import { dispatchProductAlerts, productIdsOf } from './alerts/alert.service';
 import { lookupCoupon, redeemCoupon, releaseCoupon } from './coupons/coupon.service';
 import { syncShipmentToOrderStatus } from './fulfillment/shipment-sync';
 import { findOrderShipment, type ShipmentView } from './fulfillment/shipment-view';
 import { recordMovement } from './inventory/inventory.service';
+import {
+  findVariant,
+  logUnrestorable,
+  movementVariantOf,
+  sellableQuantity,
+  tracksVariants,
+  variantLabel,
+  writeStock,
+} from './inventory/variant-stock';
 import { nextInvoiceNumber } from './invoices/invoice-number';
 import {
   lastNotifiedAt,
@@ -78,12 +88,6 @@ async function buildOrderItems(lines: PlannedLine[], session: mongoose.ClientSes
       );
     }
 
-    if (product.stock < line.quantity) {
-      throw new AvailabilityError(
-        `Only ${product.stock} left of ${product.name}. Please review your cart before placing the order.`,
-      );
-    }
-
     if (line.selectedColor && !product.colors.some((c) => c.name === line.selectedColor)) {
       throw new AvailabilityError(`${product.name} is no longer available in that colour.`);
     }
@@ -93,6 +97,25 @@ async function buildOrderItems(lines: PlannedLine[], session: mongoose.ClientSes
       if (!size || !size.inStock) {
         throw new AvailabilityError(`${product.name} is no longer available in that size.`);
       }
+    }
+
+    const choice = { color: line.selectedColor, size: line.selectedSize };
+
+    // A product that tracks stock per variant sells only the combinations it
+    // lists, and only as many as that combination holds (Phase 20).
+    if (tracksVariants(product) && !findVariant(product.variants, choice)) {
+      throw new AvailabilityError(
+        `${product.name} is no longer available in ${variantLabel(choice) || 'that option'}.`,
+      );
+    }
+
+    const available = sellableQuantity(product, choice);
+
+    if (available < line.quantity) {
+      const which = tracksVariants(product) ? ` in ${variantLabel(choice)}` : '';
+      throw new AvailabilityError(
+        `Only ${available} left of ${product.name}${which}. Please review your cart before placing the order.`,
+      );
     }
 
     const brand = product.brand as unknown as { name?: string } | null;
@@ -136,11 +159,14 @@ async function buildOrderItems(lines: PlannedLine[], session: mongoose.ClientSes
  *
  * From Phase 12 it also writes the SALE movement that explains the decrement,
  * in the same transaction — so a unit that left the catalogue and a ledger
- * entry saying where it went either both exist or neither does. `new: true`
- * was already what this update asked for, so the quantity before is derived
- * from the quantity after rather than read again: one more query here would be
- * one more query per line on every checkout, for a number arithmetic already
- * knows.
+ * entry saying where it went either both exist or neither does. The quantity
+ * before is derived from the quantity after rather than read again.
+ *
+ * From Phase 20 the write goes through `writeStock`, which takes the units from
+ * the colour and size the line names when the product tracks stock per
+ * variant. Two customers racing for the last pair of size 9 are separated by
+ * the same atomic filter that separates two racing for the last unit of
+ * anything — it now sits on the variant's count.
  */
 export async function commitStock(
   items: readonly {
@@ -159,28 +185,38 @@ export async function commitStock(
     // decrement, and the order still records exactly what was bought.
     if (!item.product) continue;
 
-    const updated = await Product.findOneAndUpdate(
-      { _id: item.product, isActive: true, stock: { $gte: item.quantity } },
-      { $inc: { stock: -item.quantity } },
-      { session, returnDocument: 'after' },
+    const choice = { color: item.selectedColor ?? null, size: item.selectedSize ?? null };
+
+    const outcome = await writeStock(
+      {
+        product: item.product,
+        choice,
+        quantityChange: -item.quantity,
+        requireActive: true,
+      },
+      session,
     );
 
-    if (!updated) {
+    if (outcome.status !== 'applied') {
+      const label = variantLabel(choice);
+
       throw new AvailabilityError(
-        `${item.productName} sold out while you were checking out. Please review your cart.`,
+        outcome.status === 'missing_variant'
+          ? `${item.productName} is no longer available in ${label || 'that option'}. Please review your cart.`
+          : `${item.productName}${label ? ` (${label})` : ''} sold out while you were checking out. Please review your cart.`,
       );
     }
 
     await recordMovement(
       {
-        product: updated._id,
-        productName: updated.name,
-        sku: updated.sku,
-        // Context for reading the timeline, never a separate stock bucket:
-        // ZyCart holds one quantity per product, not one per colourway.
-        variant: { color: item.selectedColor ?? null, size: item.selectedSize ?? null },
+        product: outcome.product._id,
+        productName: outcome.product.name,
+        sku: outcome.product.sku,
+        // The variant's own counts when the product tracks them; otherwise the
+        // line's colour and size, as context for reading the timeline.
+        variant: movementVariantOf(outcome, choice),
         type: 'SALE',
-        quantityBefore: updated.stock + item.quantity,
+        quantityBefore: outcome.quantityBefore,
         quantityChange: -item.quantity,
         referenceType: 'ORDER',
         referenceId: order.id,
@@ -880,25 +916,36 @@ async function applyCancellation(
     for (const item of order.items) {
       if (!item.product) continue;
 
-      const updated = await Product.findOneAndUpdate(
-        { _id: item.product },
-        { $inc: { stock: item.quantity } },
-        { session, returnDocument: 'after' },
+      const choice = { color: item.selectedColor ?? null, size: item.selectedSize ?? null };
+
+      const outcome = await writeStock(
+        { product: item.product, choice, quantityChange: item.quantity },
+        session,
       );
 
-      // The product has been deleted since the order was placed. There is no
-      // row to credit and nothing to record against it; the order keeps its own
-      // snapshot of what was bought.
-      if (!updated) continue;
+      // The product has been deleted since the order was placed, or the
+      // variant it was bought in is no longer sold. There is no row to credit
+      // and nothing to record against it; the order keeps its own snapshot of
+      // what was bought, and the log says units were not put back.
+      if (outcome.status !== 'applied') {
+        logUnrestorable({
+          reason: outcome.status === 'missing_variant' ? 'variant_removed' : 'product_removed',
+          productId: String(item.product),
+          reference: order.orderNumber,
+          choice,
+          quantity: item.quantity,
+        });
+        continue;
+      }
 
       await recordMovement(
         {
-          product: updated._id,
-          productName: updated.name,
-          sku: updated.sku,
-          variant: { color: item.selectedColor ?? null, size: item.selectedSize ?? null },
+          product: outcome.product._id,
+          productName: outcome.product.name,
+          sku: outcome.product.sku,
+          variant: movementVariantOf(outcome, choice),
           type: 'CANCELLATION',
-          quantityBefore: updated.stock - item.quantity,
+          quantityBefore: outcome.quantityBefore,
           quantityChange: item.quantity,
           referenceType: 'ORDER',
           referenceId: order._id,
@@ -1172,6 +1219,10 @@ export async function setOrderStatus(
      * succeeded because a message did not.
      */
     await outbox.flush(env);
+
+    // A cancellation gives units back, which may answer a back-in-stock alert
+    // (Phase 20). Covers the console's single and bulk moves alike.
+    if (next === 'CANCELLED') dispatchProductAlerts(env, productIdsOf(updated.items));
 
     return toDetail(updated);
   } finally {

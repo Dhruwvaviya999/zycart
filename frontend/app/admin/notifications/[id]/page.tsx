@@ -66,6 +66,10 @@ export default async function AdminNotificationPage({
    * Orders and returns have pages of their own. From Phase 18 a message can
    * also be about an account, a cart or a newsletter address, whose label is
    * the address itself — so those open the list they belong to, filtered to it.
+   *
+   * Phase 20's alerts are about a product, labelled with its name. The delivery
+   * does not carry the product's id, so this opens the catalogue searched for
+   * that name rather than guessing at a URL.
    */
   const label = encodeURIComponent(delivery.entityLabel);
   const entityHref = {
@@ -74,6 +78,7 @@ export default async function AdminNotificationPage({
     USER: `/admin/customers?search=${label}`,
     CART: `/admin/customers?search=${label}`,
     SUBSCRIBER: `/admin/subscribers?search=${label}`,
+    PRODUCT: `/admin/products?search=${label}`,
   }[delivery.entityType];
 
   return (

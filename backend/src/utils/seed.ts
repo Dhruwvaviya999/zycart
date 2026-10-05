@@ -7,6 +7,7 @@ import { Category } from '../models/category.model';
 import { Coupon } from '../models/coupon.model';
 import { InventoryMovement } from '../models/inventory-movement.model';
 import { Product } from '../models/product.model';
+import { deriveSizeAvailability, planNewVariants } from '../services/inventory/variant-stock';
 import { seedBrands, seedCategories, seedCoupons, seedProducts } from './seed-data';
 
 /**
@@ -48,8 +49,36 @@ async function seedDatabase(): Promise<void> {
     if (!category) throw new Error(`Unknown category slug: ${product.category}`);
     if (!brand) throw new Error(`Unknown brand name: ${product.brand}`);
 
+    /**
+     * Variants go through the same planner the console uses (Phase 20), so a
+     * seeded product obeys the rules an operator's would: options it lists,
+     * SKUs derived the same way, size flags derived from the counts. A dataset
+     * whose counts do not add up to the product's stock is refused rather than
+     * quietly corrected.
+     */
+    const variants = planNewVariants(product.variants ?? [], product.sku, {
+      colors: (product.colors ?? []).map((color) => color.name),
+      sizes: (product.sizes ?? []).map((size) => size.label),
+    });
+
+    const variantTotal = variants.reduce((sum, variant) => sum + variant.stock, 0);
+
+    if (variants.length > 0 && variantTotal !== product.stock) {
+      throw new Error(
+        `${product.sku}: variant counts add up to ${variantTotal}, but stock is ${product.stock}`,
+      );
+    }
+
     const createdAt = new Date(product.createdAt);
-    return { ...product, category, brand, createdAt, updatedAt: createdAt };
+    return {
+      ...product,
+      category,
+      brand,
+      variants,
+      sizes: deriveSizeAvailability(product.sizes ?? [], variants),
+      createdAt,
+      updatedAt: createdAt,
+    };
   });
 
   /**
@@ -78,20 +107,56 @@ async function seedDatabase(): Promise<void> {
    */
   const openingStock = inserted
     .filter((product) => product.stock > 0)
-    .map((product) => ({
-      product: product._id,
-      productName: product.name,
-      sku: product.sku,
-      type: 'INITIAL_STOCK' as const,
-      quantityBefore: 0,
-      quantityChange: product.stock,
-      quantityAfter: product.stock,
-      referenceType: 'PRODUCT' as const,
-      referenceId: product._id,
-      referenceLabel: product.sku,
-      createdAt: product.createdAt,
-      updatedAt: product.createdAt,
-    }));
+    .flatMap((product) => {
+      const opening = {
+        product: product._id,
+        productName: product.name,
+        sku: product.sku,
+        type: 'INITIAL_STOCK' as const,
+        referenceType: 'PRODUCT' as const,
+        referenceId: product._id,
+        createdAt: product.createdAt,
+        updatedAt: product.createdAt,
+      };
+
+      if (product.variants.length === 0) {
+        return [
+          {
+            ...opening,
+            quantityBefore: 0,
+            quantityChange: product.stock,
+            quantityAfter: product.stock,
+            referenceLabel: product.sku,
+          },
+        ];
+      }
+
+      // One arrival per variant, chained so the product's total runs from zero
+      // to its stock without a gap — as `createProduct` records it.
+      let total = 0;
+
+      return product.variants
+        .filter((variant) => variant.stock > 0)
+        .map((variant) => {
+          const quantityBefore = total;
+          total += variant.stock;
+
+          return {
+            ...opening,
+            variant: {
+              color: variant.color ?? null,
+              size: variant.size ?? null,
+              sku: variant.sku,
+              quantityBefore: 0,
+              quantityAfter: variant.stock,
+            },
+            quantityBefore,
+            quantityChange: variant.stock,
+            quantityAfter: total,
+            referenceLabel: variant.sku,
+          };
+        });
+    });
 
   await InventoryMovement.insertMany(openingStock, { timestamps: false });
 

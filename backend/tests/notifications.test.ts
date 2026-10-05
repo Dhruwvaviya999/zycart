@@ -148,7 +148,7 @@ function render(event: NotificationEvent, payload: unknown, brand: EmailBrand = 
 /* ---------------------------------------------------------------- */
 
 describe('The event vocabulary', () => {
-  it('implements the four Phase 13 transitions and the seven Phase 18 messages, and no more', () => {
+  it('implements the Phase 13, 18 and 20 messages, and no more', () => {
     assert.deepEqual([...NOTIFICATION_EVENTS], [
       'ORDER_SHIPPED',
       'ORDER_DELIVERED',
@@ -161,6 +161,8 @@ describe('The event vocabulary', () => {
       'EMAIL_VERIFICATION',
       'PASSWORD_RESET',
       'NEWSLETTER_CONFIRMATION',
+      'BACK_IN_STOCK',
+      'PRICE_DROP',
     ]);
   });
 

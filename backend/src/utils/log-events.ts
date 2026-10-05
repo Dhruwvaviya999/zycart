@@ -78,6 +78,8 @@ export const LOG_EVENTS = [
   'inventory_adjusted',
   'inventory_restocked',
   'inventory_threshold_changed',
+  /** Units that should have come back had no variant or product left to return to (Phase 20). */
+  'inventory_not_restored',
 
   /* Activity and discovery ------------------------------------------- */
   'activity_record_failed',
@@ -110,6 +112,11 @@ export const LOG_EVENTS = [
 
   /* Reminders (Phase 18) --------------------------------------------- */
   'reminder_queued',
+
+  /* Stock and price alerts (Phase 20) -------------------------------- */
+  'alert_created',
+  'alert_queued',
+  'alert_dispatch_failed',
 
   /* Virtual try-on (Phase 19) ---------------------------------------- */
   'try_on_completed',

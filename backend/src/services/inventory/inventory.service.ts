@@ -22,6 +22,17 @@ import { escapeRegex } from '../../validators/common';
 import type { AdjustStockInput, AdminInventoryQuery } from '../../validators/inventory.validator';
 import { logger } from '../../utils/logger';
 import { recordAudit, startOfDaysAgo, type AuditActor } from '../admin/audit.service';
+import {
+  deriveSizeAvailability,
+  logUnrestorable,
+  movementVariantOf,
+  stockCondition,
+  tracksVariants,
+  variantLabel,
+  writeStock,
+  type MovementVariant,
+  type StockWriteOutcome,
+} from './variant-stock';
 
 /**
  * Inventory, as an operation rather than as a column on the product form.
@@ -52,6 +63,10 @@ import { recordAudit, startOfDaysAgo, type AuditActor } from '../admin/audit.ser
  *
  * The fifth is the one worth reading twice: returned goods do **not** go back
  * into sellable stock automatically. See `restockFromReturn`.
+ *
+ * From Phase 20 all five perform the write itself through `writeStock`
+ * (`variant-stock.ts`), which knows whether a product holds one count or one per
+ * colour and size, and moves the right bucket. Each still owns its movement.
  */
 
 /**
@@ -121,19 +136,16 @@ export function adjustmentFilter(
   quantityChange: number,
   expectedStock?: number,
 ): Record<string, unknown> {
-  const stock: Record<string, number> = {};
-
-  if (quantityChange < 0) stock.$gte = -quantityChange;
-  if (expectedStock !== undefined) stock.$eq = expectedStock;
-
-  return Object.keys(stock).length > 0 ? { _id: productId, stock } : { _id: productId };
+  // The same condition `writeStock` puts on a product or on one variant.
+  const stock = stockCondition(quantityChange, expectedStock);
+  return stock ? { _id: productId, stock } : { _id: productId };
 }
 
 export interface MovementInput {
   product: Types.ObjectId;
   productName: string;
   sku?: string;
-  variant?: { color: string | null; size: string | null } | null;
+  variant?: MovementVariant | { color: string | null; size: string | null } | null;
   type: MovementType;
   quantityBefore: number;
   quantityChange: number;
@@ -192,11 +204,14 @@ export interface AdjustmentResult {
   productId: string;
   productName: string;
   sku: string;
+  /** The product's total either side of the adjustment. */
   quantityBefore: number;
   quantityChange: number;
   quantityAfter: number;
   stockState: StockState;
   lowStockThreshold: number;
+  /** The variant adjusted, with its own count either side, when the product tracks them. */
+  variant: MovementVariant | null;
   /**
    * True when the stock the operator was looking at is not what the server
    * found. The adjustment still applied — a delta against authoritative state is
@@ -238,6 +253,15 @@ export interface AdjustmentResult {
  * sends `expectedStock`, which joins the same atomic filter — so the check is
  * not a read-then-write either, and a stale count fails loudly instead of
  * applying a number nobody meant.
+ *
+ * ## Per variant (Phase 20)
+ *
+ * A product that tracks stock per variant is adjusted one variant at a time,
+ * named by `variantId`; its total moves with it in the same update. Adjusting
+ * the total of such a product directly is refused, because units that belong
+ * to no colour or size are units nobody can buy. `shownStock` and
+ * `expectedStock` then describe the variant, since that is the number the
+ * operator was looking at.
  */
 export async function adjustStock(
   productId: string,
@@ -254,28 +278,35 @@ export async function adjustStock(
     let result: AdjustmentResult | undefined;
 
     await session.withTransaction(async () => {
-      // Every guard is in the filter; see `adjustmentFilter`.
-      const before = await Product.findOneAndUpdate(
-        adjustmentFilter(productId, quantityChange, expectedStock),
-        { $inc: { stock: quantityChange } },
-        // The document *as it was*: `quantityBefore` has to come from the same
-        // operation that performed the write, not from a read beside it.
-        { session, returnDocument: 'before' },
-      ).select('name sku stock lowStockThreshold');
+      // Every guard is in the filter; see `stockWriteFilter`.
+      const outcome = await writeStock(
+        {
+          product: productId,
+          variantId: input.variantId ?? null,
+          quantityChange,
+          expectedStock,
+        },
+        session,
+      );
 
-      if (!before) {
-        throw await adjustmentRefusal(productId, quantityChange, expectedStock, session);
+      if (outcome.status !== 'applied') {
+        throw adjustmentRefusal(quantityChange, input.variantId, outcome);
       }
 
-      const quantityBefore = before.stock;
-      const quantityAfter = quantityBefore + quantityChange;
-      const threshold = thresholdOf(before);
+      const { product, quantityBefore, quantityAfter, variant } = outcome;
+      const threshold = thresholdOf(product);
+      const label = variant ? variantLabel(variant) : '';
+      const subject = label ? `${product.name} (${label})` : product.name;
+      const counts = variant
+        ? `${variant.quantityBefore ?? 0} → ${variant.quantityAfter ?? 0}, total ${quantityBefore} → ${quantityAfter}`
+        : `${quantityBefore} → ${quantityAfter}`;
 
       await recordMovement(
         {
-          product: before._id,
-          productName: before.name,
-          sku: before.sku,
+          product: product._id,
+          productName: product.name,
+          sku: product.sku,
+          variant,
           type: 'MANUAL_ADJUSTMENT',
           quantityBefore,
           quantityChange,
@@ -291,26 +322,42 @@ export async function adjustStock(
           actor,
           action: 'INVENTORY_ADJUSTED',
           entityType: 'PRODUCT',
-          entityId: before._id,
-          entityLabel: before.name,
+          entityId: product._id,
+          entityLabel: product.name,
           summary: `Stock ${quantityChange > 0 ? 'increased' : 'decreased'} by ${Math.abs(
             quantityChange,
-          )} for ${before.name} (${quantityBefore} → ${quantityAfter}) · ${humanReason(reason)}`,
-          changes: [{ field: 'stock', from: String(quantityBefore), to: String(quantityAfter) }],
+          )} for ${subject} (${counts}) · ${humanReason(reason)}`,
+          changes: [
+            ...(variant
+              ? [
+                  {
+                    field: `stock · ${label}`,
+                    from: String(variant.quantityBefore ?? 0),
+                    to: String(variant.quantityAfter ?? 0),
+                  },
+                ]
+              : []),
+            { field: 'stock', from: String(quantityBefore), to: String(quantityAfter) },
+          ],
           note,
         },
         session,
       );
 
+      // What the operator was looking at: the variant's count when they
+      // adjusted a variant, the total otherwise.
+      const shownAgainst = variant ? (variant.quantityBefore ?? 0) : quantityBefore;
+
       result = {
-        productId: String(before._id),
-        productName: before.name,
-        sku: before.sku,
+        productId: String(product._id),
+        productName: product.name,
+        sku: product.sku,
         quantityBefore,
         quantityChange,
         quantityAfter,
         stockState: stockStateOf(quantityAfter, threshold),
         lowStockThreshold: threshold,
+        variant,
         /**
          * Only meaningful when the caller said what it was showing.
          *
@@ -322,7 +369,7 @@ export async function adjustStock(
         stale:
           expectedStock === undefined &&
           input.shownStock !== undefined &&
-          input.shownStock !== quantityBefore,
+          input.shownStock !== shownAgainst,
       };
     });
 
@@ -342,7 +389,7 @@ export async function adjustStock(
      */
     logger.info('inventory_adjusted', {
       productId: result.productId,
-      sku: result.sku,
+      sku: result.variant?.sku ?? result.sku,
       actorId: actor.id,
       delta: result.quantityChange,
       quantityBefore: result.quantityBefore,
@@ -360,38 +407,49 @@ export async function adjustStock(
 /**
  * Says why the atomic update matched nothing.
  *
- * Reached only on the failure path, so the extra read costs nothing in the
- * normal case — and it is what turns a silent no-op into one of three specific,
- * actionable messages. The read is inside the caller's transaction, so what it
- * reports is what the update saw.
+ * `writeStock` has already read the product again, inside the transaction, to
+ * work out which of these it was — so what is reported is what the update saw.
+ * This only chooses the words, and turns a silent no-op into a specific,
+ * actionable message.
  *
  * Returns the error rather than throwing it, so the call site reads
- * `throw await adjustmentRefusal(…)` and the compiler can see that the branch
- * ends there.
+ * `throw adjustmentRefusal(…)` and the compiler can see that the branch ends
+ * there.
  */
-async function adjustmentRefusal(
-  productId: string,
+function adjustmentRefusal(
   quantityChange: number,
-  expectedStock: number | undefined,
-  session: mongoose.ClientSession,
-): Promise<AppError> {
-  const current = await Product.findById(productId).select('stock name').session(session);
+  variantId: string | undefined,
+  outcome: Exclude<StockWriteOutcome, { status: 'applied' }>,
+): AppError {
+  switch (outcome.status) {
+    case 'missing_product':
+      return new AppError('Product not found', 404);
 
-  if (!current) return new AppError('Product not found', 404);
+    // With a variant named, that variant is gone — or the product holds one
+    // count and has none. Without one, the product holds its stock per variant.
+    case 'missing_variant':
+      return new AppError(
+        variantId
+          ? `That variant of ${outcome.productName} is not one it tracks stock for. Refresh and try again.`
+          : `${outcome.productName} tracks stock per variant. Choose which colour and size to adjust.`,
+        409,
+      );
 
-  if (expectedStock !== undefined && current.stock !== expectedStock) {
-    return new AppError(
-      `Stock for ${current.name} is now ${current.stock}, not the ${expectedStock} shown when you ` +
-        'opened this form. Refresh and enter the count again.',
-      409,
-    );
+    case 'stale':
+      return new AppError(
+        `Stock for ${outcome.productName} is now ${outcome.current}, not the count shown when you ` +
+          'opened this form. Refresh and enter the count again.',
+        409,
+      );
+
+    case 'insufficient':
+      return new AppError(
+        `Only ${outcome.available} in stock for ${outcome.productName}${
+          variantId ? ' in that variant' : ''
+        }, so it cannot be reduced by ${Math.abs(quantityChange)}. Stock can never go below zero.`,
+        409,
+      );
   }
-
-  return new AppError(
-    `Only ${current.stock} in stock for ${current.name}, so it cannot be reduced by ` +
-      `${Math.abs(quantityChange)}. Stock can never go below zero.`,
-    409,
-  );
 }
 
 /**
@@ -483,23 +541,35 @@ export async function restockFromReturn(
   for (const line of params.lines) {
     if (!line.product || line.quantity <= 0) continue;
 
-    const updated = await Product.findOneAndUpdate(
-      { _id: line.product },
-      { $inc: { stock: line.quantity } },
-      { session, returnDocument: 'after' },
-    ).select('name sku stock');
+    const choice = { color: line.selectedColor, size: line.selectedSize };
 
-    // The product has been deleted since the order was placed.
-    if (!updated) continue;
+    // Back to the variant the customer bought, when the product tracks them.
+    const outcome = await writeStock(
+      { product: line.product, choice, quantityChange: line.quantity },
+      session,
+    );
+
+    // The product has been deleted since the order was placed, or the variant
+    // has stopped being sold. Either way there is no shelf to put it on.
+    if (outcome.status !== 'applied') {
+      logUnrestorable({
+        reason: outcome.status === 'missing_variant' ? 'variant_removed' : 'product_removed',
+        productId: String(line.product),
+        reference: params.reference.label,
+        choice,
+        quantity: line.quantity,
+      });
+      continue;
+    }
 
     await recordMovement(
       {
-        product: updated._id,
-        productName: updated.name,
-        sku: updated.sku,
-        variant: { color: line.selectedColor, size: line.selectedSize },
+        product: outcome.product._id,
+        productName: outcome.product.name,
+        sku: outcome.product.sku,
+        variant: movementVariantOf(outcome, choice),
         type: 'RETURN',
-        quantityBefore: updated.stock - line.quantity,
+        quantityBefore: outcome.quantityBefore,
         quantityChange: line.quantity,
         referenceType: 'RETURN',
         referenceId: params.reference.id,
@@ -601,6 +671,11 @@ export interface InventoryRow {
   brand: string;
   /** How many size variants the product offers, and how many are sellable. */
   sizes: { total: number; available: number };
+  /**
+   * How many colour-and-size variants carry their own count, and how many have
+   * units (Phase 20). Null for a product that holds one count.
+   */
+  variants: { total: number; available: number } | null;
   lastMovement: {
     type: MovementType;
     quantityChange: number;
@@ -619,7 +694,18 @@ const SORTS: Record<AdminInventoryQuery['sort'], Record<string, 1 | -1>> = {
 };
 
 const LIST_FIELDS =
-  'name slug sku images stock lowStockThreshold isActive category brand sizes updatedAt';
+  'name slug sku images stock lowStockThreshold isActive category brand sizes variants updatedAt';
+
+/** The row's variant summary, or null for a product that holds one count. */
+function variantSummary(
+  variants: readonly { stock: number }[] | null | undefined,
+): InventoryRow['variants'] {
+  if (!variants || variants.length === 0) return null;
+  return {
+    total: variants.length,
+    available: variants.filter((variant) => variant.stock > 0).length,
+  };
+}
 
 /**
  * How far back "recently changed" looks.
@@ -775,6 +861,7 @@ export async function listInventory(query: AdminInventoryQuery) {
       category: named(product.category),
       brand: named(product.brand),
       sizes: { total: sizes.length, available: sizes.filter((size) => size.inStock).length },
+      variants: variantSummary(product.variants),
       lastMovement: lastMovements.get(String(product._id)) ?? null,
     };
   });
@@ -793,7 +880,17 @@ export async function listInventory(query: AdminInventoryQuery) {
 export interface MovementRow {
   id: string;
   product: { id: string; name: string; sku: string };
-  variant: { color: string | null; size: string | null } | null;
+  /**
+   * The colour and size involved. `sku` and the two counts are set only when
+   * the movement changed one variant's own count (Phase 20).
+   */
+  variant: {
+    color: string | null;
+    size: string | null;
+    sku: string | null;
+    quantityBefore: number | null;
+    quantityAfter: number | null;
+  } | null;
   type: MovementType;
   quantityBefore: number;
   quantityChange: number;
@@ -817,7 +914,13 @@ function toMovementRow(movement: MovementLean): MovementRow {
       sku: movement.sku ?? '',
     },
     variant: movement.variant
-      ? { color: movement.variant.color ?? null, size: movement.variant.size ?? null }
+      ? {
+          color: movement.variant.color ?? null,
+          size: movement.variant.size ?? null,
+          sku: movement.variant.sku ?? null,
+          quantityBefore: movement.variant.quantityBefore ?? null,
+          quantityAfter: movement.variant.quantityAfter ?? null,
+        }
       : null,
     type: movement.type,
     quantityBefore: movement.quantityBefore,
@@ -840,10 +943,31 @@ function toMovementRow(movement: MovementLean): MovementRow {
   };
 }
 
-export interface InventoryDetail extends InventoryRow {
+/** One variant's row on the inventory page (Phase 20). */
+export interface InventoryVariantRow {
+  id: string;
+  color: string | null;
+  size: string | null;
+  /** `Black · Size 9`. */
+  label: string;
+  sku: string;
+  stock: number;
+  /** Against the product's threshold: a variant has no threshold of its own. */
+  stockState: StockState;
+}
+
+export interface InventoryDetail extends Omit<InventoryRow, 'variants'> {
   price: number;
-  /** Size availability, read-only here: ZyCart holds no per-size quantity. */
-  variants: { label: string; inStock: boolean }[];
+  /**
+   * Size availability as the storefront shows it. Typed by an operator on a
+   * product that holds one count; derived from the variants on one that does
+   * not.
+   */
+  sizeOptions: { label: string; inStock: boolean }[];
+  /** Whether stock is held per variant — and so adjusted per variant. */
+  tracksVariants: boolean;
+  /** Every variant with its own count. Empty for a product that holds one count. */
+  variants: InventoryVariantRow[];
   colors: string[];
   movements: MovementRow[];
   /**
@@ -912,7 +1036,20 @@ export async function getInventoryItem(productId: string): Promise<InventoryDeta
         }
       : null,
     price: product.price,
-    variants: sizes.map((size) => ({ label: size.label, inStock: size.inStock !== false })),
+    sizeOptions: deriveSizeAvailability(sizes, product.variants).map((size) => ({
+      label: size.label,
+      inStock: size.inStock !== false,
+    })),
+    tracksVariants: tracksVariants(product),
+    variants: (product.variants ?? []).map((variant) => ({
+      id: String(variant._id),
+      color: variant.color ?? null,
+      size: variant.size ?? null,
+      label: variantLabel(variant),
+      sku: variant.sku,
+      stock: variant.stock,
+      stockState: stockStateOf(variant.stock, threshold),
+    })),
     colors: (product.colors ?? []).map((color) => color.name),
     movements: movements.map(toMovementRow),
     movementCount,

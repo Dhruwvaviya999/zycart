@@ -136,6 +136,9 @@ type UserDoc = InstanceType<typeof User>;
 function buildItem(product: ProductDoc, quantity: number) {
   const colors = product.colors ?? [];
   const sizes = (product.sizes ?? []).filter((size) => size.inStock);
+  // A product with stock per variant sells only the pairs it lists (Phase 20),
+  // so a demo line names one of those rather than an arbitrary combination.
+  const variant = product.variants.length > 0 ? pick(product.variants) : null;
   // Populated by the query below. The rate is copied onto the line exactly as
   // checkout copies it, so a demo order's invoice reads like a real one's.
   const category = product.category as unknown as {
@@ -153,8 +156,8 @@ function buildItem(product: ProductDoc, quantity: number) {
     quantity,
     unitPrice: product.price,
     lineTotal: product.price * quantity,
-    selectedColor: colors.length > 0 ? pick(colors).name : null,
-    selectedSize: sizes.length > 0 ? pick(sizes).label : null,
+    selectedColor: variant ? (variant.color ?? null) : colors.length > 0 ? pick(colors).name : null,
+    selectedSize: variant ? (variant.size ?? null) : sizes.length > 0 ? pick(sizes).label : null,
     returnedQuantity: 0,
     gstRate: gstRateOf(category),
     hsnCode: category?.hsnCode ?? '',

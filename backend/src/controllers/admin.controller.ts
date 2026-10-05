@@ -4,6 +4,7 @@ import * as customerService from '../services/admin/customer.service';
 import * as dashboardService from '../services/admin/dashboard.service';
 import * as adminOrderService from '../services/admin/order.service';
 import * as adminReviewService from '../services/admin/review.service';
+import { dispatchProductAlerts } from '../services/alerts/alert.service';
 import { getAdminInvoice } from '../services/invoices/invoice.service';
 import * as brandService from '../services/brand.service';
 import * as categoryService from '../services/category.service';
@@ -97,11 +98,12 @@ export async function createProduct(req: Request, res: Response): Promise<void> 
  */
 export async function updateProduct(req: Request, res: Response): Promise<void> {
   const input = updateProductSchema.parse(req.body);
+  const product = await productService.updateProduct(id(req), input, requireActor(req));
 
-  res.json({
-    success: true,
-    data: await productService.updateProduct(id(req), input, requireActor(req)),
-  });
+  // A lower price, or a product switched back on, may answer an alert (Phase 20).
+  dispatchProductAlerts(req.env, id(req));
+
+  res.json({ success: true, data: product });
 }
 
 export async function deleteProduct(req: Request, res: Response): Promise<void> {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { adminRouter } from './admin.routes';
 import { aiRouter } from './ai.routes';
+import { alertRouter } from './alert.routes';
 import { authRouter } from './auth.routes';
 import { brandRouter } from './brand.routes';
 import { cartRouter } from './cart.routes';
@@ -35,6 +36,7 @@ apiRouter.use(recommendationRouter);
 apiRouter.use(userRouter);
 apiRouter.use(cartRouter);
 apiRouter.use(wishlistRouter);
+apiRouter.use(alertRouter);
 apiRouter.use(checkoutRouter);
 apiRouter.use(orderRouter);
 // Declared after the order router so `/orders/:orderRef/returns` is reached

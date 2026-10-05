@@ -8,6 +8,12 @@ import {
   type MergeCartInput,
 } from '../validators/cart.validator';
 import { record } from './activity/activity.service';
+import {
+  findVariant,
+  sellableQuantity,
+  tracksVariants,
+  variantLabel,
+} from './inventory/variant-stock';
 
 /** Below this the storefront says how few are left rather than implying plenty. */
 const LOW_STOCK_THRESHOLD = 10;
@@ -34,6 +40,11 @@ export interface ResolvedCartItem {
     category: string;
     price: number;
     compareAtPrice: number | null;
+    /**
+     * How many of *this line* can be bought: the chosen variant's count on a
+     * product that tracks stock per variant (Phase 20), the product's
+     * otherwise. Named `stock` because that is what the cart renders it as.
+     */
     stock: number;
   } | null;
 }
@@ -65,7 +76,8 @@ export function lineKey(productId: string, color?: string | null, size?: string 
   return `${productId}::${color ?? ''}::${size ?? ''}`;
 }
 
-const PRODUCT_FIELDS = 'name slug images price compareAtPrice stock isActive brand category';
+const PRODUCT_FIELDS =
+  'name slug images price compareAtPrice stock variants isActive brand category';
 
 function availabilityFor(stock: number, quantity: number): Availability {
   if (stock <= 0) return 'out_of_stock';
@@ -117,16 +129,21 @@ export async function resolveCart(lines: RawLine[]): Promise<ResolvedCart> {
     }
 
     // Stock can fall after an item is added, so the orderable quantity is
-    // recomputed here rather than trusted from what was stored.
-    const maxQuantity = Math.min(product.stock, MAX_CART_QUANTITY);
+    // recomputed here rather than trusted from what was stored. On a product
+    // that tracks stock per variant it is this colour and size's count, and a
+    // combination the product has stopped selling has none (Phase 20).
+    const choice = { color: line.selectedColor, size: line.selectedSize };
+    const stock = sellableQuantity(product, choice);
+    const maxQuantity = Math.min(stock, MAX_CART_QUANTITY);
 
     // Clamp only while some stock remains. With none left nothing is orderable
     // anyway, so showing a reduced number would misreport what was asked for.
-    const quantity = product.stock > 0 ? Math.min(line.quantity, maxQuantity) : line.quantity;
-    const availability = availabilityFor(product.stock, line.quantity);
+    const quantity = stock > 0 ? Math.min(line.quantity, maxQuantity) : line.quantity;
+    const availability = availabilityFor(stock, line.quantity);
 
-    if (product.stock > 0 && line.quantity > maxQuantity) {
-      notices.add(`Only ${product.stock} left of ${product.name}.`);
+    if (stock > 0 && line.quantity > maxQuantity) {
+      const label = tracksVariants(product) ? variantLabel(choice) : '';
+      notices.add(`Only ${stock} left of ${product.name}${label ? ` in ${label}` : ''}.`);
     }
 
     const brand = product.brand as unknown as { name?: string } | null;
@@ -150,7 +167,7 @@ export async function resolveCart(lines: RawLine[]): Promise<ResolvedCart> {
         category: category?.name ?? '',
         price: product.price,
         compareAtPrice: product.compareAtPrice ?? null,
-        stock: product.stock,
+        stock,
       },
     };
   });
@@ -223,7 +240,7 @@ async function assertPurchasable(input: {
   selectedSize?: string | null;
 }) {
   const product = await Product.findById(input.productId).select(
-    'name stock isActive colors sizes',
+    'name stock variants isActive colors sizes',
   );
 
   if (!product || !product.isActive) throw new AppError('Product not found', 404);
@@ -243,6 +260,23 @@ async function assertPurchasable(input: {
     const size = product.sizes.find((entry) => entry.label === input.selectedSize);
     if (!size) throw new AppError('That size is not available', 400);
     if (!size.inStock) throw new AppError('That size is sold out', 409);
+  }
+
+  /**
+   * On a product that tracks stock per variant, the combination itself has to
+   * be sold and have units (Phase 20). Size 9 can be in stock in black and sold
+   * out in white; the size check above cannot tell those apart, and this can.
+   */
+  if (tracksVariants(product)) {
+    const choice = { color: input.selectedColor, size: input.selectedSize };
+    const variant = findVariant(product.variants, choice);
+
+    if (!variant) {
+      throw new AppError(`${product.name} is not sold in ${variantLabel(choice)}`, 400);
+    }
+    if (variant.stock <= 0) {
+      throw new AppError(`${product.name} is sold out in ${variantLabel(choice)}`, 409);
+    }
   }
 
   return product;
@@ -265,7 +299,10 @@ export async function addItem(userId: string, input: AddCartItemInput): Promise<
     (item) => lineKey(String(item.product), item.selectedColor, item.selectedSize) === key,
   );
 
-  const ceiling = Math.min(product.stock, MAX_CART_QUANTITY);
+  const ceiling = Math.min(
+    sellableQuantity(product, { color: input.selectedColor, size: input.selectedSize }),
+    MAX_CART_QUANTITY,
+  );
 
   if (existing) {
     existing.quantity = Math.min(existing.quantity + input.quantity, ceiling);
@@ -305,15 +342,18 @@ export async function updateItem(
   const cart = await loadCart(userId);
   const item = findItem(cart, itemId);
 
-  const product = await Product.findById(item.product).select('stock isActive');
+  const product = await Product.findById(item.product).select('stock variants isActive');
+  const stock = product
+    ? sellableQuantity(product, { color: item.selectedColor, size: item.selectedSize })
+    : 0;
 
   // An unavailable product can still be removed, but its quantity is not
   // something we let the customer raise.
-  if (!product || !product.isActive || product.stock <= 0) {
+  if (!product || !product.isActive || stock <= 0) {
     throw new AppError('This product is no longer available', 409);
   }
 
-  item.quantity = Math.min(quantity, Math.min(product.stock, MAX_CART_QUANTITY));
+  item.quantity = Math.min(quantity, Math.min(stock, MAX_CART_QUANTITY));
 
   await cart.save();
   return resolveCart(toRawLines(cart));
@@ -355,15 +395,17 @@ export async function mergeCart(userId: string, input: MergeCartInput): Promise<
   const products = await Product.find({
     _id: { $in: input.items.map((item) => new Types.ObjectId(item.productId)) },
     isActive: true,
-  }).select('name stock colors sizes');
+  }).select('name stock variants colors sizes');
 
   const byId = new Map(products.map((product) => [String(product._id), product]));
   const skipped: string[] = [];
 
   for (const guestItem of input.items) {
     const product = byId.get(guestItem.productId);
+    const choice = { color: guestItem.selectedColor, size: guestItem.selectedSize };
+    const stock = product ? sellableQuantity(product, choice) : 0;
 
-    if (!product || product.stock <= 0) {
+    if (!product || stock <= 0) {
       skipped.push(guestItem.productId);
       continue;
     }
@@ -385,7 +427,7 @@ export async function mergeCart(userId: string, input: MergeCartInput): Promise<
       (item) => lineKey(String(item.product), item.selectedColor, item.selectedSize) === key,
     );
 
-    const ceiling = Math.min(product.stock, MAX_CART_QUANTITY);
+    const ceiling = Math.min(stock, MAX_CART_QUANTITY);
 
     if (existing) {
       existing.quantity = Math.min(existing.quantity + guestItem.quantity, ceiling);

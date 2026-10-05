@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_VARIANT_SKU_LENGTH, MAX_VARIANTS } from '../models/product.model';
 import { objectIdSchema, queryBoolean } from './common';
 
 const colorSchema = z.object({
@@ -18,6 +19,33 @@ const specificationSchema = z.object({
   label: z.string().trim().min(1).max(60),
   value: z.string().trim().min(1).max(200),
 });
+
+/**
+ * One colour-and-size combination with its own count (Phase 20).
+ *
+ * `stock` is an *opening* count. It is honoured when a product is created and
+ * when a product that held one count is split into variants — where the counts
+ * must add up to what it held — and refused anywhere else, for the reason the
+ * product's own `stock` is: after creation, units move through the inventory
+ * console's adjustments, which carry a reason.
+ *
+ * `sku` is optional; the service derives one from the product's SKU and the
+ * option names when it is absent.
+ */
+const variantSchema = z.object({
+  color: z.string().trim().min(1).max(40).nullish(),
+  size: z.string().trim().min(1).max(20).nullish(),
+  sku: z
+    .string()
+    .trim()
+    .min(2)
+    .max(MAX_VARIANT_SKU_LENGTH)
+    .regex(/^[A-Za-z0-9-]+$/, 'may contain letters, digits and hyphens only')
+    .optional(),
+  stock: z.number().int().nonnegative().max(1_000_000).optional(),
+});
+
+export type VariantInput = z.infer<typeof variantSchema>;
 
 export const createProductSchema = z.object({
   name: z.string().trim().min(2).max(160),
@@ -45,10 +73,19 @@ export const createProductSchema = z.object({
     .min(2)
     .max(40)
     .regex(/^[A-Za-z0-9-]+$/, 'may contain letters, digits and hyphens only'),
-  stock: z.number().int().nonnegative().max(1_000_000),
+  /**
+   * The opening count. Required for a product that holds one count; optional
+   * for one created with `variants`, whose total is the sum of theirs — and if
+   * sent anyway, it must equal that sum. The service enforces both, because a
+   * rule spanning two fields cannot live on a schema `updateProductSchema`
+   * derives from with `.omit`.
+   */
+  stock: z.number().int().nonnegative().max(1_000_000).optional(),
 
   colors: z.array(colorSchema).max(20).optional(),
   sizes: z.array(sizeSchema).max(30).optional(),
+  /** Stock per colour and size (Phase 20). Absent or empty: one count for the product. */
+  variants: z.array(variantSchema).max(MAX_VARIANTS).optional(),
   tags: z.array(z.string().trim().min(1).max(40)).max(30).optional(),
   highlights: z.array(z.string().trim().min(1).max(200)).max(12).optional(),
   specifications: z.array(specificationSchema).max(30).optional(),
@@ -81,6 +118,10 @@ export const createProductSchema = z.object({
  * Omitted rather than rejected: unknown keys are stripped, so a client still
  * sending `stock` gets a successful update in which that field is simply not
  * honoured, instead of a 400 it cannot interpret.
+ *
+ * `variants` *is* accepted here (Phase 20), as a description of which
+ * combinations are sold. Counts on it are honoured only when splitting a
+ * product that held one count; see `updateProduct`.
  */
 export const updateProductSchema = createProductSchema
   .omit({ stock: true })

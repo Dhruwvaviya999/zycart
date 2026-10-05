@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Boxes, PackageX, TriangleAlert } from 'lucide-react';
+import { Boxes, Layers, PackageX, TriangleAlert } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
   AdminEmpty,
   AdminError,
@@ -193,7 +194,7 @@ export default async function AdminInventoryPage({ searchParams }: PageProps<'/a
                   <LastMovement movement={row.lastMovement} />
                 </Td>
                 <Td align="right">
-                  <AdjustStockButton product={row} largeAdjustmentThreshold={largeAdjustment} />
+                  <RowAdjust row={row} largeAdjustment={largeAdjustment} />
                 </Td>
               </Tr>
             ))}
@@ -217,6 +218,7 @@ export default async function AdminInventoryPage({ searchParams }: PageProps<'/a
                       {row.sku}
                       {row.category ? ` · ${row.category}` : ''}
                     </p>
+                    <VariantHint row={row} />
                   </div>
 
                   <span className="text-small shrink-0 font-semibold tabular-nums">
@@ -233,11 +235,7 @@ export default async function AdminInventoryPage({ searchParams }: PageProps<'/a
                     Warns at {row.lowStockThreshold}
                   </span>
 
-                  <AdjustStockButton
-                    product={row}
-                    largeAdjustmentThreshold={largeAdjustment}
-                    className="ml-auto"
-                  />
+                  <RowAdjust row={row} largeAdjustment={largeAdjustment} className="ml-auto" />
                 </div>
               </li>
             ))}
@@ -379,7 +377,74 @@ function ProductCell({ row }: { row: InventoryRow }) {
           {row.sku}
           {!row.isActive && ' · Hidden from the shop'}
         </p>
+        <VariantHint row={row} />
       </div>
     </div>
+  );
+}
+
+/**
+ * `6 variants · 4 in stock`, under a product that counts stock per colour and
+ * size (Phase 20).
+ *
+ * The stock column is still the product's total, which is right for sorting
+ * and for the status badge. But a total of 40 can hide a best-selling size at
+ * zero, and this is the one line that says to look closer.
+ */
+function VariantHint({ row }: { row: InventoryRow }) {
+  if (!row.variants) return null;
+
+  const { total, available } = row.variants;
+
+  return (
+    <p
+      className={cn(
+        'text-caption truncate',
+        available < total ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground',
+      )}
+    >
+      {total} {total === 1 ? 'variant' : 'variants'} · {available} in stock
+    </p>
+  );
+}
+
+/**
+ * The row's adjustment: the dialog for one count, the product's page for many.
+ *
+ * A product that tracks stock per variant cannot be adjusted as a whole — the
+ * server refuses it, because the units would belong to no colour or size — and
+ * a table row has no room to choose which variant. So the row links to the
+ * page that lists them, under a name that says why it is not the usual button.
+ */
+function RowAdjust({
+  row,
+  largeAdjustment,
+  className,
+}: {
+  row: InventoryRow;
+  largeAdjustment: number;
+  className?: string;
+}) {
+  if (!row.variants) {
+    return (
+      <AdjustStockButton
+        product={row}
+        largeAdjustmentThreshold={largeAdjustment}
+        className={className}
+      />
+    );
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      className={className}
+      render={<Link href={`/admin/inventory/${row.id}`} />}
+      aria-label={`Adjust stock per variant for ${row.name}`}
+    >
+      <Layers className="size-3.5" data-icon="inline-start" aria-hidden />
+      Per variant
+    </Button>
   );
 }

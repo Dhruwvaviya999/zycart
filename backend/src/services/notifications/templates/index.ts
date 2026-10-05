@@ -7,6 +7,7 @@ import {
   type RenderedEmail,
 } from '../render';
 import { abandonedCartTemplate } from './abandoned-cart';
+import { backInStockTemplate } from './back-in-stock';
 import { emailVerificationTemplate } from './email-verification';
 import { newsletterConfirmationTemplate } from './newsletter-confirmation';
 import { orderDeliveredTemplate } from './order-delivered';
@@ -14,6 +15,7 @@ import { orderPlacedTemplate } from './order-placed';
 import { orderShippedTemplate } from './order-shipped';
 import { passwordResetTemplate } from './password-reset';
 import { paymentFailedTemplate } from './payment-failed';
+import { priceDropTemplate } from './price-drop';
 import { refundCompletedTemplate } from './refund-completed';
 import { returnApprovedTemplate } from './return-approved';
 import type { EmailTemplate } from './shared';
@@ -33,6 +35,8 @@ export {
   newsletterConfirmationTemplate,
   type NewsletterConfirmationEmailData,
 } from './newsletter-confirmation';
+export { backInStockTemplate, type BackInStockEmailData } from './back-in-stock';
+export { priceDropTemplate, type PriceDropEmailData } from './price-drop';
 export type { EmailTemplate } from './shared';
 
 /**
@@ -144,6 +148,8 @@ export const TEMPLATE_REGISTRY: Readonly<Record<NotificationEvent, ErasedTemplat
   EMAIL_VERIFICATION: erase(emailVerificationTemplate),
   PASSWORD_RESET: erase(passwordResetTemplate),
   NEWSLETTER_CONFIRMATION: erase(newsletterConfirmationTemplate),
+  BACK_IN_STOCK: erase(backInStockTemplate),
+  PRICE_DROP: erase(priceDropTemplate),
 };
 
 /** The template for an event — its name and version, without rendering anything. */

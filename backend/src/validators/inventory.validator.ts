@@ -98,6 +98,16 @@ export const adjustStockSchema = z
      * update, so this is not a read-then-write check.
      */
     expectedStock: z.number().int().min(0).max(10_000_000).optional(),
+
+    /**
+     * Which variant the units belong to (Phase 20).
+     *
+     * Required for a product that tracks stock per variant and refused for one
+     * that does not — the service decides, because only it knows which kind the
+     * product is. When set, `shownStock` and `expectedStock` are that variant's
+     * count rather than the product's total.
+     */
+    variantId: objectIdSchema.optional(),
   })
   .strict();
 

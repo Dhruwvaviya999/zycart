@@ -127,6 +127,13 @@ export function getProduct(id: string, options?: RequestOptions): Promise<AdminP
   return request<AdminProduct>(`/api/admin/products/${encodeURIComponent(id)}`, undefined, options);
 }
 
+/**
+ * Creates a product.
+ *
+ * Send `stock` for a product that holds one count, or `variants` with their
+ * opening counts and no `stock` — the server sums them, and refuses a `stock`
+ * that disagrees with that sum.
+ */
 export function createProduct(input: ProductInput): Promise<AdminProduct> {
   return send<AdminProduct>('post', '/api/admin/products', input);
 }
@@ -137,6 +144,12 @@ export function createProduct(input: ProductInput): Promise<AdminProduct> {
  * The type says so: `ProductUpdateInput` has no `stock`, because the endpoint
  * no longer honours one. Stock moves through `adjustStock`, which takes a
  * signed change and a reason.
+ *
+ * `variants` (Phase 20) says which colour-and-size combinations are sold. Left
+ * out, the list is untouched; empty, the product goes back to one count with
+ * its total kept. The server's `planVariantEdit` refuses anything that would
+ * move units without a ledger entry, and its messages are worded for the form
+ * to show as they are.
  */
 export function updateProduct(
   id: string,
@@ -331,6 +344,10 @@ export async function getMovements(
  * Sends a signed change and a reason — never a total. The response carries the
  * quantity the server actually found, which is what the dialog reports back
  * rather than the figure it was showing.
+ *
+ * A product that tracks stock per variant is adjusted one variant at a time:
+ * `variantId` names it, and `shownStock` and `expectedStock` are then that
+ * variant's count. Leaving it out for such a product is refused with a 409.
  */
 export function adjustStock(id: string, input: AdjustStockInput): Promise<AdjustmentResult> {
   return send<AdjustmentResult>(

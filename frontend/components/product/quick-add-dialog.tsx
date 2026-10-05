@@ -11,6 +11,7 @@ import { VariantPicker } from '@/components/product/variant-picker';
 import { toErrorMessage } from '@/services/api';
 import { useCartStore } from '@/store/cart-store';
 import { imageAlt } from '@/lib/product';
+import { selectionStock } from '@/lib/variants';
 import type { ProductSummary } from '@/types/product';
 
 interface QuickAddDialogProps {
@@ -35,6 +36,16 @@ export function QuickAddDialog({ product, open, onOpenChange, onAdded }: QuickAd
   const [errors, setErrors] = useState<{ color?: string; size?: string }>({});
   const [formError, setFormError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
+
+  /**
+   * Whether the choice so far can be bought (Phase 20).
+   *
+   * Sold-out options cannot be picked here, so on a product with stock per
+   * variant a finished choice is always one with units. This catches what is
+   * left: a product that sold out while the dialog was open on a stale grid.
+   * Quick add only ever adds one, so the count matters only as "any at all".
+   */
+  const soldOut = selectionStock(product, { color, size }) <= 0;
 
   async function handleAdd() {
     const next: typeof errors = {};
@@ -63,11 +74,7 @@ export function QuickAddDialog({ product, open, onOpenChange, onAdded }: QuickAd
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Bottom sheet on a phone, centred card from `sm` up. */}
-      <DialogContent
-        showCloseButton={false}
-        variant="sheet"
-          size="md"
-      >
+      <DialogContent showCloseButton={false} variant="sheet" size="md">
         <div className="flex items-start gap-4 border-b border-border p-5">
           <span className="relative size-16 shrink-0 overflow-hidden rounded-xl bg-surface">
             {product.images[0] && (
@@ -107,6 +114,7 @@ export function QuickAddDialog({ product, open, onOpenChange, onAdded }: QuickAd
           <VariantPicker
             colors={product.colors}
             sizes={product.sizes}
+            variants={product.variants}
             selectedColor={color}
             selectedSize={size}
             onColorChange={setColor}
@@ -135,7 +143,7 @@ export function QuickAddDialog({ product, open, onOpenChange, onAdded }: QuickAd
             size="cta-lg"
             variant="brand"
             onClick={handleAdd}
-            disabled={submitting}
+            disabled={submitting || soldOut}
             className="w-full"
           >
             {submitting ? (
@@ -143,6 +151,8 @@ export function QuickAddDialog({ product, open, onOpenChange, onAdded }: QuickAd
                 <Loader2 className="size-4 animate-spin" data-icon="inline-start" />
                 Adding...
               </>
+            ) : soldOut ? (
+              'Sold out'
             ) : (
               'Add to cart'
             )}

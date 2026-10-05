@@ -29,7 +29,7 @@ type WishlistDoc = InstanceType<typeof Wishlist>;
 /** Matches the catalogue list projection, minus the long-form fields. */
 const PRODUCT_FIELDS =
   'name slug shortDescription images price compareAtPrice category brand sku stock ' +
-  'colors sizes tags rating reviewCount isFeatured isBestSeller isNewArrival isActive createdAt';
+  'colors sizes variants tags rating reviewCount isFeatured isBestSeller isNewArrival isActive createdAt';
 
 async function loadWishlist(userId: string): Promise<WishlistDoc> {
   const existing = await Wishlist.findOne({ user: userId });

@@ -65,6 +65,19 @@ import { baseSchemaOptions } from './shared';
  * - **EMAIL_VERIFICATION**, **PASSWORD_RESET**, **NEWSLETTER_CONFIRMATION** — the
  *   three messages that carry a single-use link. See `NotificationOutbox` for
  *   why those links are never stored here.
+ *
+ * ## Phase 20
+ *
+ * Two more, and both are answers to a question the customer asked:
+ *
+ * - **BACK_IN_STOCK** — something they asked to be told about can be bought
+ *   again.
+ * - **PRICE_DROP** — something they asked to be told about costs less than
+ *   when they asked.
+ *
+ * Raised by the alert sweep, never by a stock or price write directly: one
+ * restock can answer hundreds of alerts, and that fan-out does not belong
+ * inside the transaction that moved the units. See `services/alerts`.
  */
 export const NOTIFICATION_EVENTS = [
   'ORDER_SHIPPED',
@@ -78,6 +91,8 @@ export const NOTIFICATION_EVENTS = [
   'EMAIL_VERIFICATION',
   'PASSWORD_RESET',
   'NEWSLETTER_CONFIRMATION',
+  'BACK_IN_STOCK',
+  'PRICE_DROP',
 ] as const;
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
 
@@ -86,8 +101,17 @@ export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
  *
  * USER for account messages, SUBSCRIBER for the newsletter's confirmation —
  * whose recipient is an address, not an account — and CART for reminders.
+ * PRODUCT for the Phase 20 alerts, so the console's "everything we told
+ * anybody about this" view works for a product the way it does for an order.
  */
-export const NOTIFICATION_ENTITIES = ['ORDER', 'RETURN', 'USER', 'SUBSCRIBER', 'CART'] as const;
+export const NOTIFICATION_ENTITIES = [
+  'ORDER',
+  'RETURN',
+  'USER',
+  'SUBSCRIBER',
+  'CART',
+  'PRODUCT',
+] as const;
 export type NotificationEntity = (typeof NOTIFICATION_ENTITIES)[number];
 
 /**

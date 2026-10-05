@@ -78,13 +78,53 @@ const colorSchema = new Schema(
   { _id: false },
 );
 
-/** Sizes carry their own availability, so one sold-out size does not hide a product. */
+/**
+ * Sizes carry their own availability, so one sold-out size does not hide a product.
+ *
+ * From Phase 20 `inStock` is typed by an operator only on a product that does
+ * not track stock per variant. On one that does, it is *derived*: true exactly
+ * when some variant of that size has units, and rewritten by
+ * `syncSizeAvailability` in the same transaction as every variant stock write.
+ * It is kept stored rather than computed on read because the storefront's size
+ * filter, the assistant's tools and the cards all already read it — one helper
+ * keeping it true is cheaper and safer than teaching six readers a new rule.
+ */
 const sizeSchema = new Schema(
   {
     label: { type: String, required: true, trim: true },
     inStock: { type: Boolean, default: true },
   },
   { _id: false },
+);
+
+/** The longest variant SKU accepted; long enough for `PRODUCT-SKU-COLOUR-SIZE`. */
+export const MAX_VARIANT_SKU_LENGTH = 64;
+
+/** How many variants one product may carry: twenty colours by thirty sizes would be absurd. */
+export const MAX_VARIANTS = 120;
+
+/**
+ * One sellable combination of colour and size, with its own count (Phase 20).
+ *
+ * Identified by the pair `(color, size)` rather than by its `_id` wherever a
+ * customer is involved, because that pair is what a cart line, an order line
+ * and a return line already record. A colour axis the product does not have is
+ * `null` on every variant, and likewise for size — so a shirt sold only in
+ * sizes has variants `(null, "S")`, `(null, "M")`, and so on.
+ *
+ * The `_id` is kept for the console, which adjusts one row of a table and
+ * should not have to re-send the pair to do it.
+ */
+const variantSchema = new Schema(
+  {
+    color: { type: String, trim: true, default: null },
+    size: { type: String, trim: true, default: null },
+    sku: { type: String, required: true, trim: true, uppercase: true },
+    stock: { type: Number, required: true, min: 0, default: 0 },
+  },
+  // `id` rather than `_id` in the API, like every document — without the
+  // timestamps, which would say nothing about a row that is rewritten on edit.
+  { toJSON: baseSchemaOptions.toJSON },
 );
 
 const specificationSchema = new Schema(
@@ -125,8 +165,26 @@ const productSchema = new Schema(
      * an order and `applyCancellation` gives it back — plus the inventory
      * service's adjustment, which exists so that an operator correcting a count
      * does so through a path that records why. Everything else reads it.
+     *
+     * From Phase 20 a product may also track stock per variant (see
+     * `variants`). It then still holds the *total*, equal to the sum of its
+     * variants' counts, and every writer moves the total and the one variant in
+     * the same atomic update — so every screen that reads `stock` as "how many
+     * can this shop sell" stays right without knowing variants exist. All of
+     * those writes go through `writeStock` in `inventory/variant-stock.ts`.
      */
     stock: { type: Number, required: true, min: 0, default: 0 },
+
+    /**
+     * Stock per colour-and-size combination (Phase 20). Empty for a product
+     * that holds one count for all of its options, which is every product
+     * created before this phase and any product an operator chooses to keep
+     * simple.
+     *
+     * When non-empty, a combination that is not listed here is not sold at
+     * all, and `stock` is the sum of the counts below.
+     */
+    variants: { type: [variantSchema], default: [] },
 
     /**
      * When this product starts warning, overriding the store-wide default.
@@ -205,6 +263,8 @@ productSchema.index({ price: 1 });
  * rather than a bare `{ stock: 1 }`.
  */
 productSchema.index({ isActive: 1, stock: 1 });
+
+export type ProductVariantDocument = InferSchemaType<typeof variantSchema>;
 
 export type ProductDocument = InferSchemaType<typeof productSchema>;
 

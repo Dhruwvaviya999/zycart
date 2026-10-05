@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import * as productService from '../services/product.service';
 import { record } from '../services/activity/activity.service';
+import { dispatchProductAlerts } from '../services/alerts/alert.service';
 import { idOrSlugParamSchema, idParamSchema } from '../validators/common';
 import { requireActor } from '../utils/actor';
 import {
@@ -92,11 +93,12 @@ export async function createProduct(req: Request, res: Response): Promise<void> 
 export async function updateProduct(req: Request, res: Response): Promise<void> {
   const { id } = idParamSchema.parse(req.params);
   const input = updateProductSchema.parse(req.body);
+  const product = await productService.updateProduct(id, input, requireActor(req));
 
-  res.json({
-    success: true,
-    data: await productService.updateProduct(id, input, requireActor(req)),
-  });
+  // As the console's own update does (Phase 20).
+  dispatchProductAlerts(req.env, id);
+
+  res.json({ success: true, data: product });
 }
 
 export async function deleteProduct(req: Request, res: Response): Promise<void> {

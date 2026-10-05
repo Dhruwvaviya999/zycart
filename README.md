@@ -81,7 +81,8 @@ Phase notes live in [`docs/`](docs/) — [phase 1](docs/phase-1.md),
 [phase 11](docs/phase-11.md), [phase 12](docs/phase-12.md),
 [phase 13](docs/phase-13.md), [phase 14](docs/phase-14.md),
 [phase 15](docs/phase-15.md), [phase 16](docs/phase-16.md),
-[phase 17](docs/phase-17.md).
+[phase 17](docs/phase-17.md), [phase 18](docs/phase-18.md),
+[phase 19](docs/phase-19.md), [phase 20](docs/phase-20.md).
 
 Deploying it is covered separately, in
 [docs/deployment.md](docs/deployment.md): the two-service Vercel layout, every
@@ -381,6 +382,7 @@ Open <http://localhost:3000>. The storefront reads its catalogue from the API, s
 | `/verify-email`     | Where the verification email lands                          |
 | `/newsletter/confirm`, `/newsletter/unsubscribe` | Double opt-in, and leaving       |
 | `/email-preferences/cart-reminders` | One-click opt-out from cart reminders        |
+| `/account/alerts`   | Back-in-stock and price-drop alerts — waiting and sent      |
 
 Shopper-facing routes live in the `(storefront)` route group, which gives them
 the navbar, promo bar and footer. The console has its own shell and inherits
@@ -412,10 +414,12 @@ Run from the repository root:
 | `pnpm migrate:phase8`  | Recompute rating aggregates, create review indexes                 |
 | `pnpm migrate:phase12` | Create inventory-movement, audit-log and stock indexes             |
 | `pnpm migrate:phase13` | Create shipment and return indexes; initialise the new counters    |
+| `pnpm migrate:phase20` | Create alert indexes; give products an empty variant list          |
 | `pnpm returns:verify`  | Exercise returns, shipments and races against a real replica set   |
 | `pnpm notifications:verify` | Exercise transactional email, the drain and races              |
 | `pnpm notifications:drain`  | Send deliveries a crash stranded (`--help` for options)        |
 | `pnpm reminders:send`  | Cart and failed-payment reminders — schedule it (`--help`, `--dry-run`) |
+| `pnpm alerts:send`     | Back-in-stock and price-drop alerts — schedule it (`--help`, `--dry-run`) |
 | `pnpm payments:verify` | Exercise the Razorpay boundary against a real replica set          |
 | `pnpm health:verify`   | Exercise the health surface against a real MongoDB (read-only)     |
 | `pnpm smoke:deploy`    | Pre-deploy check: production builds, real startup, health, read-only API (`--help`) |
@@ -746,7 +750,22 @@ on qualify. See [docs/phase-19.md](docs/phase-19.md).
 
 Guests shop without signing in; their cart merges into the account on sign-in.
 Prices and stock are always the server's, never the browser's — see
-[docs/phase-5.md](docs/phase-5.md).
+[docs/phase-5.md](docs/phase-5.md). On a product that tracks stock per colour
+and size, a line's stock is that combination's own count
+([docs/phase-20.md](docs/phase-20.md)).
+
+### Stock and price alerts
+
+| Method   | Path                   | Auth | Purpose                                                    |
+| -------- | ---------------------- | ---- | ---------------------------------------------------------- |
+| `GET`    | `/api/alerts`          | ✓    | The customer's alerts; `?productId=` narrows to one product |
+| `POST`   | `/api/alerts`          | ✓    | `{ productId, type, selectedColor?, selectedSize? }`        |
+| `DELETE` | `/api/alerts/:alertId` | ✓    | Remove an alert                                            |
+
+`type` is `BACK_IN_STOCK` or `PRICE_DROP`. Each alert is answered once, by
+email, from `pnpm alerts:send` or straight after an operator's restock or price
+change; the price a drop is measured against is the catalogue's when the alert
+was set, never the request's. See [docs/phase-20.md](docs/phase-20.md).
 
 ### Checkout and orders
 
@@ -1016,6 +1035,11 @@ browser was showing — so a screen that had gone stale is told so rather than
 reporting a number nobody predicted. A reduction larger than the stock on hand
 is refused with `409` and a sentence naming the real quantity.
 
+A product that tracks stock per colour and size is adjusted one variant at a
+time: the body names it with `"variantId"`, the response's `variant` carries
+that variant's own before and after beside the product's total, and an
+adjustment without one is refused — see [docs/phase-20.md](docs/phase-20.md).
+
 **Not signed in - `401`** · **Signed in as a customer - `403`**
 
 ```json
@@ -1233,6 +1257,18 @@ tries against a limit of three cannot overspend; a try that produced no
 picture is given back. The prompt insists that the person stays exactly who
 they are — no slimming, no retouching — because a shopper deciding whether
 something suits them must see themselves.
+
+Phase 20 gave stock a shape. A product may now hold its count per colour and
+size: checkout takes units from the pair the customer chose, cancellations and
+resellable returns put them back there, and the console adjusts one variant at
+a time — every change still a movement in the Phase 12 ledger, which now also
+records the variant's own before and after. `Product.stock` stays as the sum, so
+nothing that reads it had to change. Editing the variant list never moves a
+unit: splitting a product must divide exactly what it holds, a new combination
+starts at zero, and one cannot be removed while it holds stock. Customers can
+ask to be told when something — or the one size they wanted — is back, or when
+its price drops; a sweep answers each alert once through the Phase 14 outbox,
+run straight after an operator's restock and by `pnpm alerts:send` on cron.
 
 Later phases can build on that foundation: a shipping-provider integration behind
 the shipment domain Phase 13 modelled, SMS and in-app notification beside the

@@ -14,6 +14,12 @@ import { resolveBrandId } from './brand.service';
 import { resolveCategoryId } from './category.service';
 import { changed, recordAudit, type AuditActor } from './admin/audit.service';
 import { recordMovement } from './inventory/inventory.service';
+import {
+  assertVariantShape,
+  deriveSizeAvailability,
+  planNewVariants,
+  planVariantEdit,
+} from './inventory/variant-stock';
 import { rankByRelevance, tokenize, type RankableProduct } from './search/relevance';
 
 /**
@@ -22,7 +28,7 @@ import { rankByRelevance, tokenize, type RankableProduct } from './search/releva
  */
 const LIST_FIELDS =
   'name slug shortDescription images price compareAtPrice category brand sku stock lowStockThreshold ' +
-  'colors sizes tags rating reviewCount isFeatured isBestSeller isNewArrival createdAt';
+  'colors sizes variants tags rating reviewCount isFeatured isBestSeller isNewArrival createdAt';
 
 const REFERENCE_FIELDS = 'name slug';
 
@@ -480,10 +486,39 @@ function assertPricing(price?: number, compareAtPrice?: number | null): void {
  * `actor` is optional because the seed creates products with no administrator
  * behind them. The movement is still written — the stock is real either way —
  * and the audit row is not, because there is nobody to attribute it to.
+ *
+ * ## With variants (Phase 20)
+ *
+ * A product created with `variants` takes its total from them, and its opening
+ * stock is recorded one movement per variant — each a real arrival of units in
+ * a colour and size, and together an unbroken chain from zero to the total.
  */
 export async function createProduct(input: CreateProductInput, actor?: AuditActor) {
   await assertReferences(input.category, input.brand);
   assertPricing(input.price, input.compareAtPrice);
+
+  const { variants: drafts, ...fields } = input;
+  const sizes = fields.sizes ?? [];
+
+  const variants = planNewVariants(drafts ?? [], fields.sku, {
+    colors: (fields.colors ?? []).map((color) => color.name),
+    sizes: sizes.map((size) => size.label),
+  });
+
+  const variantTotal = variants.reduce((sum, variant) => sum + variant.stock, 0);
+
+  if (variants.length === 0 && fields.stock === undefined) {
+    throw new AppError('stock is required for a product without variants', 400);
+  }
+
+  if (variants.length > 0 && fields.stock !== undefined && fields.stock !== variantTotal) {
+    throw new AppError(
+      `stock must equal the sum of the variant counts (${variantTotal}), or be left out`,
+      400,
+    );
+  }
+
+  const stock = variants.length > 0 ? variantTotal : (fields.stock ?? 0);
 
   const slug = await uniqueSlug(input.name, async (candidate) => {
     return (await Product.exists({ slug: candidate })) !== null;
@@ -495,14 +530,60 @@ export async function createProduct(input: CreateProductInput, actor?: AuditActo
     let createdId = '';
 
     await session.withTransaction(async () => {
-      const [product] = await Product.create([{ ...input, slug }], { session });
+      const [product] = await Product.create(
+        [
+          {
+            ...fields,
+            slug,
+            stock,
+            variants,
+            // Size availability follows the variants on a product that has them.
+            sizes: deriveSizeAvailability(sizes, variants),
+          },
+        ],
+        { session },
+      );
       if (!product) throw new AppError('Could not create the product', 500);
 
       createdId = String(product._id);
 
+      if (variants.length > 0) {
+        let runningTotal = 0;
+
+        for (const variant of product.variants) {
+          // As below: a variant that opens at zero has not moved.
+          if (variant.stock <= 0) continue;
+
+          await recordMovement(
+            {
+              product: product._id,
+              productName: product.name,
+              sku: product.sku,
+              variant: {
+                color: variant.color ?? null,
+                size: variant.size ?? null,
+                sku: variant.sku,
+                quantityBefore: 0,
+                quantityAfter: variant.stock,
+              },
+              type: 'INITIAL_STOCK',
+              quantityBefore: runningTotal,
+              quantityChange: variant.stock,
+              referenceType: 'PRODUCT',
+              referenceId: product._id,
+              referenceLabel: variant.sku,
+              actor: actor ?? null,
+            },
+            session,
+          );
+
+          runningTotal += variant.stock;
+        }
+      }
+
       // Zero opening stock is not a movement: nothing moved, and a "+0" row
       // would be the one entry in the ledger whose arithmetic says nothing.
-      if (product.stock > 0) {
+      if (variants.length === 0 && product.stock > 0) {
         await recordMovement(
           {
             product: product._id,
@@ -528,7 +609,9 @@ export async function createProduct(input: CreateProductInput, actor?: AuditActo
             entityType: 'PRODUCT',
             entityId: product._id,
             entityLabel: product.name,
-            summary: `Product created: ${product.name} (${product.sku}), opening stock ${product.stock}`,
+            summary:
+              `Product created: ${product.name} (${product.sku}), opening stock ${product.stock}` +
+              (variants.length > 0 ? ` across ${variants.length} variants` : ''),
           },
           session,
         );
@@ -573,43 +656,126 @@ const AUDITED_PRODUCT_FIELDS = [
  *
  * An older client that still sends `stock` is not rejected — the schema strips
  * unknown keys — so the field is simply no longer honoured here.
+ *
+ * ## Variants (Phase 20)
+ *
+ * `variants` describes which colour-and-size combinations are sold, and is
+ * planned by `planVariantEdit`, which refuses any edit that would change the
+ * total without a ledger entry. Because the new list is built from the variant
+ * counts as they are *now*, the read and the write run in one transaction: a
+ * sale landing between them makes this transaction conflict and retry against
+ * the new count, rather than writing back a count that has already moved.
  */
 export async function updateProduct(id: string, input: UpdateProductInput, actor?: AuditActor) {
-  const existing = await Product.findById(id);
-  if (!existing) throw new AppError('Product not found', 404);
-
   await assertReferences(input.category, input.brand);
 
-  assertPricing(
-    input.price ?? existing.price,
-    input.compareAtPrice === undefined ? existing.compareAtPrice : input.compareAtPrice,
-  );
+  const session = await mongoose.startSession();
 
-  const before = existing.toObject();
+  try {
+    let productId = '';
 
-  existing.set(input);
-  await existing.save();
+    await session.withTransaction(async () => {
+      const existing = await Product.findById(id).session(session);
+      if (!existing) throw new AppError('Product not found', 404);
 
-  if (actor) {
-    const changes = AUDITED_PRODUCT_FIELDS.flatMap((field) =>
-      changed(field, before[field], existing[field]),
-    );
+      productId = String(existing._id);
 
-    await recordAudit({
-      actor,
-      action: 'PRODUCT_UPDATED',
-      entityType: 'PRODUCT',
-      entityId: existing._id,
-      entityLabel: existing.name,
-      summary:
-        changes.length > 0
-          ? `Product updated: ${existing.name} · ${changes.map((change) => change.field).join(', ')}`
-          : `Product updated: ${existing.name}`,
-      changes,
+      assertPricing(
+        input.price ?? existing.price,
+        input.compareAtPrice === undefined ? existing.compareAtPrice : input.compareAtPrice,
+      );
+
+      const before = existing.toObject();
+      const { variants: drafts, ...fields } = input;
+
+      const axes = {
+        colors: (fields.colors ?? existing.colors).map((color) => color.name),
+        sizes: (fields.sizes ?? existing.sizes).map((size) => size.label),
+      };
+
+      const plan =
+        drafts === undefined
+          ? null
+          : planVariantEdit({
+              existing: existing.variants.map((variant) => ({
+                _id: variant._id,
+                color: variant.color,
+                size: variant.size,
+                sku: variant.sku,
+                stock: variant.stock,
+              })),
+              existingStock: existing.stock,
+              drafts,
+              productSku: fields.sku ?? existing.sku,
+              axes,
+            });
+
+      // Untouched variants must still fit options that may just have changed:
+      // removing the colour "Black" while a variant is sold in it is refused.
+      if (!plan) assertVariantShape(existing.variants, axes);
+
+      existing.set(fields);
+      if (plan) existing.set('variants', plan.variants);
+
+      // On a product with variants, size availability is theirs to decide.
+      if (existing.variants.length > 0) {
+        existing.set(
+          'sizes',
+          deriveSizeAvailability(
+            existing.sizes.map((size) => ({ label: size.label, inStock: size.inStock })),
+            existing.variants,
+          ),
+        );
+      }
+
+      await existing.save({ session });
+
+      if (!actor) return;
+
+      const changes = AUDITED_PRODUCT_FIELDS.flatMap((field) =>
+        changed(field, before[field], existing[field]),
+      );
+
+      if (plan && (plan.added.length > 0 || plan.removed.length > 0 || plan.merged)) {
+        changes.push({
+          field: 'variants',
+          from: `${before.variants?.length ?? 0} variants`,
+          to: plan.merged ? 'one count for the product' : `${plan.variants.length} variants`,
+        });
+      }
+
+      const variantNote = !plan
+        ? ''
+        : plan.split
+          ? ` · stock of ${existing.stock} divided across ${plan.variants.length} variants`
+          : plan.merged
+            ? ` · variants removed, ${existing.stock} kept as one count`
+            : [
+                plan.added.length > 0 ? ` · added ${plan.added.join(', ')}` : '',
+                plan.removed.length > 0 ? ` · removed ${plan.removed.join(', ')}` : '',
+              ].join('');
+
+      await recordAudit(
+        {
+          actor,
+          action: 'PRODUCT_UPDATED',
+          entityType: 'PRODUCT',
+          entityId: existing._id,
+          entityLabel: existing.name,
+          summary:
+            (changes.length > 0
+              ? `Product updated: ${existing.name} · ${changes.map((change) => change.field).join(', ')}`
+              : `Product updated: ${existing.name}`) + variantNote,
+          changes,
+        },
+        session,
+      );
     });
-  }
 
-  return getProduct(String(existing._id));
+    return getProduct(productId);
+  } finally {
+    await session.endSession();
+  }
 }
 
 /**

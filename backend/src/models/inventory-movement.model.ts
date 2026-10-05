@@ -143,13 +143,19 @@ export type MovementReferenceType = (typeof MOVEMENT_REFERENCE_TYPES)[number];
  * `quantityAfter` and the next one's `quantityBefore` reveals a write that
  * bypassed this ledger.
  *
- * ## Why this is product-level
+ * ## Why this is product-level, and what Phase 20 added
  *
- * ZyCart holds one sellable quantity per product. Sizes carry availability
- * (`inStock`) rather than counts, and colours carry neither, so there is no
- * per-variant stock to move. `variant` below records the colour and size an
- * order line named, as context for reading the timeline — it never partitions
- * inventory, and nothing queries stock by it.
+ * `quantityBefore` and `quantityAfter` are always the product's *total*, so a
+ * product's ledger is one unbroken chain whether or not it tracks variants —
+ * the continuity check above works on every product the same way.
+ *
+ * For a product without variants, `variant` records the colour and size an
+ * order line named, as context for reading the timeline, and nothing more.
+ *
+ * For a product that tracks stock per variant (Phase 20), the movement belongs
+ * to exactly one variant, and `variant` also carries that variant's SKU and its
+ * own before and after. Those are what let the console say "Size 9 · Black:
+ * 3 → 1" beside "Total: 40 → 38" — two statements about one write.
  */
 const inventoryMovementSchema = new Schema(
   {
@@ -165,12 +171,22 @@ const inventoryMovementSchema = new Schema(
     productName: { type: String, required: true },
     sku: { type: String, required: true, default: '' },
 
-    /** Colour and size from the order line, when there was one. Context only. */
+    /**
+     * Colour and size from the order line, when there was one.
+     *
+     * The last three fields are set only when the product tracks stock per
+     * variant (Phase 20) and this movement changed one: the variant's SKU and
+     * its own count either side of the write. Null otherwise, which is every
+     * movement written before Phase 20.
+     */
     variant: {
       type: new Schema(
         {
           color: { type: String, default: null },
           size: { type: String, default: null },
+          sku: { type: String, default: null },
+          quantityBefore: { type: Number, min: 0, default: null },
+          quantityAfter: { type: Number, min: 0, default: null },
         },
         { _id: false },
       ),

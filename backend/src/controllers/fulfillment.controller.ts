@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { dispatchProductAlerts, productIdsOf } from '../services/alerts/alert.service';
 import * as shipmentService from '../services/fulfillment/shipment.service';
 import * as refundService from '../services/returns/refund.service';
 import * as returnService from '../services/returns/return.service';
@@ -124,11 +125,14 @@ export async function rejectReturn(req: Request, res: Response): Promise<void> {
 
 export async function receiveReturn(req: Request, res: Response): Promise<void> {
   const input = receiveReturnSchema.parse(req.body);
+  const detail = await returnService.receiveReturn(returnRef(req), input, requireActor(req));
 
-  res.json({
-    success: true,
-    data: await returnService.receiveReturn(returnRef(req), input, requireActor(req)),
-  });
+  // Resellable units back on the shelf may answer a back-in-stock alert (Phase 20).
+  if (input.resellable) {
+    dispatchProductAlerts(req.env, productIdsOf(detail.items));
+  }
+
+  res.json({ success: true, data: detail });
 }
 
 /**

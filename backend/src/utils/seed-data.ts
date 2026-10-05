@@ -40,6 +40,12 @@ export interface SeedProduct {
   stock: number;
   colors?: { name: string; hex: string }[];
   sizes?: { label: string; inStock: boolean }[];
+  /**
+   * Stock per colour and size (Phase 20). When present, the counts must add up
+   * to `stock` — `seed.ts` refuses a dataset where they do not — and the size
+   * flags above are rederived from them.
+   */
+  variants?: { color: string | null; size: string | null; stock: number }[];
   tags: string[];
   highlights: string[];
   specifications: { label: string; value: string }[];
@@ -332,6 +338,24 @@ export const seedProducts: SeedProduct[] = [
     brand: 'Nike',
     sku: 'ZY-FTW-002',
     stock: 31,
+    /**
+     * Stock per colour and size (Phase 20): the 31 pairs, as counted. Two
+     * combinations are sold out on purpose, so the storefront has a size it
+     * can offer to tell somebody about. UK 11 is listed but not sold in either
+     * colourway, exactly as before.
+     */
+    variants: [
+      { color: 'Pastel Mix', size: 'UK 6', stock: 2 },
+      { color: 'Pastel Mix', size: 'UK 7', stock: 4 },
+      { color: 'Pastel Mix', size: 'UK 8', stock: 0 },
+      { color: 'Pastel Mix', size: 'UK 9', stock: 5 },
+      { color: 'Pastel Mix', size: 'UK 10', stock: 3 },
+      { color: 'Triple White', size: 'UK 6', stock: 3 },
+      { color: 'Triple White', size: 'UK 7', stock: 5 },
+      { color: 'Triple White', size: 'UK 8', stock: 4 },
+      { color: 'Triple White', size: 'UK 9', stock: 0 },
+      { color: 'Triple White', size: 'UK 10', stock: 5 },
+    ],
     tags: ['shoes', 'sneakers', 'air force', 'court', 'leather', 'white'],
     highlights: [
       'Full-grain leather upper',
@@ -1393,6 +1417,24 @@ export const seedProducts: SeedProduct[] = [
     brand: 'ZyCart Essentials',
     sku: 'ZY-FSH-001',
     stock: 34,
+    /** Stock per colour and size (Phase 20): the 34 tees, as counted. XS is not sold. */
+    variants: [
+      { color: 'Black', size: 'S', stock: 3 },
+      { color: 'Black', size: 'M', stock: 5 },
+      { color: 'Black', size: 'L', stock: 4 },
+      { color: 'Black', size: 'XL', stock: 2 },
+      { color: 'Black', size: 'XXL', stock: 0 },
+      { color: 'Bone', size: 'S', stock: 2 },
+      { color: 'Bone', size: 'M', stock: 4 },
+      { color: 'Bone', size: 'L', stock: 0 },
+      { color: 'Bone', size: 'XL', stock: 3 },
+      { color: 'Bone', size: 'XXL', stock: 1 },
+      { color: 'Forest', size: 'S', stock: 0 },
+      { color: 'Forest', size: 'M', stock: 3 },
+      { color: 'Forest', size: 'L', stock: 4 },
+      { color: 'Forest', size: 'XL', stock: 2 },
+      { color: 'Forest', size: 'XXL', stock: 1 },
+    ],
     tags: ['t-shirt', 'tee', 'shirt', 'top', 'cotton'],
     highlights: [
       '240 GSM combed ring-spun cotton',

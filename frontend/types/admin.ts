@@ -206,8 +206,44 @@ export interface AdminCatalogueQuery {
  * temptation to filter in the browser. An operator manages the ones that are
  * not, so the admin detail endpoint returns it and this type says so.
  */
-export interface AdminProduct extends Product {
+export interface AdminProduct extends Omit<Product, 'variants'> {
   isActive: boolean;
+  /**
+   * Stock per colour and size (Phase 20). Empty for a product that holds one
+   * count.
+   *
+   * Declared here rather than inherited from the storefront's `Product`: the
+   * console reads every field of a variant — its id to adjust it, its SKU to
+   * tell rows apart, its own count — and must not depend on whichever narrower
+   * shape the shop chooses to render.
+   */
+  variants: AdminProductVariant[];
+}
+
+/** One colour-and-size combination with its own count, as the admin detail endpoint returns it. */
+export interface AdminProductVariant {
+  id: string;
+  /** Null on every variant of a product that has no colours; likewise for size. */
+  color: string | null;
+  size: string | null;
+  sku: string;
+  stock: number;
+}
+
+/**
+ * A variant as the product form describes it (Phase 20).
+ *
+ * `sku` is optional — the server derives `PRODUCTSKU-COLOUR-SIZE` when it is
+ * left out. `stock` is an *opening* count, honoured only when a product is
+ * created or when a product that held one count is divided among variants;
+ * anywhere else the server refuses it, because counts move through the
+ * inventory adjustment, which records a reason.
+ */
+export interface ProductVariantInput {
+  color: string | null;
+  size: string | null;
+  sku?: string;
+  stock?: number;
 }
 
 /**
@@ -217,6 +253,13 @@ export interface AdminProduct extends Product {
  * update endpoint no longer honours it, because setting a total discards
  * concurrent changes and carries no reason; stock moves through the inventory
  * adjustment instead.
+ *
+ * From Phase 20 it is optional even on creation: a product created with
+ * `variants` takes its total from their opening counts, so the form leaves
+ * `stock` out rather than repeat a sum the server works out anyway.
+ *
+ * `variants` absent means "leave the variant list as it is". On an update, an
+ * empty array means "go back to one count", keeping the total.
  */
 export interface ProductInput {
   name: string;
@@ -228,9 +271,10 @@ export interface ProductInput {
   category: string;
   brand: string;
   sku: string;
-  stock: number;
+  stock?: number;
   colors: { name: string; hex: string }[];
   sizes: { label: string; inStock: boolean }[];
+  variants?: ProductVariantInput[];
   tags: string[];
   highlights: string[];
   specifications: { label: string; value: string }[];
@@ -240,7 +284,10 @@ export interface ProductInput {
   isActive: boolean;
 }
 
-/** Everything the editor may change on an existing product. Stock is not here. */
+/**
+ * Everything the editor may change on an existing product. Stock is not here;
+ * `variants` is, as a description of which combinations are sold.
+ */
 export type ProductUpdateInput = Omit<ProductInput, 'stock'>;
 
 export interface TaxonomyInput {
@@ -620,6 +667,11 @@ export interface InventoryRow {
   category: string;
   brand: string;
   sizes: { total: number; available: number };
+  /**
+   * How many colour-and-size variants carry their own count, and how many of
+   * them have units (Phase 20). Null for a product that holds one count.
+   */
+  variants: { total: number; available: number } | null;
   lastMovement: {
     type: MovementType;
     quantityChange: number;
@@ -631,7 +683,15 @@ export interface InventoryRow {
 export interface MovementRow {
   id: string;
   product: { id: string; name: string; sku: string };
-  variant: { color: string | null; size: string | null } | null;
+  /**
+   * The colour and size involved, when there were any.
+   *
+   * `sku` and the two counts are set only when the movement changed one
+   * variant's own count (Phase 20). The row's own `quantityBefore` and
+   * `quantityAfter` are always the product's total, so a ledger reads as one
+   * unbroken chain whether or not the product tracks variants.
+   */
+  variant: MovementVariant | null;
   type: MovementType;
   quantityBefore: number;
   quantityChange: number;
@@ -644,10 +704,54 @@ export interface MovementRow {
   createdAt: string;
 }
 
-export interface InventoryDetail extends InventoryRow {
+/**
+ * What a movement or an adjustment records about the variant it touched.
+ *
+ * Colour and size alone for context — a sale of a product that holds one count
+ * still names what the customer chose — and the SKU and that variant's own
+ * count either side only when one variant's count actually moved.
+ */
+export interface MovementVariant {
+  color: string | null;
+  size: string | null;
+  sku: string | null;
+  quantityBefore: number | null;
+  quantityAfter: number | null;
+}
+
+/** One variant's row on the inventory page (Phase 20). */
+export interface InventoryVariantRow {
+  id: string;
+  color: string | null;
+  size: string | null;
+  /** `Black · Size 9`, worded by the server so every screen names it the same way. */
+  label: string;
+  sku: string;
+  stock: number;
+  /** Against the product's threshold: a variant has no threshold of its own. */
+  stockState: StockState;
+}
+
+/**
+ * One product's stock position.
+ *
+ * Phase 20 renamed what used to be `variants` — size availability — to
+ * `sizeOptions`, and gave the name to what it now means: combinations with
+ * their own counts. The list row's `variants` summary is left out, because
+ * the full list says everything it did.
+ */
+export interface InventoryDetail extends Omit<InventoryRow, 'variants'> {
   price: number;
-  /** Size availability, read-only: ZyCart holds no per-size quantity. */
-  variants: { label: string; inStock: boolean }[];
+  /**
+   * Size availability as the storefront shows it. Typed by an operator on a
+   * product that holds one count; derived from the variants on one that
+   * tracks them.
+   */
+  sizeOptions: { label: string; inStock: boolean }[];
+  /** Whether stock is held per variant — and so adjusted per variant. */
+  tracksVariants: boolean;
+  /** Every variant with its own count. Empty for a product that holds one count. */
+  variants: InventoryVariantRow[];
   colors: string[];
   movements: MovementRow[];
   /** The whole ledger's size, so the panel can offer the rest rather than hide it. */
@@ -692,17 +796,28 @@ export interface AdjustStockInput {
   shownStock?: number;
   /** A hard precondition, sent only by the counted-total path. */
   expectedStock?: number;
+  /**
+   * Which variant the units belong to (Phase 20).
+   *
+   * Required for a product that tracks stock per variant, refused for one that
+   * does not. When set, `shownStock` and `expectedStock` are that variant's
+   * count rather than the product's total.
+   */
+  variantId?: string;
 }
 
 export interface AdjustmentResult {
   productId: string;
   productName: string;
   sku: string;
+  /** The product's total either side, whether or not a variant was adjusted. */
   quantityBefore: number;
   quantityChange: number;
   quantityAfter: number;
   stockState: StockState;
   lowStockThreshold: number;
+  /** The variant adjusted, with its own count either side. Null for one count. */
+  variant: MovementVariant | null;
   stale: boolean;
 }
 
@@ -853,6 +968,8 @@ export const NOTIFICATION_EVENTS = [
   'EMAIL_VERIFICATION',
   'PASSWORD_RESET',
   'NEWSLETTER_CONFIRMATION',
+  'BACK_IN_STOCK',
+  'PRICE_DROP',
 ] as const;
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
 
@@ -874,10 +991,17 @@ export const NOTIFICATION_EVENT_LABEL: Record<NotificationEvent, string> = {
   EMAIL_VERIFICATION: 'Email verification',
   PASSWORD_RESET: 'Password reset',
   NEWSLETTER_CONFIRMATION: 'Newsletter confirmation',
+  BACK_IN_STOCK: 'Back in stock',
+  PRICE_DROP: 'Price drop',
 };
 
-/** What a delivery is about. Must match `NOTIFICATION_ENTITIES` in the backend. */
-export type NotificationEntity = 'ORDER' | 'RETURN' | 'USER' | 'SUBSCRIBER' | 'CART';
+/**
+ * What a delivery is about. Must match `NOTIFICATION_ENTITIES` in the backend.
+ *
+ * PRODUCT arrived in Phase 20: a back-in-stock or price-drop alert is about the
+ * product the customer asked to hear about, not about an order or an account.
+ */
+export type NotificationEntity = 'ORDER' | 'RETURN' | 'USER' | 'SUBSCRIBER' | 'CART' | 'PRODUCT';
 
 /** Must match `DELIVERY_STATUSES`. There is deliberately no DELIVERED. */
 export const DELIVERY_STATUSES = ['PENDING', 'SENDING', 'SENT', 'FAILED'] as const;

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  Bell,
   Heart,
   LayoutGrid,
   MapPin,
@@ -59,6 +60,14 @@ const ITEMS: NavItem[] = [
     label: 'Reviews',
     icon: Star,
     match: { paths: ['/account/reviews'], prefixes: ['/account/reviews'] },
+  },
+  // Inside the account rather than beside the wishlist: an alert is answered
+  // by email to this account, and its page is where one is taken back.
+  {
+    href: '/account/alerts',
+    label: 'Alerts',
+    icon: Bell,
+    match: { paths: ['/account/alerts'] },
   },
   {
     href: '/account/addresses',

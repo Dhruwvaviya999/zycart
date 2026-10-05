@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { isRazorpayConfigured } from '../config/env';
 import { getCustomerInvoice } from '../services/invoices/invoice.service';
+import { dispatchProductAlerts, productIdsOf } from '../services/alerts/alert.service';
 import * as orderService from '../services/order.service';
 import { AppError } from '../utils/AppError';
 import {
@@ -56,11 +57,12 @@ export async function createOrder(req: Request, res: Response): Promise<void> {
 
 export async function cancelOrder(req: Request, res: Response): Promise<void> {
   const input = cancelOrderSchema.parse(req.body);
+  const order = await orderService.cancelOrder(currentUserId(req), orderRef(req), input);
 
-  res.json({
-    success: true,
-    data: await orderService.cancelOrder(currentUserId(req), orderRef(req), input),
-  });
+  // Units given back may answer somebody else's back-in-stock alert (Phase 20).
+  dispatchProductAlerts(req.env, productIdsOf(order.items));
+
+  res.json({ success: true, data: order });
 }
 
 /**
