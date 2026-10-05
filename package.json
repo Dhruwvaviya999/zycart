@@ -28,6 +28,7 @@
     "ai:eval": "pnpm --filter zycart-backend ai:eval",
     "seed:reviews": "pnpm --filter zycart-backend seed:reviews",
     "seed:orders": "pnpm --filter zycart-backend seed:orders",
+    "seed:products": "pnpm --filter zycart-backend seed:products",
     "make-admin": "pnpm --filter zycart-backend make-admin",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
