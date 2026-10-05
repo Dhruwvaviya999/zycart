@@ -65,7 +65,7 @@
   --ease-brand: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-brand-in: cubic-bezier(0.55, 0, 0.55, 0.2);
 
-  --container-page: 84rem;
+  --container-page: 96rem;
 }
 
 :root {
