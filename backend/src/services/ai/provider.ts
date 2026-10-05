@@ -83,10 +83,25 @@ export interface AiGenerateRequest {
 
 export type AiStopReason = 'end' | 'tool_use' | 'max_tokens' | 'refusal' | 'other';
 
+/**
+ * What one call consumed, as the provider itself reported it.
+ *
+ * Optional because not every backend reports it, and an estimate would be a
+ * number nobody could trust. Input includes cached and cache-written tokens;
+ * output includes any reasoning the provider bills as output. Nothing in the
+ * request path reads it — it exists so the evaluation harness can say what a
+ * conversation actually cost.
+ */
+export interface AiUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface AiGenerateResponse {
   text: string;
   toolCalls: AiToolCall[];
   stopReason: AiStopReason;
+  usage?: AiUsage;
   raw?: unknown;
 }
 

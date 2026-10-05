@@ -28,3 +28,6 @@ Thumbs.db
 # Misc
 *.tsbuildinfo
 coverage/
+
+# AI evaluation runs (headline results live in docs/ai-evals.md)
+backend/eval-reports/

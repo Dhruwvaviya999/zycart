@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, lint and test
+    runs-on: ubuntu-latest
+    env:
+      # Placeholders so env validation passes; the unit tests never connect.
+      MONGODB_URI: mongodb://localhost:27017/zycart-ci
+      JWT_SECRET: ci-only-secret-that-is-at-least-32-characters-long
+      AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm --filter zycart-backend test
+
+  ai-eval:
+    name: AI evaluation
+    runs-on: ubuntu-latest
+    needs: checks
+    # Calls a real model, so it runs on demand and on pull requests that touch
+    # the assistant — not on every push.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    env:
+      MONGODB_URI: mongodb://localhost:27017/zycart-eval?replicaSet=rs0&directConnection=true
+      JWT_SECRET: ci-only-secret-that-is-at-least-32-characters-long
+      AI_ENABLED: 'true'
+      AI_PROVIDER: ${{ vars.AI_PROVIDER || 'gemini' }}
+      AI_MODEL: ${{ vars.AI_MODEL }}
+      AI_API_KEY: ${{ secrets.AI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to run
+        id: gate
+        run: |
+          if [ -z "$AI_API_KEY" ]; then
+            echo "AI_API_KEY secret is not set; skipping the evaluation." >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             ! git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -q '^backend/src/services/ai/\|^backend/src/validators/ai'; then
+            echo "No assistant changes in this pull request; skipping the evaluation." >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.gate.outputs.run == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+      - if: steps.gate.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Stock moves in transactions, and transactions need a replica set.
+      - name: Start MongoDB
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          docker run -d --name mongo -p 27017:27017 mongo:7 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do
+            docker exec mongo mongosh --quiet --eval 'db.runCommand({ ping: 1 })' && break
+            sleep 1
+          done
+          docker exec mongo mongosh --quiet --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "localhost:27017" }] })'
+          sleep 3
+
+      - if: steps.gate.outputs.run == 'true'
+        run: pnpm seed
+
+      - name: Run the evaluation suite
+        if: steps.gate.outputs.run == 'true'
+        working-directory: backend
+        run: pnpm ai:eval --min-pass-rate 0.8 --delay 2000 --out eval-reports
+
+      - name: Publish the report
+        if: always() && steps.gate.outputs.run == 'true'
+        run: cat backend/eval-reports/*.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.gate.outputs.run == 'true'
+        with:
+          name: ai-eval-report
+          path: backend/eval-reports/

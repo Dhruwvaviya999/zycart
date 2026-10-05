@@ -227,6 +227,14 @@ export function createHuggingFaceProvider(config: AiConfig): AiProvider {
           text: (message?.content ?? '').trim(),
           toolCalls,
           stopReason: toStopReason(response.choices[0]?.finish_reason, toolCalls.length > 0),
+          ...(response.usage
+            ? {
+                usage: {
+                  inputTokens: response.usage.prompt_tokens,
+                  outputTokens: response.usage.completion_tokens,
+                },
+              }
+            : {}),
           raw: message,
         };
       } catch (error) {

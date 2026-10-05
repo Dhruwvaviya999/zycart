@@ -292,6 +292,17 @@ export function createGeminiProvider(config: AiConfig): AiProvider {
           text,
           toolCalls,
           stopReason: toStopReason(finishReason, toolCalls.length > 0),
+          ...(response.usageMetadata
+            ? {
+                usage: {
+                  inputTokens: response.usageMetadata.promptTokenCount ?? 0,
+                  // Thinking tokens are billed as output, so they count as output.
+                  outputTokens:
+                    (response.usageMetadata.candidatesTokenCount ?? 0) +
+                    (response.usageMetadata.thoughtsTokenCount ?? 0),
+                },
+              }
+            : {}),
           raw: parts,
         };
       } catch (error) {

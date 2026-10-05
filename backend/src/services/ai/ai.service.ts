@@ -56,7 +56,7 @@ const AI_BUSY_MESSAGE =
   'The shopping assistant is busy right now. Please try again in a few seconds.';
 
 /** Said when the model spent its turns on tools and never reached an answer. */
-const AI_NO_ANSWER_MESSAGE =
+export const AI_NO_ANSWER_MESSAGE =
   'I looked, but I could not put an answer together for that. Could you try rephrasing it?';
 
 const MAX_PRODUCT_CARDS = 12;

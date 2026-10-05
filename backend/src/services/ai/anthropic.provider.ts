@@ -192,6 +192,13 @@ export function createAnthropicProvider(config: AiConfig): AiProvider {
           text,
           toolCalls,
           stopReason: toStopReason(response.stop_reason),
+          usage: {
+            inputTokens:
+              response.usage.input_tokens +
+              (response.usage.cache_creation_input_tokens ?? 0) +
+              (response.usage.cache_read_input_tokens ?? 0),
+            outputTokens: response.usage.output_tokens,
+          },
           raw: response.content,
         };
       } catch (error) {
