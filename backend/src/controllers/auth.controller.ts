@@ -1,101 +1,85 @@
+import { verifyWebhook } from '@clerk/express/webhooks';
 import type { Request, Response } from 'express';
-import * as accountService from '../services/auth/account.service';
-import * as authService from '../services/auth.service';
-import { getProfile } from '../services/user.service';
-import { AppError } from '../utils/AppError';
-import { clearAuthCookie, setAuthCookie } from '../utils/cookies';
 import {
-  forgotPasswordSchema,
-  loginSchema,
-  registerSchema,
-  resetPasswordSchema,
-  verifyEmailSchema,
-} from '../validators/auth.validator';
+  recordSignIn,
+  syncClerkUser,
+  unlinkClerkUser,
+} from '../services/auth/clerk-sync';
+import { getProfile, toSafeUser } from '../services/user.service';
+import { User } from '../models/user.model';
+import { AppError } from '../utils/AppError';
+import { logger, serializeError } from '../utils/logger';
 
-/** The token only ever travels in the HTTP-only cookie, never in a response body. */
-export async function register(req: Request, res: Response): Promise<void> {
-  const input = registerSchema.parse(req.body);
-  const { user, token } = await authService.register(input, req.env);
-
-  // After the account exists, and unable to fail the sign-up: see
-  // `sendWelcomeVerification`.
-  await accountService.sendWelcomeVerification(req.env, user.id);
-
-  setAuthCookie(res, token, req.env);
-  res.status(201).json({ success: true, data: user });
-}
-
-export async function login(req: Request, res: Response): Promise<void> {
-  const input = loginSchema.parse(req.body);
-  const { user, token } = await authService.login(input, req.env);
-
-  setAuthCookie(res, token, req.env);
-  res.json({ success: true, data: user });
-}
-
-/** Safe to call without a session: clearing an absent cookie is a no-op. */
-export function logout(req: Request, res: Response): void {
-  clearAuthCookie(res, req.env);
-  res.json({ success: true, message: 'Logged out successfully' });
-}
-
+/**
+ * Signing in, signing up, signing out and every password and verification
+ * flow belong to Clerk. What is left here is the account as ZyCart holds it.
+ */
 export async function me(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new AppError('Not authenticated', 401);
   res.json({ success: true, data: await getProfile(req.user.id) });
 }
 
 /**
- * Always the same answer, whether or not the address has an account. See
- * `requestPasswordReset` for what that does and does not protect.
+ * Brings the account up to date with Clerk and returns it.
+ *
+ * The storefront calls this when Clerk reports that the user changed — a name
+ * edited or an address added in Clerk's profile — and right after a sign-in,
+ * so the change is visible immediately rather than whenever the webhook lands.
+ * It also makes the whole flow work on a development machine Clerk's webhooks
+ * cannot reach.
  */
-export async function forgotPassword(req: Request, res: Response): Promise<void> {
-  const { email } = forgotPasswordSchema.parse(req.body);
+export async function sync(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new AppError('Not authenticated', 401);
 
-  await accountService.requestPasswordReset(req.env, email);
+  const account = await User.findById(req.user.id).select('clerkId');
+  const synced = account?.clerkId ? await syncClerkUser(req.env, account.clerkId) : null;
 
-  res.json({
-    success: true,
-    message:
-      'If an account exists for that address, we have emailed it a link to reset the password.',
-  });
+  res.json({ success: true, data: synced ? toSafeUser(synced) : await getProfile(req.user.id) });
 }
 
 /**
- * Sets the new password and signs this browser in.
+ * Clerk's webhook: changes to users made anywhere but the storefront.
  *
- * Every other session ended when the password changed; this one is issued
- * fresh, after the change, so the person who just proved they own the inbox is
- * not immediately asked to type the password they chose a moment ago.
+ * Verified against the endpoint's signing secret before anything is read. A
+ * user created or updated is re-read from Clerk's API rather than taken from
+ * the payload, so a late or replayed event can only ever apply the current
+ * state. Every handler is idempotent, which is what Svix's at-least-once
+ * delivery needs.
  */
-export async function resetPassword(req: Request, res: Response): Promise<void> {
-  const { token, password } = resetPasswordSchema.parse(req.body);
+export async function clerkWebhook(req: Request, res: Response): Promise<void> {
+  const signingSecret = req.env.CLERK_WEBHOOK_SIGNING_SECRET;
 
-  const userId = await accountService.resetPassword(token, password);
+  if (!signingSecret) {
+    logger.warn('clerk_webhook_rejected', { reason: 'not_configured' });
+    res.status(503).json({ success: false, message: 'Clerk webhook is not configured' });
+    return;
+  }
 
-  setAuthCookie(res, authService.issueFor(userId, req.env), req.env);
-  res.json({ success: true, data: await getProfile(userId) });
-}
+  let event: Awaited<ReturnType<typeof verifyWebhook>>;
 
-export async function verifyEmail(req: Request, res: Response): Promise<void> {
-  const { token } = verifyEmailSchema.parse(req.body);
+  try {
+    event = await verifyWebhook(req, { signingSecret });
+  } catch (error) {
+    logger.warn('clerk_webhook_rejected', { reason: 'signature', error: serializeError(error) });
+    res.status(400).json({ success: false, message: 'Invalid webhook signature' });
+    return;
+  }
 
-  await accountService.verifyEmail(req.env, token);
+  switch (event.type) {
+    case 'user.created':
+    case 'user.updated':
+      await syncClerkUser(req.env, event.data.id);
+      break;
+    case 'user.deleted':
+      if (event.data.id) await unlinkClerkUser(event.data.id);
+      break;
+    case 'session.created':
+      await recordSignIn(event.data.user_id, new Date(event.data.created_at));
+      break;
+    default:
+      // Subscribed to by mistake, or added later: acknowledged, not acted on.
+      break;
+  }
 
-  res.json({ success: true, message: 'Your email address is verified.' });
-}
-
-const RESEND_MESSAGES: Record<accountService.ResendOutcome, string> = {
-  SENT: 'We have sent a new verification link. It works for 24 hours.',
-  ALREADY_VERIFIED: 'Your email address is already verified.',
-  // Deliberately phrased as success: the previous email is still valid, and
-  // the right thing for the customer to do is check their inbox.
-  COOLDOWN: 'We sent you a link a moment ago. Check your inbox, including the spam folder.',
-};
-
-export async function resendVerification(req: Request, res: Response): Promise<void> {
-  if (!req.user) throw new AppError('Not authenticated', 401);
-
-  const outcome = await accountService.resendVerification(req.env, req.user.id);
-
-  res.json({ success: true, message: RESEND_MESSAGES[outcome] });
+  res.json({ success: true });
 }

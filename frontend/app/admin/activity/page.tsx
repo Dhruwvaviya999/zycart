@@ -6,7 +6,7 @@ import { AuditFilters } from '@/components/admin/audit-filters';
 import { AuditLogList } from '@/components/admin/audit-log-list';
 import { toErrorMessage } from '@/services/api';
 import { getAuditActors, getAuditLogs } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import {
   AUDIT_ACTIONS,
   AUDIT_ENTITIES,
@@ -66,13 +66,13 @@ function toQuery(params: Params): AuditQuery {
 export default async function AdminActivityPage({ searchParams }: PageProps<'/admin/activity'>) {
   const params = await searchParams;
   const query = toQuery(params);
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   const [result, actors] = await Promise.all([
-    getAuditLogs(query, { cookie }).catch((error: unknown) => ({ error })),
+    getAuditLogs(query, { token }).catch((error: unknown) => ({ error })),
     // Filter options, not page data. Without them the filter bar simply offers
     // one control fewer.
-    getAuditActors({ cookie }).catch(() => []),
+    getAuditActors({ token }).catch(() => []),
   ]);
 
   const header = (

@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/common/empty-state';
 import { ErrorState } from '@/components/common/error-state';
 import { OrderCard } from '@/components/order/order-card';
 import { getOrders } from '@/services/order.service';
-import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { getSessionToken, getSessionUser } from '@/lib/server-auth';
 import { toErrorMessage } from '@/services/api';
 import { ORDER_PROGRESSION, type OrderStatus } from '@/types/order';
 import { cn } from '@/lib/utils';
@@ -47,7 +47,7 @@ export default async function OrdersPage({ searchParams }: PageProps<'/account/o
   try {
     result = await getOrders(
       { page, limit: PAGE_SIZE, status },
-      { cookie: await getSessionCookie() },
+      { token: await getSessionToken() },
     );
   } catch (error) {
     return (

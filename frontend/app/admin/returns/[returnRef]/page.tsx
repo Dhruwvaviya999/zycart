@@ -13,7 +13,7 @@ import {
 } from '@/components/admin/status-tones';
 import { ApiError, toErrorMessage } from '@/services/api';
 import { getReturn } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDate, formatDateTime, formatPrice } from '@/lib/format';
 import { RETURN_ADMIN_LABEL, RETURN_REASON_LABEL } from '@/types/fulfillment';
 import type { AdminReturnDetail } from '@/types/admin';
@@ -45,7 +45,7 @@ export default async function AdminReturnPage({ params }: PageProps<'/admin/retu
 
   let request: AdminReturnDetail;
   try {
-    request = await getReturn(returnRef, { cookie: await getSessionCookie() });
+    request = await getReturn(returnRef, { token: await getSessionToken() });
   } catch (error) {
     if (error instanceof ApiError && error.isNotFound) notFound();
 

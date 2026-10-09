@@ -9,7 +9,7 @@ import { EmailedUpdate } from '@/components/order/emailed-update';
 import { ReturnTimeline } from '@/components/order/return-timeline';
 import { ApiError } from '@/services/api';
 import { getReturnByRef } from '@/services/return.service';
-import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { getSessionToken, getSessionUser } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
 import { RETURN_REASON_LABEL, RETURN_STATUS_COPY } from '@/types/fulfillment';
 
@@ -45,7 +45,7 @@ export default async function ReturnDetailPage({
 
   let request;
   try {
-    request = await getReturnByRef(returnNumber, { cookie: await getSessionCookie() });
+    request = await getReturnByRef(returnNumber, { token: await getSessionToken() });
   } catch (error) {
     // Somebody else's return and a nonexistent one look identical here.
     if (error instanceof ApiError && error.isNotFound) notFound();

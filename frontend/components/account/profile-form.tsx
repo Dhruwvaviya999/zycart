@@ -114,7 +114,11 @@ export function ProfileForm({ user }: { user: AuthUser }) {
           </FormField>
         </div>
 
-        <FormField id="email" label="Email" hint="Changing your email is not available yet.">
+        <FormField
+          id="email"
+          label="Email"
+          hint="Change it under Settings → Sign-in & security."
+        >
           {(field) => (
             <Input
               {...field}

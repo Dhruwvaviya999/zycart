@@ -1,10 +1,12 @@
 import { Types } from 'mongoose';
+import type { Env } from '../../config/env';
 import { Order } from '../../models/order.model';
 import { Review } from '../../models/review.model';
 import { User } from '../../models/user.model';
 import { AppError } from '../../utils/AppError';
 import { escapeRegex } from '../../validators/common';
 import type { AdminCustomerQuery } from '../../validators/admin.validator';
+import { setClerkBan } from '../auth/clerk-sync';
 import { recordAudit, type AuditActor } from './audit.service';
 
 /**
@@ -214,14 +216,19 @@ export async function getCustomer(userId: string): Promise<AdminCustomerDetail> 
  * Activates or deactivates a customer.
  *
  * Deactivation is immediate everywhere, without any session bookkeeping here,
- * because Phase 4's auth middleware re-reads the account on every authenticated
+ * because the auth middleware re-reads the account on every authenticated
  * request and refuses an inactive one. That design is what makes this a
  * one-field update rather than a session-revocation problem.
+ *
+ * The account is also banned in Clerk, or unbanned, so that a deactivated
+ * customer is stopped at sign-in rather than signed in to a store that then
+ * refuses them. That half is best effort; see `setClerkBan`.
  *
  * The filter carries `role: 'USER'`, so this endpoint cannot be pointed at an
  * administrator — including the one calling it.
  */
 export async function setActive(
+  env: Env,
   userId: string,
   isActive: boolean,
   actor: AuditActor,
@@ -230,9 +237,11 @@ export async function setActive(
     { _id: userId, role: 'USER' },
     { $set: { isActive } },
     { new: true },
-  ).select('_id firstName lastName email');
+  ).select('_id firstName lastName email clerkId');
 
   if (!updated) throw new AppError('Customer not found', 404);
+
+  if (updated.clerkId) await setClerkBan(env, updated.clerkId, !isActive);
 
   const name = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
 

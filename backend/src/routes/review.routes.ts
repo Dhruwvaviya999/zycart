@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as controller from '../controllers/review.controller';
-import { requireAuth } from '../middleware/auth.middleware';
+import { optionalAuth, requireAuth } from '../middleware/auth.middleware';
 import { rateLimit } from '../middleware/rateLimit.middleware';
 import { asyncHandler } from '../utils/asyncHandler';
 
@@ -14,7 +14,11 @@ export const reviewRouter = Router();
  * buy. Writing is another matter, and everything below the guard requires a
  * session.
  */
-reviewRouter.get('/products/:productId/reviews', asyncHandler(controller.listProductReviews));
+reviewRouter.get(
+  '/products/:productId/reviews',
+  asyncHandler(optionalAuth),
+  asyncHandler(controller.listProductReviews),
+);
 reviewRouter.get(
   '/products/:productId/reviews/summary',
   asyncHandler(controller.getProductReviewSummary),

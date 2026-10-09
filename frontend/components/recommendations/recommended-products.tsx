@@ -1,6 +1,6 @@
 import { getRecommendations } from '@/services/recommendation.service';
 import { RecommendationSection } from '@/components/recommendations/recommendation-section';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import type { RecommendationContext } from '@/types/recommendation';
 
 /**
@@ -11,9 +11,9 @@ import type { RecommendationContext } from '@/types/recommendation';
  * query finishes rather than holding the page back. Wrap it in `<Suspense>` and
  * the main content never waits on a recommendation.
  *
- * The session cookie is forwarded explicitly — a server component has no
- * browser to attach it — which is what lets the server decide whether this
- * customer has anything personal to be recommended.
+ * The session token is passed explicitly — a server component has no browser
+ * to attach it — which is what lets the server decide whether this customer
+ * has anything personal to be recommended.
  */
 interface RecommendedProductsProps {
   context?: RecommendationContext;
@@ -35,7 +35,7 @@ export async function RecommendedProducts({
   productId,
   ...presentation
 }: RecommendedProductsProps) {
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   const { products, reason } = await getRecommendations(
     {
@@ -44,7 +44,7 @@ export async function RecommendedProducts({
       ...(exclude?.length ? { exclude } : {}),
       ...(productId ? { productId } : {}),
     },
-    cookie ? { cookie } : undefined,
+    token ? { token } : undefined,
   );
 
   return <RecommendationSection products={products} reason={reason} {...presentation} />;

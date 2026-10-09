@@ -1,5 +1,5 @@
 import { aiConfig } from './ai';
-import { razorpayConfig, type Env } from './env';
+import { isClerkLive, razorpayConfig, type Env } from './env';
 import { emailConfig } from './notifications';
 import { tryOnConfig, tryOnCredentialKey, tryOnUnavailableReason } from './try-on';
 
@@ -125,7 +125,7 @@ export function checkReadiness(env: Env): ReadinessReport {
   /**
    * Plain HTTP in production is not a preference.
    *
-   * The session cookie travels on it, and so does everything the session
+   * Session tokens travel on it, and so does everything a session
    * protects. It is a warning rather than an error only because a deployment
    * may legitimately terminate TLS at a proxy and address this origin
    * internally — but that is rare enough to be worth saying out loud.
@@ -136,7 +136,41 @@ export function checkReadiness(env: Env): ReadinessReport {
       severity: 'warning',
       message:
         'is an http:// origin in production. Unless TLS terminates at a proxy in front of this ' +
-        'service, session cookies would cross the network in the clear.',
+        'service, session tokens would cross the network in the clear.',
+    });
+  }
+
+  /* Authentication (Clerk) ------------------------------------------- */
+
+  /**
+   * An error: a Clerk development instance is not a smaller production one.
+   * It caps its users, puts a development banner on every Clerk component and
+   * keeps sessions alive through a development-only handshake — so a live
+   * store on test keys works in a demo and fails in front of customers.
+   */
+  if (production && !isClerkLive(env)) {
+    findings.push({
+      key: 'CLERK_SECRET_KEY',
+      severity: 'error',
+      message:
+        'is a development-instance key (sk_test_) in production. Create the production instance ' +
+        'in the Clerk dashboard and use its sk_live_ / pk_live_ pair.',
+    });
+  }
+
+  /**
+   * A warning: sign-in, sign-up and profile changes made in the storefront all
+   * reach the account without it. What would be missed is everything done
+   * elsewhere — a user deleted or edited in Clerk's dashboard, and sign-in
+   * times for the admin console.
+   */
+  if (production && !env.CLERK_WEBHOOK_SIGNING_SECRET) {
+    findings.push({
+      key: 'CLERK_WEBHOOK_SIGNING_SECRET',
+      severity: 'warning',
+      message:
+        'is not set, so changes made in the Clerk dashboard (a deleted user, an edited address) ' +
+        'never reach ZyCart. Add a webhook endpoint for /api/webhooks/clerk in Clerk and set it.',
     });
   }
 
@@ -238,7 +272,7 @@ export function checkReadiness(env: Env): ReadinessReport {
     summary: {
       Environment: env.NODE_ENV,
       Database: 'configured',
-      Authentication: 'configured',
+      Authentication: isClerkLive(env) ? 'clerk (live)' : 'clerk (test)',
       Storefront: clientHost === null ? 'invalid' : clientHost,
       Email: email.provider === 'smtp' ? 'configured' : 'mock',
       Payments: razorpay

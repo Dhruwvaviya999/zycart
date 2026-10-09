@@ -1,4 +1,3 @@
-import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
@@ -8,8 +7,9 @@ import { REQUEST_ID_HEADER, requestContext } from './middleware/requestContext';
 import { apiRouter } from './routes';
 import { LOCAL_UPLOAD_ROOT, LOCAL_UPLOAD_ROUTE } from './services/uploads/storage';
 
-/** The one path whose body must survive as bytes. */
+/** The paths whose bodies must survive as bytes. */
 export const RAZORPAY_WEBHOOK_PATH = '/api/payments/razorpay/webhook';
+export const CLERK_WEBHOOK_PATH = '/api/webhooks/clerk';
 
 /** Builds the Express application. Startup concerns live in server.ts. */
 export function createApp(env: Env): Express {
@@ -69,9 +69,12 @@ export function createApp(env: Env): Express {
    */
   app.use(RAZORPAY_WEBHOOK_PATH, express.raw({ type: '*/*', limit: '1mb' }));
 
+  // Clerk's webhooks are signed the same way, through Svix, and for the same
+  // reason must be verified against the bytes that arrived.
+  app.use(CLERK_WEBHOOK_PATH, express.raw({ type: '*/*', limit: '1mb' }));
+
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
-  app.use(cookieParser());
 
   // Hands the validated config to handlers, so nothing downstream reads
   // process.env or has to be built as a factory just to see configuration.

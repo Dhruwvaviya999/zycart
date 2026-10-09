@@ -101,6 +101,7 @@ that stop the API booting.
 | TypeScript   | Static typing                |
 | Tailwind CSS | Styling                      |
 | shadcn/ui    | UI component primitives      |
+| Clerk        | Sign-in, sign-up, sessions   |
 | Axios        | HTTP client                  |
 | Zustand      | Client state management      |
 
@@ -114,6 +115,7 @@ that stop the API booting.
 | MongoDB           | Database                           |
 | Mongoose          | ODM                                |
 | Zod               | Schema and env validation          |
+| Clerk             | Session verification, user sync    |
 | Razorpay          | Online payments                    |
 | Google Gen AI SDK | AI provider — Gemini (server-only) |
 | dotenv            | Environment loading                |
@@ -247,14 +249,35 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env.local
 ```
 
-Then edit `backend/.env` and set `MONGODB_URI` and `JWT_SECRET`. The server
-refuses to start without either — no defaults are assumed.
+Then edit `backend/.env` and set `MONGODB_URI`, `JWT_SECRET` and the two Clerk
+keys. The server refuses to start without any of them — no defaults are assumed.
 
-Generate a signing key with:
+Generate `JWT_SECRET` (it signs the one-click links in email) with:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
+
+**Accounts run on [Clerk](https://clerk.com).** Create an application in the
+Clerk dashboard and:
+
+1. Under **User & authentication**, enable **Email** with **Password**, and turn
+   on **First and last name** so the sign-up form asks for them.
+2. Under **SSO connections**, add **Google**. A development instance works with
+   Clerk's shared Google credentials; production needs your own OAuth client.
+3. From **API keys**, put the secret key and publishable key in
+   `backend/.env` (`CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`) and in
+   `frontend/.env.local` (`CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`).
+4. Optionally, under **Webhooks**, add an endpoint for
+   `<api origin>/api/webhooks/clerk` subscribed to `user.created`,
+   `user.updated`, `user.deleted` and `session.created`, and set its signing
+   secret as `CLERK_WEBHOOK_SIGNING_SECRET`. Everything done in the storefront
+   works without it; it carries over changes made in Clerk's dashboard.
+
+**Moving existing accounts.** A database from before Clerk keeps its customers'
+bcrypt hashes, and `pnpm clerk:import` creates their Clerk users from those
+hashes, so everybody signs in with the password they already have. It is a dry
+run until you pass `--apply`.
 
 **Online payment is optional.** Leave the three `RAZORPAY_*` variables blank to
 run cash-on-delivery only — checkout simply does not offer the online option,
@@ -377,8 +400,7 @@ Open <http://localhost:3000>. The storefront reads its catalogue from the API, s
 | `/admin/coupons`    | Coupons — create, edit, switch off, see every use            |
 | `/admin/subscribers` | The newsletter list and its CSV export                      |
 | `/invoice/[orderRef]` | The printable tax invoice, once an order has shipped       |
-| `/forgot-password`, `/reset-password` | Account recovery by single-use link        |
-| `/verify-email`     | Where the verification email lands                          |
+| `/login`, `/register` | Clerk's sign-in and sign-up — email and password, or Google |
 | `/newsletter/confirm`, `/newsletter/unsubscribe` | Double opt-in, and leaving       |
 | `/email-preferences/cart-reminders` | One-click opt-out from cart reminders        |
 | `/account/alerts`   | Back-in-stock and price-drop alerts — waiting and sent      |
@@ -424,6 +446,7 @@ Run from the repository root:
 | `pnpm smoke:deploy`    | Pre-deploy check: production builds, real startup, health, read-only API (`--help`) |
 | `pnpm seed:reviews`    | Populate development with genuine reviews (`--clean` removes them) |
 | `pnpm make-admin`      | Grant, revoke or list administrator access (see below)             |
+| `pnpm clerk:import`    | Move pre-Clerk accounts into Clerk, passwords included (`--apply`) |
 
 Backend checks, run from `backend/`:
 
@@ -514,8 +537,11 @@ Per application:
 | `LOG_LEVEL`               | No       | `info`                  | `debug`, `info`, `warn` or `error`. Redaction is identical at every level   |
 | `LOG_FORMAT`              | No       | JSON in production, text elsewhere | `json` or `text`. Identical fields; only the punctuation differs |
 | `SLOW_REQUEST_MS`         | No       | `1000`                  | Above this, a completed request is logged at WARN rather than INFO          |
-| `JWT_SECRET`              | **Yes**  | none                    | Signing key for session tokens; 32+ characters                              |
-| `JWT_EXPIRES_IN`          | No       | `7d`                    | Session lifetime, e.g. `12h` or `7d`                                        |
+| `JWT_SECRET`              | **Yes**  | none                    | Signs the one-click links in email; 32+ characters                          |
+| `CLERK_SECRET_KEY`        | **Yes**  | none                    | Clerk secret key, `sk_test_…` or `sk_live_…` — **server-only**              |
+| `CLERK_PUBLISHABLE_KEY`   | **Yes**  | none                    | Clerk publishable key, from the same instance                               |
+| `CLERK_JWT_KEY`           | No       | none                    | Clerk's PEM public key; verifies sessions without fetching Clerk's keys     |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | No  | none                    | Verifies `/api/webhooks/clerk` — **server-only**                            |
 | `RAZORPAY_KEY_ID`         | Group\*  | none                    | Razorpay key id, `rzp_test_…` or `rzp_live_…`                               |
 | `RAZORPAY_KEY_SECRET`     | Group\*  | none                    | Razorpay API secret — **server-only**                                       |
 | `RAZORPAY_WEBHOOK_SECRET` | Group\*  | none                    | Webhook signing secret — **server-only**, and different from the key secret |
@@ -597,6 +623,8 @@ in production is refused.
 | Variable                      | Required | Default                 | Description                                                          |
 | ----------------------------- | -------- | ----------------------- | -------------------------------------------------------------------- |
 | `NEXT_PUBLIC_API_URL`         | No       | `http://localhost:5000` | Backend base URL                                                     |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | **Yes** | none           | Clerk publishable key — the same value as the backend's              |
+| `CLERK_SECRET_KEY`            | **Yes**  | none                    | Clerk secret key, read by the Next server only — never `NEXT_PUBLIC_` |
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | No       | none                    | Razorpay key id; public by design — Checkout needs it in the browser |
 
 The Razorpay **key secret** and **webhook secret** must never appear in a
@@ -684,31 +712,27 @@ anything else is replaced with a generated id rather than rejected.
 
 | Method   | Path                                  | Auth | Purpose                    |
 | -------- | ----------------------------------------------- | ----------- | ------------------------------------------- |
-| `POST`   | `/api/auth/register`                  | —    | Create an account          |
-| `POST`   | `/api/auth/login`                     | —    | Start a session            |
-| `POST`   | `/api/auth/logout`                    | —    | End the session            |
 | `GET`    | `/api/auth/me`                        | ✓    | The signed-in customer     |
+| `POST`   | `/api/auth/sync`                      | ✓    | Re-read the user from Clerk |
+| `POST`   | `/api/webhooks/clerk`                 | signed | Changes made in Clerk     |
 | `GET`    | `/api/users/me`                       | ✓    | Read the profile           |
 | `PATCH`  | `/api/users/me`                       | ✓    | Update name, phone, avatar |
-| `PATCH`  | `/api/users/me/password`              | ✓    | Change the password        |
 | `GET`    | `/api/users/me/addresses`             | ✓    | List addresses             |
 | `POST`   | `/api/users/me/addresses`             | ✓    | Add an address             |
 | `PATCH`  | `/api/users/me/addresses/:id`         | ✓    | Update an address          |
 | `DELETE` | `/api/users/me/addresses/:id`         | ✓    | Delete an address          |
 | `PATCH`  | `/api/users/me/addresses/:id/default` | ✓    | Set the default address    |
 | `PATCH`  | `/api/users/me/preferences`           | ✓    | Optional emails (cart reminders) |
-| `POST`   | `/api/auth/forgot-password`           | —    | Email a reset link (same answer either way) |
-| `POST`   | `/api/auth/reset-password`            | —    | New password from a link; signs in |
-| `POST`   | `/api/auth/verify-email`              | —    | Redeem a verification link |
-| `POST`   | `/api/auth/verify-email/resend`       | ✓    | Send a fresh verification link |
 | `POST`   | `/api/email-preferences/cart-reminders/opt-out` | signed link | Stop cart reminders |
 
-Sessions are a signed JWT in an HTTP-only cookie. Details and security notes are
-in [docs/phase-4.md](docs/phase-4.md).
-
-Reset and verification links carry a 256-bit single-use token of which only the
-SHA-256 is stored, and which never reaches the notification record — see
-[docs/phase-18.md](docs/phase-18.md).
+Sign-in, sign-up, sign-out, passwords, email verification and Google all belong
+to Clerk; no credential reaches this API. A request carries Clerk's session
+token — as a `Bearer` header, or Clerk's own cookie before Clerk has loaded —
+and `requireAuth` verifies it, then loads the ZyCart account linked to that
+Clerk user (`User.clerkId`) on every request, so deactivating a customer is
+immediate. The first time a Clerk user is seen, their account is created — or,
+when Clerk has verified an address an existing account already uses, linked to
+it. Roles stay in MongoDB and are granted only by `pnpm make-admin`.
 
 ### Virtual try-on
 

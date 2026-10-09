@@ -55,15 +55,50 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+/** The slice of the global Clerk instance read here; `@clerk/nextjs` installs it. */
+interface ClerkWindow {
+  Clerk?: { loaded?: boolean; session?: { getToken: () => Promise<string | null> } | null };
+}
+
+/**
+ * The browser's Clerk session token, once Clerk has loaded.
+ *
+ * Deliberately does not wait for Clerk. Until it is ready the request still
+ * carries Clerk's own session cookie — kept fresh by `proxy.ts` on the page
+ * load that is making it — and the API accepts that, so nothing a guest or a
+ * customer does is held up behind Clerk's script. Once it is ready, the token
+ * comes from Clerk directly, which refreshes it whenever it is close to expiry.
+ */
+async function browserSessionToken(): Promise<string | null> {
+  const clerk = (window as ClerkWindow).Clerk;
+  if (!clerk?.loaded || !clerk.session) return null;
+
+  try {
+    return await clerk.session.getToken();
+  } catch {
+    // Offline, or Clerk unreachable: the cookie is still there to try.
+    return null;
+  }
+}
+
 /**
  * Resolved per request rather than once at import.
  *
  * `BACKEND_URL` is a runtime value — Vercel does not resolve service bindings
  * during the build — so a base captured while this module was first evaluated
  * would be the build's answer, not the request's.
+ *
+ * A server component passes its token explicitly (see `RequestOptions`), so the
+ * browser's is only looked up in the browser, and never overrides one given.
  */
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   config.baseURL ??= resolveBaseUrl();
+
+  if (typeof window !== 'undefined' && !config.headers.Authorization) {
+    const token = await browserSessionToken();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  }
+
   return config;
 });
 
@@ -150,11 +185,11 @@ function toApiError(error: unknown): ApiError {
 }
 
 /**
- * Server components have no browser to attach the session cookie for them, so
- * they pass the incoming one through explicitly.
+ * Server components have no browser to attach a session for them, so they
+ * pass Clerk's session token explicitly (see `lib/server-auth.ts`).
  */
 export interface RequestOptions {
-  cookie?: string;
+  token?: string;
   /**
    * Overrides the client's 10-second default. The AI endpoint needs it: a model
    * call plus its catalogue lookups is seconds of work, not milliseconds, and
@@ -166,7 +201,7 @@ export interface RequestOptions {
 }
 
 const headersFor = (options?: RequestOptions) =>
-  options?.cookie ? { Cookie: options.cookie } : undefined;
+  options?.token ? { Authorization: `Bearer ${options.token}` } : undefined;
 
 /** Unwraps `{ success, data }`, normalising every failure into an `ApiError`. */
 export async function request<TData>(

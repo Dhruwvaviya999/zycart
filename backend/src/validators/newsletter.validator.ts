@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { SUBSCRIBER_SOURCES, SUBSCRIBER_STATUSES } from '../models/subscriber.model';
-import { normalisedEmail } from './auth.validator';
-import { objectIdSchema } from './common';
+import { normalisedEmail, objectIdSchema } from './common';
 
 /**
  * The sign-up form's body.

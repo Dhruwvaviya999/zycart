@@ -13,10 +13,10 @@ interface AuthState {
 /**
  * Deliberately holds nothing but the safe profile the API already returned.
  *
- * There is no token here and no persistence: the session lives in an HTTP-only
- * cookie the browser cannot read, and the server is the authority on who is
- * signed in. This store exists so client components can react to a sign-in or
- * sign-out without a round trip, not as a second source of truth.
+ * There is no token here and no persistence: the session belongs to Clerk,
+ * and the API is the authority on which account it opens. This store exists so
+ * client components can react to a sign-in or sign-out without a round trip,
+ * not as a second source of truth.
  */
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,

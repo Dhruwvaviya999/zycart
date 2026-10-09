@@ -19,7 +19,7 @@ import { ProductRowActions } from '@/components/admin/product-row-actions';
 import { STOCK_LABEL, stockTone } from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
 import { getBrands, getCategories, getProducts } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
 import type { AdminProductQuery, AdminProductRow, StockState } from '@/types/admin';
 import { cn } from '@/lib/utils';
@@ -69,14 +69,14 @@ function toQuery(params: Params): AdminProductQuery {
 export default async function AdminProductsPage({ searchParams }: PageProps<'/admin/products'>) {
   const params = await searchParams;
   const query = toQuery(params);
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   const [result, categories, brands] = await Promise.all([
-    getProducts(query, { cookie }).catch((error: unknown) => ({ error })),
+    getProducts(query, { token }).catch((error: unknown) => ({ error })),
     // Filter options, not page data — a generous limit so every category and
     // brand is selectable without paging through them.
-    getCategories({ limit: 100 }, { cookie }).catch(() => ({ items: [] })),
-    getBrands({ limit: 100 }, { cookie }).catch(() => ({ items: [] })),
+    getCategories({ limit: 100 }, { token }).catch(() => ({ items: [] })),
+    getBrands({ limit: 100 }, { token }).catch(() => ({ items: [] })),
   ]);
 
   const header = (

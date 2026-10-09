@@ -5,7 +5,7 @@ import { AlertList } from '@/components/account/alert-list';
 import { ErrorState } from '@/components/common/error-state';
 import { toErrorMessage } from '@/services/api';
 import { getAlerts } from '@/services/alert.service';
-import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { getSessionToken, getSessionUser } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 /**
  * Back-in-stock and price-drop alerts, in one place (Phase 20).
  *
- * Read on the server with the customer's own cookie, like every other account
+ * Read on the server with the customer's own session, like every other account
  * page, so the list is there on first paint; removing one happens in the
  * browser. Unpaginated on purpose: the API caps waiting alerts at fifty and
  * returns at most a hundred in all, which is one comfortable page.
@@ -28,7 +28,7 @@ export default async function AlertsPage() {
 
   let alerts;
   try {
-    alerts = await getAlerts({}, { cookie: await getSessionCookie() });
+    alerts = await getAlerts({}, { token: await getSessionToken() });
   } catch (error) {
     return (
       <AccountPanel title="Alerts" description="Products you have asked us to watch.">

@@ -16,7 +16,7 @@ import { AdminPagination } from '@/components/admin/admin-pagination';
 import { CustomerFilters } from '@/components/admin/customer-filters';
 import { toErrorMessage } from '@/services/api';
 import { getCustomers } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
 import type { AdminCustomerQuery, AdminCustomerRow } from '@/types/admin';
 
@@ -49,7 +49,7 @@ export default async function AdminCustomersPage({ searchParams }: PageProps<'/a
 
   let result;
   try {
-    result = await getCustomers(toQuery(params), { cookie: await getSessionCookie() });
+    result = await getCustomers(toQuery(params), { token: await getSessionToken() });
   } catch (error) {
     return (
       <>

@@ -27,7 +27,7 @@ import {
 } from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
 import { getOrders } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
 import type { AdminOrderQuery, AdminOrderRow } from '@/types/admin';
 import type { OrderStatus, PaymentMethod, PaymentStatus } from '@/types/order';
@@ -80,7 +80,7 @@ export default async function AdminOrdersPage({ searchParams }: PageProps<'/admi
 
   let result;
   try {
-    result = await getOrders(query, { cookie: await getSessionCookie() });
+    result = await getOrders(query, { token: await getSessionToken() });
   } catch (error) {
     return (
       <>

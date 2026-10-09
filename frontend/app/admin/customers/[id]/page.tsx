@@ -8,7 +8,7 @@ import { CustomerStatusControl } from '@/components/admin/customer-status-contro
 import { humanise, orderStatusTone, paymentStatusTone } from '@/components/admin/status-tones';
 import { ApiError, toErrorMessage } from '@/services/api';
 import { getCustomer } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +33,7 @@ export default async function AdminCustomerPage({ params }: PageProps<'/admin/cu
 
   let customer;
   try {
-    customer = await getCustomer(id, { cookie: await getSessionCookie() });
+    customer = await getCustomer(id, { token: await getSessionToken() });
   } catch (error) {
     if (error instanceof ApiError && error.isNotFound) notFound();
 

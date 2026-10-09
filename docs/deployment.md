@@ -7,9 +7,9 @@ in the same deployment, and both answer on the same domain.
 That last part is the reason for the arrangement. When the storefront is at
 `https://zycart.example` and the API is at `https://zycart.example/api`, the
 browser is making same-origin requests: no preflight, no `Access-Control-Allow-*`
-negotiation, and the session cookie is first-party — which is why
-`utils/cookies.ts` can use `sameSite: 'lax'` rather than the `none` + `secure`
-pair a cross-site API would force on it.
+negotiation, and Clerk's session cookie is first-party, so the API can read it
+even before Clerk's script has loaded in the browser and started sending its
+token as a header.
 
 ## Contents
 
@@ -80,8 +80,8 @@ internal network, skipping the CDN, the firewall and Deployment Protection.
 Two consequences follow. Bindings resolve **at runtime only**, so nothing may
 depend on `BACKEND_URL` during `next build`; every page that reads the API is
 already `force-dynamic`, so nothing does. And bindings are **not available in
-middleware**, which is why `frontend/proxy.ts` only inspects a cookie and never
-calls the API.
+middleware**, which is why `frontend/proxy.ts` only asks Clerk who is signed in
+and never calls the API.
 
 ### Why the backend's build command does nothing
 
@@ -96,7 +96,7 @@ the root, so it is not in the bundle, and the first line of the first request
 fails with
 
 ```
-Cannot find module 'cookie-parser'
+Cannot find module 'cors'
 Require stack:
 - /var/task/app.js
 ```
@@ -131,9 +131,13 @@ Variables. Services within one project share them.
 | Variable | Required | Value in production |
 | --- | --- | --- |
 | `MONGODB_URI` | **yes** | The Atlas SRV connection string, including the database name. |
-| `JWT_SECRET` | **yes** | At least 32 characters of randomness — `openssl rand -base64 48`. |
+| `JWT_SECRET` | **yes** | At least 32 characters of randomness — `openssl rand -base64 48`. Signs the one-click links in email. |
+| `CLERK_SECRET_KEY` | **yes** | The production instance's `sk_live_…`. Read by both services. |
+| `CLERK_PUBLISHABLE_KEY` | **yes** | The matching `pk_live_…`, for the API. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | **yes** | The same `pk_live_…`, for the storefront. |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | recommended | From the Clerk webhook endpoint for `https://<domain>/api/webhooks/clerk`. |
+| `CLERK_JWT_KEY` | recommended | The PEM "JWKS public key", so sessions verify without a call to Clerk. |
 | `CLIENT_URL` | **yes** | Your production origin, e.g. `https://zycart.example`. Absolute, `https://`, no trailing slash. |
-| `JWT_EXPIRES_IN` | no | Defaults to `7d`. |
 | `LOG_FORMAT` | no | Leave unset. Production resolves to `json`, which is what Vercel's log search can parse. |
 | `LOG_LEVEL` | no | `info`. Raise to `debug` during an incident. |
 | `AI_PROVIDER` | no | `gemini` or `huggingface`. **Never `mock`** — see below. |
@@ -143,6 +147,12 @@ Variables. Services within one project share them.
 | `EMAIL_PROVIDER` | no | `smtp` for a real store. `mock` delivers nothing. |
 | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM_ADDRESS` | with smtp | All four become required once `EMAIL_PROVIDER=smtp`. |
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | with payments | Must equal `RAZORPAY_KEY_ID`. Published to the browser by design. |
+
+Clerk's production instance is created from the development one in the Clerk
+dashboard, and needs the DNS records it lists under **Domains** before it will
+issue sessions on your domain. Google sign-in there uses your own OAuth client
+(Clerk's shared one is development-only). Readiness refuses `sk_test_` keys in
+production, so a deploy cannot go out on the development instance by accident.
 
 Two variables must **not** be set:
 
@@ -231,7 +241,7 @@ Work down this list; it is ordered by how often each one is the answer.
 | `/api/*` returns Vercel's 404 page | The rewrite never matched, or the service did not build | Check the build log lists **both** services. Confirm Services Beta is enabled on the account. |
 | Storefront renders but every rail is empty | Server-side calls have no absolute base | Confirm the `bindings` block is present in `vercel.json` and the deployment is newer than it. |
 | Browser calls go to `localhost:5000` | `NEXT_PUBLIC_API_URL` is set on the project | Delete it and redeploy. `NEXT_PUBLIC_*` values are baked in at build time, so a redeploy is required. |
-| Login succeeds, the next request is anonymous | The cookie was set on a different origin | Both services must be on one domain. Check that nothing rewrites `/api` to an external host. |
+| Signed in, but every API call is 401 | The session token was minted for another origin, or by another Clerk instance | `CLIENT_URL` must be the exact origin the storefront is served from — the API accepts tokens for that origin only. Both services must use keys from the same production instance. |
 
 Runtime logs are per service: Vercel → your project → Logs, then filter by
 service. The backend writes one JSON record per request carrying the

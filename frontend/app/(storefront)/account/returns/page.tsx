@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/common/empty-state';
 import { ErrorState } from '@/components/common/error-state';
 import { ReturnStatusBadge } from '@/components/order/return-status-badge';
 import { getReturns } from '@/services/return.service';
-import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { getSessionToken, getSessionUser } from '@/lib/server-auth';
 import { toErrorMessage } from '@/services/api';
 import { formatDate, formatPrice } from '@/lib/format';
 import { RETURN_STATUSES, RETURN_STATUS_COPY, type ReturnStatus } from '@/types/fulfillment';
@@ -50,7 +50,7 @@ export default async function ReturnsPage({ searchParams }: PageProps<'/account/
   try {
     result = await getReturns(
       { page, limit: PAGE_SIZE, status },
-      { cookie: await getSessionCookie() },
+      { token: await getSessionToken() },
     );
   } catch (error) {
     return (

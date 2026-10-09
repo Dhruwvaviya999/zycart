@@ -8,7 +8,7 @@ import { ProductForm } from '@/components/admin/product-form';
 import { stockTone, STOCK_LABEL } from '@/components/admin/status-tones';
 import { ApiError, toErrorMessage } from '@/services/api';
 import { getBrands, getCategories, getProduct } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import type { StockState } from '@/types/admin';
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +23,7 @@ function stockState(stock: number): StockState {
 
 export default async function EditProductPage({ params }: PageProps<'/admin/products/[id]'>) {
   const { id } = await params;
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   let product;
   let categories;
@@ -31,9 +31,9 @@ export default async function EditProductPage({ params }: PageProps<'/admin/prod
 
   try {
     [product, categories, brands] = await Promise.all([
-      getProduct(id, { cookie }),
-      getCategories({ limit: 100 }, { cookie }),
-      getBrands({ limit: 100 }, { cookie }),
+      getProduct(id, { token }),
+      getCategories({ limit: 100 }, { token }),
+      getBrands({ limit: 100 }, { token }),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.isNotFound) notFound();

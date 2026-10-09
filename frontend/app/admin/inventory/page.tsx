@@ -24,7 +24,7 @@ import {
   getInventory,
   getInventorySummary,
 } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDayLabel } from '@/lib/format';
 import type { InventoryQuery, InventoryRow, InventorySummary, StockState } from '@/types/admin';
 import { cn } from '@/lib/utils';
@@ -86,14 +86,14 @@ function toQuery(params: Params): InventoryQuery {
 export default async function AdminInventoryPage({ searchParams }: PageProps<'/admin/inventory'>) {
   const params = await searchParams;
   const query = toQuery(params);
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   const [result, summary, categories, brands] = await Promise.all([
-    getInventory(query, { cookie }).catch((error: unknown) => ({ error })),
+    getInventory(query, { token }).catch((error: unknown) => ({ error })),
     // Secondary. A failure here must not take the table down with it.
-    getInventorySummary({ cookie }).catch(() => null),
-    getCategories({ limit: 100 }, { cookie }).catch(() => ({ items: [] })),
-    getBrands({ limit: 100 }, { cookie }).catch(() => ({ items: [] })),
+    getInventorySummary({ token }).catch(() => null),
+    getCategories({ limit: 100 }, { token }).catch(() => ({ items: [] })),
+    getBrands({ limit: 100 }, { token }).catch(() => ({ items: [] })),
   ]);
 
   const header = (

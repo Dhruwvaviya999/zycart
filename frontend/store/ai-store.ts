@@ -21,8 +21,8 @@ import type {
  * place to put them.
  *
  * There is also, by construction, nothing sensitive to persist — no key, no
- * token, no account data. The session lives in an HTTP-only cookie the browser
- * cannot read, exactly as it does everywhere else in ZyCart.
+ * token, no account data. The session is Clerk's, exactly as it is everywhere
+ * else in ZyCart.
  */
 
 interface AiState extends AiConversationState {

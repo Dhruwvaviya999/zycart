@@ -28,10 +28,16 @@ const addressSchema = new Schema(
 const userSchema = new Schema(
   {
     firstName: { type: String, required: true, trim: true, maxlength: 60 },
-    lastName: { type: String, required: true, trim: true, maxlength: 60 },
+    // Optional since sign-in moved to Clerk: a Google profile, or a sign-up
+    // form configured without it, can arrive with a first name and no last.
+    lastName: { type: String, trim: true, maxlength: 60, default: '' },
 
-    // Stored already normalised; `lowercase` is a second line of defence so a
-    // write that bypasses the service can still never create a duplicate case.
+    /**
+     * Mirrored from the account's primary address in Clerk, which owns it.
+     *
+     * Stored already normalised; `lowercase` is a second line of defence so a
+     * write that bypasses the service can still never create a duplicate case.
+     */
     email: {
       type: String,
       required: true,
@@ -41,17 +47,26 @@ const userSchema = new Schema(
       maxlength: 254,
     },
 
-    // Never loaded unless a query asks for it explicitly, so no ordinary read
-    // can leak the hash even by accident.
-    password: { type: String, required: true, select: false },
+    /**
+     * The Clerk user this account belongs to — the one link between a session
+     * and everything ZyCart stores.
+     *
+     * Null only for an account nobody has signed in to since the move to
+     * Clerk, and for the synthetic accounts the seed scripts write. Set once,
+     * by `services/auth/clerk-sync.ts` or the import script, and never taken
+     * from a request.
+     */
+    clerkId: { type: String, default: null },
 
     /**
-     * Every token issued before this moment is refused. It is what makes a
-     * password change actually end other sessions: a stateless JWT carries no
-     * revocation of its own, so without this a stolen token would stay valid
-     * until it expired.
+     * The bcrypt hash from before Clerk, kept only until the account has been
+     * imported into Clerk with it (`pnpm clerk:import`), which then unsets it.
+     * Nothing else reads it.
+     *
+     * Never loaded unless a query asks for it explicitly, so no ordinary read
+     * can leak the hash even by accident.
      */
-    passwordChangedAt: { type: Date, default: null },
+    password: { type: String, select: false },
 
     phone: { type: String, trim: true, maxlength: 20, default: '' },
     avatar: { type: String, trim: true, maxlength: 600, default: '' },
@@ -62,12 +77,13 @@ const userSchema = new Schema(
     /**
      * Whether this person has proved they receive mail at `email`.
      *
-     * Set by following the link ZyCart sends on registration, or by completing
-     * a password reset — which proves the same thing. It gates nothing on its
-     * own: accounts created before Phase 18 are unverified, and refusing them
-     * checkout overnight would be a worse outcome than the one it prevents.
+     * Mirrored from Clerk, which runs the verification itself. It gates
+     * nothing on its own: accounts created before Phase 18 may be unverified,
+     * and refusing them checkout overnight would be a worse outcome than the
+     * one it prevents.
      */
     isEmailVerified: { type: Boolean, default: false },
+    /** Mirrored from Clerk's own record of the last sign-in. */
     lastLoginAt: { type: Date, default: null },
 
     /**
@@ -86,6 +102,15 @@ const userSchema = new Schema(
     addresses: { type: [addressSchema], default: [] },
   },
   baseSchemaOptions,
+);
+
+/**
+ * One account per Clerk user. Partial, because every account that predates
+ * Clerk shares the same null and a plain unique index would allow only one.
+ */
+userSchema.index(
+  { clerkId: 1 },
+  { unique: true, partialFilterExpression: { clerkId: { $type: 'string' } } },
 );
 
 export type UserDocument = InferSchemaType<typeof userSchema>;

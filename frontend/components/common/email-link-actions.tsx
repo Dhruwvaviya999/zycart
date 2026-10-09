@@ -1,38 +1,17 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { LinkAction } from '@/components/common/link-action';
-import { verifyEmail } from '@/services/auth.service';
 import { confirmNewsletter, unsubscribeFromNewsletter } from '@/services/newsletter.service';
 import { optOutOfCartReminders } from '@/services/user.service';
 
 /**
- * The four links ZyCart puts in email, each bound to its one action.
+ * The links ZyCart puts in email, each bound to its one action. (Account links
+ * — verification, password reset — are Clerk's and land on Clerk's pages.)
  *
  * Client wrappers because the action is a function, and a server page cannot
  * hand a function to a client component. The pages pass the link's values in;
  * nothing here reads the URL itself.
  */
-
-/** Verification is the click itself, so it runs as the page opens. */
-export function VerifyEmailAction({ token }: { token: string }) {
-  const router = useRouter();
-
-  return (
-    <LinkAction
-      automatic
-      action={() => verifyEmail(token)}
-      workingLabel="Confirming your email address…"
-      // A signed-in customer's account banner reads the session, so the page
-      // behind this one is refreshed once the address is verified.
-      onDone={() => router.refresh()}
-      next={[
-        { href: '/account', label: 'Go to your account' },
-        { href: '/shop', label: 'Start shopping' },
-      ]}
-    />
-  );
-}
 
 /** Confirming a subscription is double opt-in's second half: the click is the consent. */
 export function ConfirmNewsletterAction({ token }: { token: string }) {

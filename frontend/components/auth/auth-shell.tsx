@@ -7,10 +7,14 @@ import { trustBadges } from '@/data/banners';
 
 interface AuthShellProps {
   eyebrow: string;
-  title: string;
-  description: string;
-  /** Shown under the form — the link to the opposite journey. */
-  footer: React.ReactNode;
+  /**
+   * Omitted around Clerk's forms, which bring their own heading — one that
+   * changes as the person moves through the flow ("Check your email").
+   */
+  title?: string;
+  description?: string;
+  /** Shown under the form — the link to the opposite journey, when the form has none. */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -44,12 +48,14 @@ export function AuthShell({ eyebrow, title, description, footer, children }: Aut
             <p className="text-label mt-7 inline-flex items-center rounded-full bg-brand-subtle px-3 py-1 text-brand lg:mt-0">
               {eyebrow}
             </p>
-            <h1 className="text-h2 mt-3">{title}</h1>
-            <p className="text-small mt-2.5 text-pretty text-muted-foreground">{description}</p>
+            {title && <h1 className="text-h2 mt-3">{title}</h1>}
+            {description && (
+              <p className="text-small mt-2.5 text-pretty text-muted-foreground">{description}</p>
+            )}
 
-            <div className="mt-8">{children}</div>
+            <div className={title ? 'mt-8' : 'mt-5'}>{children}</div>
 
-            <div className="text-small mt-7 text-muted-foreground">{footer}</div>
+            {footer && <div className="text-small mt-7 text-muted-foreground">{footer}</div>}
 
             <Link
               href="/"

@@ -4,7 +4,7 @@ import { objectIdSchema } from './common';
 /**
  * Note what is absent: there is no `userId`.
  *
- * Whose recommendations these are is decided by the session cookie and nothing
+ * Whose recommendations these are is decided by the verified session and nothing
  * else. A parameter naming a customer would be an authorisation decision made
  * from a query string, which is how one account ends up reading another's.
  */

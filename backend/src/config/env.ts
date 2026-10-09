@@ -70,12 +70,54 @@ const envSchema = z
      */
     SLOW_REQUEST_MS: z.coerce.number().int().min(50).max(60_000).default(1_000),
 
-    // Authentication is always on from Phase 4, so the secret is required. A short
-    // one is worse than no auth at all, hence the length floor rather than min(1).
+    /**
+     * The key that signs ZyCart's own links.
+     *
+     * Sessions belong to Clerk now, but the one-click links in mail — a
+     * newsletter unsubscribe, a cart-reminder opt-out — are still HMACs this
+     * process signs and checks itself (see `utils/signed-links.ts`). The name
+     * is kept so that no deployment has to rotate a secret to upgrade. A short
+     * one is worse than none, hence the length floor rather than min(1).
+     */
     JWT_SECRET: z
       .string({ error: 'is required - set it in backend/.env (use a long random value)' })
       .min(32, 'must be at least 32 characters'),
-    JWT_EXPIRES_IN: z.string().min(2).default('7d'),
+
+    /**
+     * Clerk, which owns sign-in, sign-up and sessions.
+     *
+     * The secret key verifies session tokens and calls the Backend API, and is
+     * server-only. The publishable key is public — the storefront ships the same
+     * value as NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY — and is needed here to read
+     * the instance's session cookies. Both are required: without them every
+     * customer would be refused, which is not a mode worth booting into.
+     *
+     * `CLERK_JWT_KEY` is the instance's PEM public key. Without it the
+     * verification keys are fetched from Clerk and cached, so verifying anybody
+     * depends on Clerk having been reachable recently; with it, verification is
+     * local. Readiness recommends it in production.
+     *
+     * `CLERK_WEBHOOK_SIGNING_SECRET` verifies the webhook that mirrors changes
+     * made outside ZyCart — an address changed in Clerk's dashboard, a deleted
+     * user. Sign-in works without it; readiness flags its absence in production.
+     */
+    CLERK_SECRET_KEY: z
+      .string({ error: 'is required - copy it from the Clerk dashboard (API keys)' })
+      .regex(/^sk_(test|live)_\S+$/, 'must look like sk_test_... or sk_live_...'),
+    CLERK_PUBLISHABLE_KEY: z
+      .string({ error: 'is required - copy it from the Clerk dashboard (API keys)' })
+      .regex(/^pk_(test|live)_\S+$/, 'must look like pk_test_... or pk_live_...'),
+    CLERK_JWT_KEY: z
+      .string()
+      .refine(
+        (value) => value.includes('-----BEGIN PUBLIC KEY-----'),
+        'must be the PEM public key from the Clerk dashboard (API keys, "JWKS public key")',
+      )
+      .optional(),
+    CLERK_WEBHOOK_SIGNING_SECRET: z
+      .string()
+      .regex(/^whsec_\S+$/, 'must look like whsec_... (the webhook endpoint signing secret)')
+      .optional(),
 
     /**
      * Razorpay. Optional as a group, mandatory as a set — see the refinement
@@ -334,6 +376,25 @@ const envSchema = z
     }
   })
   /**
+   * A Clerk secret key and publishable key from different instances would boot
+   * cleanly and then refuse every session token the storefront sends, because
+   * the storefront's tokens are minted by the instance the publishable key
+   * names. The instance type is the part that can be checked here.
+   */
+  .superRefine((env, ctx) => {
+    const secretLive = env.CLERK_SECRET_KEY.startsWith('sk_live_');
+    const publishableLive = env.CLERK_PUBLISHABLE_KEY.startsWith('pk_live_');
+
+    if (secretLive !== publishableLive) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CLERK_PUBLISHABLE_KEY'],
+        message:
+          'belongs to a different kind of Clerk instance than CLERK_SECRET_KEY - use the test pair or the live pair, from the same instance',
+      });
+    }
+  })
+  /**
    * Half-configured payments is the dangerous state, so it is the one that stops
    * startup.
    *
@@ -476,6 +537,9 @@ export function razorpayConfig(env: Env): RazorpayConfig | null {
 }
 
 export const isRazorpayConfigured = (env: Env): boolean => razorpayConfig(env) !== null;
+
+/** A production Clerk instance, as opposed to a development one. */
+export const isClerkLive = (env: Env): boolean => env.CLERK_SECRET_KEY.startsWith('sk_live_');
 
 /**
  * `KEY=` in a .env file yields an empty string, which would otherwise satisfy

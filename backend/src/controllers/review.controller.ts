@@ -1,8 +1,6 @@
 import type { Request, Response } from 'express';
 import * as reviewService from '../services/review.service';
 import { AppError } from '../utils/AppError';
-import { AUTH_COOKIE } from '../utils/cookies';
-import { verifyToken } from '../utils/jwt';
 import {
   createReviewSchema,
   myReviewQuerySchema,
@@ -17,26 +15,6 @@ function currentUserId(req: Request): string {
   return req.user.id;
 }
 
-/**
- * The viewer's id on a public route, or undefined.
- *
- * The review list is readable by anyone, so it cannot sit behind `requireAuth`.
- * But a signed-in customer browsing it should see the edit controls on their
- * own review, which means knowing who they are without requiring it. Any
- * failure here is silent and simply yields an anonymous viewer — this decides
- * whether a button renders, never what anybody is allowed to do.
- */
-function optionalViewerId(req: Request): string | undefined {
-  const token: unknown = req.cookies?.[AUTH_COOKIE];
-  if (typeof token !== 'string' || token.length === 0) return undefined;
-
-  try {
-    return verifyToken(token, req.env.JWT_SECRET).sub;
-  } catch {
-    return undefined;
-  }
-}
-
 const productId = (req: Request): string =>
   productIdParamSchema.parse({ productId: req.params.productId }).productId;
 
@@ -47,13 +25,19 @@ const reviewId = (req: Request): string =>
 /* Public                                                            */
 /* ---------------------------------------------------------------- */
 
+/**
+ * Readable by anyone, so the viewer is optional: `optionalAuth` on the route
+ * identifies a signed-in customer so they see the edit controls on their own
+ * review. That decides whether a button renders, never what anybody is allowed
+ * to do.
+ */
 export async function listProductReviews(req: Request, res: Response): Promise<void> {
   const query = reviewQuerySchema.parse(req.query);
 
   const { items, pagination } = await reviewService.listProductReviews(
     productId(req),
     query,
-    optionalViewerId(req),
+    req.user?.id,
   );
 
   res.json({ success: true, data: items, pagination });

@@ -7,7 +7,7 @@ import type { AiProductView } from './product-view';
 /**
  * What a tool is allowed to know about the person it is acting for.
  *
- * `userId` is taken from the verified session cookie and nothing else. There is
+ * `userId` is taken from the verified session and nothing else. There is
  * no field here a client could set, so no request can name whose cart it is
  * operating on — the same rule the cart controller has always enforced.
  */

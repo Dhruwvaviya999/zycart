@@ -236,7 +236,7 @@ export async function setCustomerActive(req: Request, res: Response): Promise<vo
 
   res.json({
     success: true,
-    data: await customerService.setActive(id(req), isActive, requireActor(req)),
+    data: await customerService.setActive(req.env, id(req), isActive, requireActor(req)),
   });
 }
 

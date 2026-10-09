@@ -12,6 +12,15 @@ export const objectIdSchema = z.string().regex(OBJECT_ID_PATTERN, 'must be a val
 
 export const idParamSchema = z.object({ id: objectIdSchema });
 
+/**
+ * Stored and queried in one canonical form, so `USER@Example.COM` and
+ * `user@example.com` can never become two records.
+ */
+export const normalisedEmail = z
+  .email('must be a valid email address')
+  .max(254)
+  .transform((value) => value.trim().toLowerCase());
+
 export const slugParamSchema = z.object({
   slug: z
     .string()

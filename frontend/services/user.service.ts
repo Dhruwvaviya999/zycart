@@ -3,7 +3,6 @@ import type {
   Address,
   AddressInput,
   AuthUser,
-  ChangePasswordInput,
   EmailPreferences,
   UpdateProfileInput,
 } from '@/types/user';
@@ -14,10 +13,6 @@ export function getProfile(options?: RequestOptions): Promise<AuthUser> {
 
 export function updateProfile(input: UpdateProfileInput): Promise<AuthUser> {
   return send<AuthUser>('patch', '/api/users/me', input);
-}
-
-export function changePassword(input: ChangePasswordInput): Promise<string> {
-  return sendMessage('patch', '/api/users/me/password', input);
 }
 
 export function updateEmailPreferences(input: EmailPreferences): Promise<AuthUser> {

@@ -17,7 +17,7 @@ import { CouponFilters } from '@/components/admin/coupon-filters';
 import { couponStateTone } from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
 import { getCoupons } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDateTime, formatPrice } from '@/lib/format';
 import {
   COUPON_STATES,
@@ -91,7 +91,7 @@ export default async function AdminCouponsPage({ searchParams }: PageProps<'/adm
 
   let result;
   try {
-    result = await getCoupons(query, { cookie: await getSessionCookie() });
+    result = await getCoupons(query, { token: await getSessionToken() });
   } catch (error) {
     return (
       <>

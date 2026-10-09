@@ -1,8 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
 import { Heart, LayoutGrid, LogOut, MapPin, Package, Settings, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -12,9 +10,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { logout } from '@/services/auth.service';
-import { useAuthStore, useAuthUser } from '@/store/auth-store';
-import { clearSessionShoppingState } from '@/lib/session-handoff';
+import { useSignOut } from '@/hooks/use-sign-out';
+import { useAuthUser } from '@/store/auth-store';
 import { fullName, initials, type AuthUser } from '@/types/user';
 import { cn } from '@/lib/utils';
 
@@ -34,26 +31,8 @@ const LINKS = [
 ];
 
 export function UserMenu({ serverUser, className }: UserMenuProps) {
-  const router = useRouter();
   const user = useAuthUser(serverUser);
-  const setUser = useAuthStore((state) => state.setUser);
-  const [signingOut, setSigningOut] = useState(false);
-
-  async function handleLogout() {
-    if (signingOut) return;
-    setSigningOut(true);
-
-    try {
-      await logout();
-    } finally {
-      setUser(null);
-      // The account's cart and wishlist must not be visible to whoever uses
-      // this browser next. They stay safe in MongoDB.
-      clearSessionShoppingState();
-      router.replace('/');
-      router.refresh();
-    }
-  }
+  const { signOut, pending: signingOut } = useSignOut();
 
   // Signed out: a plain link, so the header keeps exactly the weight it had
   // before authentication existed.
@@ -106,7 +85,7 @@ export function UserMenu({ serverUser, className }: UserMenuProps) {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem onClick={handleLogout} disabled={signingOut}>
+        <DropdownMenuItem onClick={() => void signOut()} disabled={signingOut}>
           <LogOut className="size-4 text-muted-foreground" aria-hidden />
           {signingOut ? 'Signing out...' : 'Sign out'}
         </DropdownMenuItem>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { adoptSessionShoppingState } from '@/lib/session-handoff';
 import { useCartStore } from '@/store/cart-store';
 import { useWishlistStore } from '@/store/wishlist-store';
 import type { AuthUser } from '@/types/user';
@@ -13,6 +14,13 @@ import type { AuthUser } from '@/types/user';
  * must agree on an empty store. Only once that has happened is the mode set,
  * which is what triggers the initial load — guest lines get priced by the
  * server, an account reads its stored cart.
+ *
+ * A signed-in visitor goes through the hand-off rather than straight to the
+ * account, so anything saved while signed out is folded in. This is the one
+ * place it happens, whichever way the sign-in arrived — Clerk's form on this
+ * page, or a full-page return from Google — and with nothing saved locally it
+ * is just the switch to the account. A merge that failed last time is simply
+ * offered again here.
  */
 export function ShopSync({ user }: { user: AuthUser | null }) {
   const [rehydrated, setRehydrated] = useState(false);
@@ -28,9 +36,13 @@ export function ShopSync({ user }: { user: AuthUser | null }) {
   useEffect(() => {
     if (!rehydrated) return;
 
-    const mode = userId ? 'account' : 'guest';
-    void useCartStore.getState().setMode(mode);
-    void useWishlistStore.getState().setMode(mode);
+    if (userId) {
+      void adoptSessionShoppingState();
+      return;
+    }
+
+    void useCartStore.getState().setMode('guest');
+    void useWishlistStore.getState().setMode('guest');
   }, [rehydrated, userId]);
 
   return null;

@@ -16,7 +16,7 @@ import { SubscriberFilters } from '@/components/admin/subscriber-filters';
 import { subscriberStatusTone } from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
 import { getSubscriberCounts, getSubscribers } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDay } from '@/lib/format';
 import {
   SUBSCRIBER_STATUS_LABEL,
@@ -66,7 +66,7 @@ export default async function AdminSubscribersPage({
   searchParams,
 }: PageProps<'/admin/subscribers'>) {
   const params = await searchParams;
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   const single = (key: string): string | undefined => {
     const value = params[key];
@@ -90,9 +90,9 @@ export default async function AdminSubscribersPage({
   };
 
   const [result, counts] = await Promise.all([
-    getSubscribers(query, { cookie }).catch((error: unknown) => ({ error })),
+    getSubscribers(query, { token }).catch((error: unknown) => ({ error })),
     // Independent of the list: the rows are still worth reading without them.
-    getSubscriberCounts({ cookie }).catch(() => null),
+    getSubscriberCounts({ token }).catch(() => null),
   ]);
 
   const header = (

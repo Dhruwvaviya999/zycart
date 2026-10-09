@@ -1,8 +1,11 @@
 import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+import { ClerkProvider } from '@clerk/nextjs';
+import { ui } from '@clerk/ui';
 import { AuthProvider } from '@/components/auth/auth-provider';
 import { ThemeProvider } from '@/components/layout/theme-provider';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { clerkAppearance, clerkLocalization } from '@/lib/clerk-appearance';
 import { getSessionUser } from '@/lib/server-auth';
 import './globals.css';
 
@@ -37,11 +40,14 @@ export const viewport: Viewport = {
 /**
  * The document, and nothing else.
  *
- * Deliberately thin: fonts, global styles and the three providers that every
- * route needs — theme, session and tooltips — and no chrome. The shop's navbar
+ * Deliberately thin: fonts, global styles and the providers that every route
+ * needs — Clerk, theme, session and tooltips — and no chrome. The shop's navbar
  * and footer belong to the `(storefront)` group; the admin console brings its
  * own shell. A layout that rendered both would force one onto the other, which
  * is exactly what it used to do.
+ *
+ * Clerk's UI is bundled (`ui`) rather than fetched from its CDN at runtime, so
+ * the version that renders is the one this build was tested with.
  *
  * `getSessionUser` is `cache`d, so the storefront chrome reading it again a
  * moment later costs nothing.
@@ -50,18 +56,27 @@ export default async function RootLayout({ children }: LayoutProps<'/'>) {
   const user = await getSessionUser();
 
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full`}
+    <ClerkProvider
+      ui={ui}
+      appearance={clerkAppearance}
+      localization={clerkLocalization}
+      signInUrl="/login"
+      signUpUrl="/register"
+      afterSignOutUrl="/"
     >
-      <body className="flex min-h-full flex-col overflow-x-hidden antialiased">
-        <ThemeProvider>
-          <AuthProvider user={user}>
-            <TooltipProvider>{children}</TooltipProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </body>
-    </html>
+      <html
+        lang="en"
+        suppressHydrationWarning
+        className={`${geistSans.variable} ${geistMono.variable} h-full`}
+      >
+        <body className="flex min-h-full flex-col overflow-x-hidden antialiased">
+          <ThemeProvider>
+            <AuthProvider user={user}>
+              <TooltipProvider>{children}</TooltipProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

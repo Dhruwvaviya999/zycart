@@ -96,10 +96,18 @@ export const LOG_EVENTS = [
   /** An online order kept its discount past the coupon's limit; see the payment service. */
   'coupon_overredeemed',
 
-  /* Accounts (Phase 18) ---------------------------------------------- */
-  'password_reset_requested',
-  'password_reset_completed',
-  'email_verified',
+  /* Accounts (Clerk) ------------------------------------------------- */
+  /** A Clerk user signed in for the first time and got a new ZyCart account. */
+  'account_provisioned',
+  /** A Clerk user was attached to the existing ZyCart account with their address. */
+  'account_linked',
+  /** A Clerk user could not be attached to an account; `reason` says why. */
+  'account_link_refused',
+  /** Clerk deleted a user, so the account was deactivated and unlinked. */
+  'account_unlinked',
+  /** An administrator's (de)activation could not be mirrored into Clerk. */
+  'clerk_ban_failed',
+  'clerk_webhook_rejected',
 
   /* Newsletter (Phase 18) -------------------------------------------- */
   'newsletter_subscription_requested',

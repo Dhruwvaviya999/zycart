@@ -1,17 +1,10 @@
-import { ApiError, request, send, sendMessage, type RequestOptions } from '@/services/api';
-import type { AuthUser, LoginInput, RegisterInput } from '@/types/user';
+import { request, send, type RequestOptions } from '@/services/api';
+import type { AuthUser } from '@/types/user';
 
-export function register(input: RegisterInput): Promise<AuthUser> {
-  return send<AuthUser>('post', '/api/auth/register', input);
-}
-
-export function login(input: LoginInput): Promise<AuthUser> {
-  return send<AuthUser>('post', '/api/auth/login', input);
-}
-
-export function logout(): Promise<string> {
-  return sendMessage('post', '/api/auth/logout');
-}
+/**
+ * Signing in, signing up and signing out are Clerk's (see `@clerk/nextjs`).
+ * What the API answers is the ZyCart account behind a Clerk session.
+ */
 
 export function getCurrentUser(options?: RequestOptions): Promise<AuthUser> {
   return request<AuthUser>('/api/auth/me', undefined, options);
@@ -28,31 +21,22 @@ export function getCurrentUser(options?: RequestOptions): Promise<AuthUser> {
 export async function getCurrentUserSafe(options?: RequestOptions): Promise<AuthUser | null> {
   try {
     return await getCurrentUser(options);
-  } catch (error) {
-    if (error instanceof ApiError && error.isUnauthenticated) return null;
+  } catch {
     return null;
   }
 }
 
 /**
- * Asks for a password reset link. The answer is the same whether or not the
- * address has an account, so the form cannot be used to find out.
+ * Asks the API to re-read this user from Clerk and returns the account.
+ *
+ * Called right after a sign-in and whenever Clerk reports the user changed, so
+ * a name or address edited in Clerk's profile is on screen immediately.
+ * Null on any failure: the session is still real, and the next sync catches up.
  */
-export function requestPasswordReset(email: string): Promise<string> {
-  return sendMessage('post', '/api/auth/forgot-password', { email });
-}
-
-/** Sets a new password from a reset link, and signs this browser in. */
-export function resetPassword(token: string, password: string): Promise<AuthUser> {
-  return send<AuthUser>('post', '/api/auth/reset-password', { token, password });
-}
-
-/** Redeems the link from the verification email. Needs no session. */
-export function verifyEmail(token: string): Promise<string> {
-  return sendMessage('post', '/api/auth/verify-email', { token });
-}
-
-/** Sends a fresh verification link to the signed-in customer. */
-export function resendVerification(): Promise<string> {
-  return sendMessage('post', '/api/auth/verify-email/resend');
+export async function syncCurrentUser(): Promise<AuthUser | null> {
+  try {
+    return await send<AuthUser>('post', '/api/auth/sync');
+  } catch {
+    return null;
+  }
 }

@@ -47,9 +47,6 @@ import { generateOrderNumber } from './orderNumber';
 
 const DEMO_EMAIL_DOMAIN = 'zycart.demo';
 
-/** A bcrypt-shaped placeholder. These accounts are not sign-in-able by design. */
-const UNUSABLE_PASSWORD = '$2b$10$seedreviewsdemoaccountnotusableforsigninxxxxxxxxxxxxx';
-
 /** Marks every gateway id this script writes, so `--clean` can find them. */
 const SEED_MARKER = 'zyseed';
 
@@ -106,7 +103,6 @@ async function ensureDemoCustomers() {
         firstName,
         lastName,
         email,
-        password: UNUSABLE_PASSWORD,
         isActive: true,
         addresses: [
           {

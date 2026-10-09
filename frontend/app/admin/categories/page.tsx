@@ -3,7 +3,7 @@ import { AdminError, AdminPageHeader } from '@/components/admin/admin-ui';
 import { TaxonomyManager } from '@/components/admin/taxonomy-manager';
 import { toErrorMessage } from '@/services/api';
 import { getCategories } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +14,7 @@ export default async function AdminCategoriesPage() {
 
   try {
     // The taxonomy is short by nature, so it loads whole rather than paged.
-    result = await getCategories({ limit: 100 }, { cookie: await getSessionCookie() });
+    result = await getCategories({ limit: 100 }, { token: await getSessionToken() });
   } catch (error) {
     return (
       <>

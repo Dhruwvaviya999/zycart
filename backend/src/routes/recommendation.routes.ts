@@ -10,7 +10,7 @@ export const recommendationRouter = Router();
  * catalogue's popular products rather than anything personal.
  *
  * `optionalAuth` is what decides which: the customer is read from the verified
- * session cookie, never from a parameter, so there is no request that can ask
+ * session, never from a parameter, so there is no request that can ask
  * for somebody else's recommendations.
  *
  * Not rate limited beyond the app's normal handling: this is a bounded MongoDB

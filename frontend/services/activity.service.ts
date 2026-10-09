@@ -5,7 +5,7 @@ import { api } from '@/services/api';
  *
  * Deliberately the whole of this file. There is no `track(event, payload)` here
  * and there must not be one: the event type is fixed by the route, the customer
- * comes from the session cookie, and the product is resolved server-side — so
+ * comes from the verified session, and the product is resolved server-side — so
  * none of the three things that matter are the browser's to claim.
  *
  * Never awaited by the page, and every failure is swallowed. A product page

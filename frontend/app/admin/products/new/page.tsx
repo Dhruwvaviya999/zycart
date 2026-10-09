@@ -3,22 +3,22 @@ import { AdminError, AdminPageHeader } from '@/components/admin/admin-ui';
 import { ProductForm } from '@/components/admin/product-form';
 import { toErrorMessage } from '@/services/api';
 import { getBrands, getCategories } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'New product' };
 
 export default async function NewProductPage() {
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   let categories;
   let brands;
 
   try {
     [categories, brands] = await Promise.all([
-      getCategories({ limit: 100, active: true }, { cookie }),
-      getBrands({ limit: 100, active: true }, { cookie }),
+      getCategories({ limit: 100, active: true }, { token }),
+      getBrands({ limit: 100, active: true }, { token }),
     ]);
   } catch (error) {
     return (

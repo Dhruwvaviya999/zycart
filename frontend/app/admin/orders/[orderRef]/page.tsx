@@ -30,7 +30,7 @@ import {
 import { RETURN_ADMIN_LABEL } from '@/types/fulfillment';
 import { ApiError, toErrorMessage } from '@/services/api';
 import { getOrder } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDate, formatDateTime, formatPrice } from '@/lib/format';
 import type { AdminOrderDetail } from '@/types/admin';
 
@@ -61,7 +61,7 @@ export default async function AdminOrderPage({ params }: PageProps<'/admin/order
 
   let order;
   try {
-    order = await getOrder(orderRef, { cookie: await getSessionCookie() });
+    order = await getOrder(orderRef, { token: await getSessionToken() });
   } catch (error) {
     if (error instanceof ApiError && error.isNotFound) notFound();
 
