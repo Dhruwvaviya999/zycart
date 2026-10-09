@@ -18,7 +18,7 @@ import { InventoryMovementTimeline } from '@/components/admin/inventory-movement
 import { STOCK_LABEL, stockTone } from '@/components/admin/status-tones';
 import { ApiError, toErrorMessage } from '@/services/api';
 import { getInventoryItem, getInventorySummary } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDateTime, formatPrice } from '@/lib/format';
 import type { InventoryDetail } from '@/types/admin';
 
@@ -49,11 +49,11 @@ export default async function AdminInventoryDetailPage({
   params,
 }: PageProps<'/admin/inventory/[id]'>) {
   const { id } = await params;
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   let item;
   try {
-    item = await getInventoryItem(id, { cookie });
+    item = await getInventoryItem(id, { token });
   } catch (error) {
     if (error instanceof ApiError && error.isNotFound) notFound();
 
@@ -67,7 +67,7 @@ export default async function AdminInventoryDetailPage({
 
   // Only for the store default, which the threshold control quotes. A failure
   // is not worth failing the page over.
-  const summary = await getInventorySummary({ cookie }).catch(() => null);
+  const summary = await getInventorySummary({ token }).catch(() => null);
 
   return (
     <>

@@ -39,28 +39,11 @@ export interface EmailPreferences {
   cartReminders: boolean;
 }
 
-export interface RegisterInput {
-  firstName: string;
-  lastName: string;
-  email: string;
-  password: string;
-}
-
-export interface LoginInput {
-  email: string;
-  password: string;
-}
-
 export interface UpdateProfileInput {
   firstName?: string;
   lastName?: string;
   phone?: string;
   avatar?: string;
-}
-
-export interface ChangePasswordInput {
-  currentPassword: string;
-  newPassword: string;
 }
 
 /** What the address form collects; the server assigns the id. */

@@ -5,7 +5,7 @@ import { ErrorState } from '@/components/common/error-state';
 import { MyReviewsClient } from '@/components/reviews/my-reviews-client';
 import { toErrorMessage } from '@/services/api';
 import { getMyReviews } from '@/services/review.service';
-import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { getSessionToken, getSessionUser } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +30,7 @@ export default async function MyReviewsPage() {
 
   let result;
   try {
-    result = await getMyReviews({ limit: PAGE_SIZE }, { cookie: await getSessionCookie() });
+    result = await getMyReviews({ limit: PAGE_SIZE }, { token: await getSessionToken() });
   } catch (error) {
     return (
       <AccountPanel title="My reviews" description="Reviews you have written.">

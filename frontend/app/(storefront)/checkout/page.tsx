@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/common/empty-state';
 import { ErrorState } from '@/components/common/error-state';
 import { Container } from '@/components/layout/container';
 import { CheckoutClient } from '@/components/checkout/checkout-client';
-import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { getSessionToken, getSessionUser } from '@/lib/server-auth';
 import { getCheckoutSummary } from '@/services/order.service';
 import { toErrorMessage } from '@/services/api';
 
@@ -19,14 +19,14 @@ export const metadata: Metadata = {
 };
 
 export default async function CheckoutPage() {
-  // Belt and braces alongside the proxy: this is the check that actually
-  // verifies the session rather than merely noticing a cookie.
+  // Belt and braces alongside the proxy: the proxy knows the Clerk user, and
+  // this is the check that knows whether they have a usable ZyCart account.
   const user = await getSessionUser();
   if (!user) redirect('/login?redirect=/checkout');
 
   let summary;
   try {
-    summary = await getCheckoutSummary({}, { cookie: await getSessionCookie() });
+    summary = await getCheckoutSummary({}, { token: await getSessionToken() });
   } catch (error) {
     return (
       <Container className="py-8 sm:py-10">

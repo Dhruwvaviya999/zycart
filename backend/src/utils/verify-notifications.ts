@@ -86,9 +86,6 @@ const SLUG_PREFIX = 'zycart-p14';
 const ORDER_PREFIX = 'ZYC-P14';
 const EMAIL_DOMAIN = 'zycart-p14.test';
 
-/** A bcrypt-shaped placeholder. These accounts cannot be signed in to. */
-const UNUSABLE_PASSWORD = '$2b$10$zycartp14verificationaccountnotsigninablexxxxxxxxxxxx';
-
 let passed = 0;
 let failed = 0;
 
@@ -159,7 +156,6 @@ async function createFixtures(): Promise<Fixtures> {
     firstName: 'Phase14',
     lastName: 'Verifier',
     email: `admin@${EMAIL_DOMAIN}`,
-    password: UNUSABLE_PASSWORD,
     role: 'ADMIN',
     isActive: true,
   });
@@ -168,7 +164,6 @@ async function createFixtures(): Promise<Fixtures> {
     firstName: 'Phase14',
     lastName: 'Colleague',
     email: `admin2@${EMAIL_DOMAIN}`,
-    password: UNUSABLE_PASSWORD,
     role: 'ADMIN',
     isActive: true,
   });
@@ -185,7 +180,6 @@ async function createFixtures(): Promise<Fixtures> {
     firstName: '<img src=x onerror=alert(1)>',
     lastName: 'Shopper',
     email: `shopper@${EMAIL_DOMAIN}`,
-    password: UNUSABLE_PASSWORD,
     role: 'USER',
     isActive: true,
   });
@@ -194,7 +188,6 @@ async function createFixtures(): Promise<Fixtures> {
     firstName: 'A',
     lastName: 'B',
     email: `nameless@${EMAIL_DOMAIN}`,
-    password: UNUSABLE_PASSWORD,
     role: 'USER',
     isActive: true,
   });

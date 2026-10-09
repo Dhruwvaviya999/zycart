@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { ExternalLink, LogOut, Menu, Shield, User, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -15,8 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { ADMIN_NAV, isActiveNav } from '@/components/admin/admin-nav';
-import { logout } from '@/services/auth.service';
-import { useAuthStore } from '@/store/auth-store';
+import { useSignOut } from '@/hooks/use-sign-out';
 import { initials, type AuthUser } from '@/types/user';
 import { cn } from '@/lib/utils';
 
@@ -216,25 +215,9 @@ function SidebarFooter({ user }: { user: AuthUser }) {
 }
 
 function AdminUserMenu({ user }: { user: AuthUser }) {
-  const router = useRouter();
-  const setUser = useAuthStore((state) => state.setUser);
-  const [busy, setBusy] = useState(false);
-
-  async function signOut() {
-    if (busy) return;
-    setBusy(true);
-
-    try {
-      await logout();
-    } finally {
-      setUser(null);
-      // `refresh` matters as much as the navigation: every admin page is a
-      // server component, so this discards the rendered output along with the
-      // session rather than leaving it cached behind the storefront.
-      router.replace('/');
-      router.refresh();
-    }
-  }
+  // Lands on the storefront; `AuthProvider` then refreshes the server
+  // components, so no rendered admin page stays cached behind the session.
+  const { signOut, pending: busy } = useSignOut();
 
   return (
     <DropdownMenu>
@@ -275,7 +258,7 @@ function AdminUserMenu({ user }: { user: AuthUser }) {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem onClick={signOut} disabled={busy}>
+        <DropdownMenuItem onClick={() => void signOut()} disabled={busy}>
           <LogOut className="size-4" aria-hidden />
           {busy ? 'Signing out…' : 'Sign out'}
         </DropdownMenuItem>

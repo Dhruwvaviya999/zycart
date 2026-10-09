@@ -1,8 +1,9 @@
-import bcrypt from 'bcrypt';
+import type { Env } from '../config/env';
 import { User, type UserRole } from '../models/user.model';
 import { AppError } from '../utils/AppError';
 import { verifyLink } from '../utils/signed-links';
 import { isObjectId } from '../validators/common';
+import { pushName } from './auth/clerk-sync';
 import type {
   CreateAddressInput,
   UpdateAddressInput,
@@ -102,7 +103,11 @@ export async function getProfile(userId: string): Promise<SafeUser> {
   return toSafeUser(await loadUser(userId));
 }
 
-export async function updateProfile(userId: string, input: UpdateProfileInput): Promise<SafeUser> {
+export async function updateProfile(
+  env: Env,
+  userId: string,
+  input: UpdateProfileInput,
+): Promise<SafeUser> {
   const user = await loadUser(userId);
 
   // Assigned field by field: `set(input)` would write whatever the body carried,
@@ -112,6 +117,15 @@ export async function updateProfile(userId: string, input: UpdateProfileInput): 
   if (input.lastName !== undefined) user.lastName = input.lastName;
   if (input.phone !== undefined) user.phone = input.phone;
   if (input.avatar !== undefined) user.avatar = input.avatar;
+
+  /**
+   * The name lives in Clerk too — its profile and its emails show it — so a
+   * change made here is written there first. Otherwise the next change made
+   * in Clerk would sync the old name back over this one.
+   */
+  if (user.clerkId && (user.isModified('firstName') || user.isModified('lastName'))) {
+    await pushName(env, user.clerkId, { firstName: user.firstName, lastName: user.lastName });
+  }
 
   await user.save();
   return toSafeUser(user);
@@ -154,35 +168,6 @@ export async function optOutOfCartReminders(
   if (result.matchedCount === 0) {
     throw new AppError('This link is not valid. You can change reminders from your account.', 400);
   }
-}
-
-/**
- * Returns the id so the caller can mint a fresh token: changing a password ends
- * every session, including the one that made the change.
- */
-export async function changePassword(
-  userId: string,
-  currentPassword: string,
-  newPassword: string,
-): Promise<string> {
-  const user = await User.findById(userId).select('+password');
-  if (!user) throw new AppError('Account not found', 404);
-
-  if (!(await bcrypt.compare(currentPassword, user.password))) {
-    throw new AppError('Your current password is incorrect', 401);
-  }
-
-  user.password = await bcrypt.hash(newPassword, 12);
-
-  /**
-   * Backdated by a second on purpose. `iat` is whole seconds, so a token minted
-   * in the same second as the change could otherwise compare as older than it
-   * and lock the customer out of the session they just used.
-   */
-  user.passwordChangedAt = new Date(Date.now() - 1000);
-  await user.save();
-
-  return String(user._id);
 }
 
 // ------------------------------------------------------------------ addresses

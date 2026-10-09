@@ -7,7 +7,7 @@ import { NotificationRetry } from '@/components/admin/notification-retry';
 import { deliveryTone } from '@/components/admin/status-tones';
 import { ApiError, toErrorMessage } from '@/services/api';
 import { getNotification } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDateTime } from '@/lib/format';
 import {
   DELIVERY_STATUS_LABEL,
@@ -48,7 +48,7 @@ export default async function AdminNotificationPage({
 
   let delivery: NotificationDetail;
   try {
-    delivery = await getNotification(id, { cookie: await getSessionCookie() });
+    delivery = await getNotification(id, { token: await getSessionToken() });
   } catch (error) {
     if (error instanceof ApiError && error.isNotFound) notFound();
 

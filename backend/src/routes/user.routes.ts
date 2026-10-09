@@ -12,7 +12,6 @@ userRouter.use('/users/me', asyncHandler(requireAuth));
 
 userRouter.get('/users/me', asyncHandler(controller.getMe));
 userRouter.patch('/users/me', asyncHandler(controller.updateMe));
-userRouter.patch('/users/me/password', asyncHandler(controller.changePassword));
 userRouter.patch('/users/me/preferences', asyncHandler(controller.updatePreferences));
 
 /**

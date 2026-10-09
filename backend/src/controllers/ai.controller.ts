@@ -34,7 +34,7 @@ export async function chat(req: Request, res: Response): Promise<void> {
 
   const data = await aiService.chat(input, {
     provider,
-    // Identity comes from the verified session cookie. `optionalAuth` has
+    // Identity comes from the verified session. `optionalAuth` has
     // already run; nothing in the request body can name a customer.
     userId: req.user?.id ?? null,
     signal: controller.signal,

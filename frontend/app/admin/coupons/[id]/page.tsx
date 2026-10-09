@@ -13,7 +13,7 @@ import {
 import { CouponForm } from '@/components/admin/coupon-form';
 import { ApiError, toErrorMessage } from '@/services/api';
 import { getCoupon } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDateTime, formatPrice } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { COUPON_STATE_LABEL, type AdminCouponDetail } from '@/types/admin';
@@ -46,7 +46,7 @@ export default async function AdminCouponPage({ params }: PageProps<'/admin/coup
 
   let coupon: AdminCouponDetail;
   try {
-    coupon = await getCoupon(id, { cookie: await getSessionCookie() });
+    coupon = await getCoupon(id, { token: await getSessionToken() });
   } catch (error) {
     if (error instanceof ApiError && error.isNotFound) notFound();
 

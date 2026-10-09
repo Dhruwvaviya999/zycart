@@ -7,7 +7,7 @@ import { PrintButton } from '@/components/invoice/print-button';
 import { ApiError } from '@/services/api';
 import { getOrderInvoice as getAdminOrderInvoice } from '@/services/admin.service';
 import { getOrderInvoice } from '@/services/order.service';
-import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { getSessionToken, getSessionUser } from '@/lib/server-auth';
 import type { Invoice } from '@/types/invoice';
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +42,7 @@ export default async function InvoicePage({ params }: PageProps<'/invoice/[order
   if (!user) redirect(`/login?redirect=${encodeURIComponent(`/invoice/${orderRef}`)}`);
 
   const admin = user.role === 'ADMIN';
-  const options = { cookie: await getSessionCookie() };
+  const options = { token: await getSessionToken() };
   const backHref = admin
     ? `/admin/orders/${encodeURIComponent(orderRef)}`
     : `/account/orders/${encodeURIComponent(orderRef)}`;

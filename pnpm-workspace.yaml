@@ -2,12 +2,15 @@ packages:
   - frontend
   - backend
 
-# bcrypt ships a native addon and pnpm blocks install scripts by default, which
-# would leave it unbuilt — and failing at runtime — on any machine without a
-# matching prebuilt binary. Approving it here keeps installs reproducible.
+# pnpm blocks install scripts by default and refuses to install while any
+# dependency's is undecided, so every one is decided here — approved where the
+# script builds something, denied where it only prints.
 allowBuilds:
+  # Clerk: its postinstall only prints a telemetry notice.
+  '@clerk/shared': false
   '@google/genai': true
-  bcrypt: true
+  # core-js: its postinstall only prints a funding banner.
+  core-js: false
   esbuild: true
   protobufjs: true
   unrs-resolver: true

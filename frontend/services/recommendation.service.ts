@@ -24,7 +24,7 @@ export interface RecommendationParams {
 
 export async function getRecommendations(
   params: RecommendationParams = {},
-  options?: { cookie?: string },
+  options?: { token?: string },
 ): Promise<RecommendationResponse> {
   const query: Record<string, string | number> = {};
 

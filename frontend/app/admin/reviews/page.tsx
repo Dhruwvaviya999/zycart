@@ -5,7 +5,7 @@ import { ReviewFilters } from '@/components/admin/review-filters';
 import { ReviewModeration } from '@/components/admin/review-moderation';
 import { toErrorMessage } from '@/services/api';
 import { getReviews } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import type { AdminReviewQuery } from '@/types/admin';
 import type { ReviewStatus } from '@/types/review';
 
@@ -52,7 +52,7 @@ export default async function AdminReviewsPage({ searchParams }: PageProps<'/adm
 
   let result;
   try {
-    result = await getReviews(toQuery(params), { cookie: await getSessionCookie() });
+    result = await getReviews(toQuery(params), { token: await getSessionToken() });
   } catch (error) {
     return (
       <>

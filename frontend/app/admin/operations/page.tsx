@@ -16,7 +16,7 @@ import {
   getOrders,
   getSystemHealth,
 } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDateTime, formatPrice } from '@/lib/format';
 import type { AdminOrderRow, CommunicationSummary, OperationsSummary } from '@/types/admin';
 import type { HealthData } from '@/types/api';
@@ -42,15 +42,15 @@ export const metadata: Metadata = { title: 'Needs attention' };
  * empty table and leaving an operator to wonder whether it loaded.
  */
 export default async function AdminOperationsPage() {
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   const [summary, queue, communication, health] = await Promise.all([
-    getOperations({ cookie }).catch((error: unknown) => ({ error })),
+    getOperations({ token }).catch((error: unknown) => ({ error })),
     // Independent: the list renders even if the counts fail, and vice versa.
-    getOrders({ attention: true, limit: 20, sort: 'oldest' }, { cookie }).catch(() => null),
+    getOrders({ attention: true, limit: 20, sort: 'oldest' }, { token }).catch(() => null),
     // Three indexed counts. Independent again, so a failure here costs the
     // communication line and nothing else on the page.
-    getCommunicationSummary({ cookie }).catch(() => null),
+    getCommunicationSummary({ token }).catch(() => null),
     // Independent for a reason that is not symmetry: if the API cannot reach
     // its database then every call above has already failed, and this is the
     // one that would explain why. It must not be able to take the page down

@@ -17,6 +17,19 @@ const nextConfig: NextConfig = {
     ],
     formats: ['image/avif', 'image/webp'],
   },
+
+  /**
+   * The account pages Clerk replaced. Emails sent before the move still link
+   * here, so each lands somewhere useful: password help is inside Clerk's
+   * sign-in ("Forgot password?"), and Clerk verifies addresses itself.
+   */
+  async redirects() {
+    return [
+      { source: '/forgot-password', destination: '/login', permanent: false },
+      { source: '/reset-password', destination: '/login', permanent: false },
+      { source: '/verify-email', destination: '/account', permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;

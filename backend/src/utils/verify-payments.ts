@@ -76,9 +76,6 @@ const ORDER_PREFIX = 'ZYC-P15';
 const EVENT_PREFIX = 'evt_p15_';
 const EMAIL_DOMAIN = 'zycart-p15.test';
 
-/** A bcrypt-shaped placeholder. These accounts cannot be signed in to. */
-const UNUSABLE_PASSWORD = '$2b$10$zycartp15verificationaccountnotsigninablexxxxxxxxxxxx';
-
 let passed = 0;
 let failed = 0;
 
@@ -238,7 +235,6 @@ async function createFixtures(): Promise<Fixtures> {
     firstName: 'Phase15',
     lastName: 'Payer',
     email: `payer@${EMAIL_DOMAIN}`,
-    password: UNUSABLE_PASSWORD,
     role: 'USER',
     isActive: true,
   });

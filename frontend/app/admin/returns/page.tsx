@@ -16,7 +16,7 @@ import { ReturnFilters } from '@/components/admin/return-filters';
 import { returnStatusTone } from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
 import { getReturns, getReturnsSummary } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
 import { RETURN_ADMIN_LABEL, RETURN_STATUSES, type ReturnStatus } from '@/types/fulfillment';
 import type { AdminReturnQuery } from '@/types/admin';
@@ -49,7 +49,7 @@ export const metadata: Metadata = { title: 'Returns' };
  */
 export default async function AdminReturnsPage({ searchParams }: PageProps<'/admin/returns'>) {
   const params = await searchParams;
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   const single = (key: string): string | undefined => {
     const value = params[key];
@@ -70,9 +70,9 @@ export default async function AdminReturnsPage({ searchParams }: PageProps<'/adm
   };
 
   const [result, summary] = await Promise.all([
-    getReturns(query, { cookie }).catch((error: unknown) => ({ error })),
+    getReturns(query, { token }).catch((error: unknown) => ({ error })),
     // Independent of the list: the queue is still workable without the counts.
-    getReturnsSummary({ cookie }).catch(() => null),
+    getReturnsSummary({ token }).catch(() => null),
   ]);
 
   const header = (

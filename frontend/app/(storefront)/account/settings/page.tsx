@@ -1,16 +1,17 @@
 import type { Metadata } from 'next';
+import { UserProfile } from '@clerk/nextjs';
 import { AccountPanel } from '@/components/account/account-panel';
 import { EmailPreferencesForm } from '@/components/account/email-preferences-form';
 import { LogoutButton } from '@/components/account/logout-button';
-import { PasswordForm } from '@/components/account/password-form';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
+import { profileAppearance } from '@/lib/clerk-appearance';
 import { getSessionUser } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Settings',
-  description: 'Password, email, appearance and session settings.',
+  description: 'Sign-in, security, email, appearance and session settings.',
 };
 
 export default async function SettingsPage() {
@@ -19,11 +20,14 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-12">
+      {/* Clerk's own profile: password, Google, email addresses and signed-in
+          devices all live with Clerk, so this is where they are changed. Hash
+          routing keeps its sub-pages on this URL. */}
       <AccountPanel
-        title="Change password"
-        description="Use a password you do not use anywhere else."
+        title="Sign-in & security"
+        description="Your password, Google sign-in, email addresses and the devices you are signed in on."
       >
-        <PasswordForm />
+        <UserProfile routing="hash" appearance={profileAppearance} />
       </AccountPanel>
 
       {user && (

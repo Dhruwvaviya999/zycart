@@ -49,6 +49,9 @@ export function secretValues(env: Env): string[] {
   return [
     env.MONGODB_URI,
     env.JWT_SECRET,
+    // Clerk. The publishable key and the PEM public key are public by design.
+    env.CLERK_SECRET_KEY,
+    env.CLERK_WEBHOOK_SIGNING_SECRET,
     env.AI_API_KEY,
     razorpay?.keySecret,
     razorpay?.webhookSecret,

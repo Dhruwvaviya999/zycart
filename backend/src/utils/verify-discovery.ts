@@ -41,9 +41,6 @@ const SKU_PREFIX = 'ZYCART-P11';
 const SLUG_PREFIX = 'zycart-p11';
 const EMAIL_DOMAIN = 'zycart-p11.test';
 
-/** A bcrypt-shaped placeholder. These accounts cannot be signed in to. */
-const UNUSABLE_PASSWORD = '$2b$10$zycartp11verificationaccountnotsigninablexxxxxxxxxxxx';
-
 let passed = 0;
 let failed = 0;
 let section = '';
@@ -180,7 +177,6 @@ async function createCustomer(label: string): Promise<string> {
     firstName: 'P11',
     lastName: label,
     email: `${label.toLowerCase()}@${EMAIL_DOMAIN}`,
-    password: UNUSABLE_PASSWORD,
   });
 
   return String(user._id);

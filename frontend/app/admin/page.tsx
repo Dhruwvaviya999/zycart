@@ -23,7 +23,7 @@ import { RevenueChart } from '@/components/admin/revenue-chart';
 import { orderStatusTone, paymentStatusTone } from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
 import { getDashboard } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDate, formatDayLabel, formatPrice, formatTime } from '@/lib/format';
 import type { AdminDashboard } from '@/types/admin';
 import { cn } from '@/lib/utils';
@@ -59,7 +59,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps<'/a
 
   let data: AdminDashboard;
   try {
-    data = await getDashboard(period, { cookie: await getSessionCookie() });
+    data = await getDashboard(period, { token: await getSessionToken() });
   } catch (error) {
     return (
       <>

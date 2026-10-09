@@ -1,12 +1,9 @@
 import type { Request, Response } from 'express';
 import * as userService from '../services/user.service';
-import { issueFor } from '../services/auth.service';
 import { AppError } from '../utils/AppError';
-import { setAuthCookie } from '../utils/cookies';
 import {
   addressSchema,
   cartReminderOptOutSchema,
-  changePasswordSchema,
   updateAddressSchema,
   updatePreferencesSchema,
   updateProfileSchema,
@@ -24,7 +21,10 @@ export async function getMe(req: Request, res: Response): Promise<void> {
 
 export async function updateMe(req: Request, res: Response): Promise<void> {
   const input = updateProfileSchema.parse(req.body);
-  res.json({ success: true, data: await userService.updateProfile(currentUserId(req), input) });
+  res.json({
+    success: true,
+    data: await userService.updateProfile(req.env, currentUserId(req), input),
+  });
 }
 
 export async function updatePreferences(req: Request, res: Response): Promise<void> {
@@ -48,20 +48,6 @@ export async function optOutOfCartReminders(req: Request, res: Response): Promis
     success: true,
     message: 'Cart reminders are off. You can turn them back on from your account settings.',
   });
-}
-
-/**
- * A password change ends every existing session. Rather than log the customer
- * out of the tab they are sitting in, a fresh cookie is issued for this session
- * only — so any other device holding the old token is signed out.
- */
-export async function changePassword(req: Request, res: Response): Promise<void> {
-  const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
-
-  const userId = await userService.changePassword(currentUserId(req), currentPassword, newPassword);
-
-  setAuthCookie(res, issueFor(userId, req.env), req.env);
-  res.json({ success: true, message: 'Password updated successfully' });
 }
 
 export async function listAddresses(req: Request, res: Response): Promise<void> {

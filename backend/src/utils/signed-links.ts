@@ -20,8 +20,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  *
  * The purpose is part of the signed message, so a signature minted to stop
  * cart reminders for an account cannot be replayed to unsubscribe a newsletter
- * address that happens to share its id — and the key is the JWT secret used
- * for a different purpose, which is safe precisely because of that prefix.
+ * address that happens to share its id — and the key is `JWT_SECRET`, which
+ * now exists for these links alone; the prefix is what keeps them apart.
  */
 
 export type SignedLinkPurpose = 'cart-reminders-opt-out' | 'newsletter-unsubscribe';

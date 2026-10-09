@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { passwordSchema } from './auth.validator';
 
 /** Deliberately permissive: international numbers vary more than a regex can hold. */
 const phoneSchema = z
@@ -25,17 +24,6 @@ export const updateProfileSchema = z
   .partial()
   .strict()
   .refine((value) => Object.keys(value).length > 0, 'at least one field must be provided');
-
-export const changePasswordSchema = z
-  .object({
-    currentPassword: z.string().min(1, 'is required'),
-    newPassword: passwordSchema,
-  })
-  .strict()
-  .refine((value) => value.currentPassword !== value.newPassword, {
-    path: ['newPassword'],
-    error: 'must be different from the current password',
-  });
 
 export const addressSchema = z
   .object({
@@ -78,6 +66,5 @@ export const cartReminderOptOutSchema = z
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>;
-export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type CreateAddressInput = z.infer<typeof addressSchema>;
 export type UpdateAddressInput = z.infer<typeof updateAddressSchema>;

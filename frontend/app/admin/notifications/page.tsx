@@ -16,7 +16,7 @@ import { NotificationFilters } from '@/components/admin/notification-filters';
 import { deliveryTone } from '@/components/admin/status-tones';
 import { toErrorMessage } from '@/services/api';
 import { getCommunicationSummary, getNotifications } from '@/services/admin.service';
-import { getSessionCookie } from '@/lib/server-auth';
+import { getSessionToken } from '@/lib/server-auth';
 import { formatDateTime } from '@/lib/format';
 import {
   DELIVERY_STATUSES,
@@ -59,7 +59,7 @@ export default async function AdminNotificationsPage({
   searchParams,
 }: PageProps<'/admin/notifications'>) {
   const params = await searchParams;
-  const cookie = await getSessionCookie();
+  const token = await getSessionToken();
 
   const single = (key: string): string | undefined => {
     const value = params[key];
@@ -90,8 +90,8 @@ export default async function AdminNotificationsPage({
   };
 
   const [result, summary] = await Promise.all([
-    getNotifications(query, { cookie }).catch((error: unknown) => ({ error })),
-    getCommunicationSummary({ cookie }).catch(() => null),
+    getNotifications(query, { token }).catch((error: unknown) => ({ error })),
+    getCommunicationSummary({ token }).catch(() => null),
   ]);
 
   const header = (

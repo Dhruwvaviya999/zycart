@@ -16,7 +16,7 @@ import {
 } from '@/components/payment/payment-status';
 import { ApiError } from '@/services/api';
 import { getOrderById } from '@/services/order.service';
-import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { getSessionToken, getSessionUser } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
 import type { Order } from '@/types/order';
 
@@ -102,7 +102,7 @@ export default async function OrderConfirmationPage({
 
   let order;
   try {
-    order = await getOrderById(orderNumber, { cookie: await getSessionCookie() });
+    order = await getOrderById(orderNumber, { token: await getSessionToken() });
   } catch (error) {
     if (error instanceof ApiError && error.isNotFound) notFound();
     throw error;

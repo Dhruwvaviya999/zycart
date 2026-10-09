@@ -79,6 +79,8 @@ const BRAND_WITH_SUPPORT: EmailBrand = { ...BRAND, supportEmail: 'help@zycart.ex
 const BASE_ENV = {
   MONGODB_URI: 'mongodb://localhost:27017/zycart-test',
   JWT_SECRET: 'x'.repeat(48),
+  CLERK_SECRET_KEY: `sk_test_${'x'.repeat(40)}`,
+  CLERK_PUBLISHABLE_KEY: 'pk_test_Y2xlcmsuZXhhbXBsZS5jb20k',
   AI_ENABLED: 'false',
 };
 

@@ -60,7 +60,7 @@ export async function getNewArrivals(req: Request, res: Response): Promise<void>
  *
  * Deliberately not a general analytics endpoint. The event type is fixed by the
  * route, the product is resolved and validated server-side, and the customer
- * comes from the session cookie — so the three things a browser could lie about
+ * comes from the verified session — so the three things a browser could lie about
  * are the three things it cannot set. The worst a crafted request can do is
  * claim to have viewed a product it did not, which is also true of actually
  * loading the page.

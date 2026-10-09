@@ -20,7 +20,7 @@ import { OrderTimeline } from '@/components/order/order-timeline';
 import { PriceBreakdown } from '@/components/order/price-breakdown';
 import { ApiError } from '@/services/api';
 import { getOrderById } from '@/services/order.service';
-import { getSessionCookie, getSessionUser } from '@/lib/server-auth';
+import { getSessionToken, getSessionUser } from '@/lib/server-auth';
 import { formatDate, formatPrice } from '@/lib/format';
 import type { Order } from '@/types/order';
 
@@ -65,7 +65,7 @@ export default async function OrderDetailPage({
 
   let order: Order;
   try {
-    order = await getOrderById(orderNumber, { cookie: await getSessionCookie() });
+    order = await getOrderById(orderNumber, { token: await getSessionToken() });
   } catch (error) {
     // Another customer's order and a nonexistent one are indistinguishable here,
     // which is exactly what the API intends.

@@ -45,6 +45,9 @@ import { healthReportSchema, healthResponseSchema } from '../src/validators/heal
  */
 const SECRETS = {
   jwt: 'ZYCART-P16-TEST-JWT-SECRET-0123456789abcdef',
+  clerk: 'sk_test_ZYCART-P16-TEST-CLERK-SECRET-0001',
+  clerkLive: 'sk_live_ZYCART-P16-LIVE-CLERK-SECRET-0001',
+  clerkWebhook: 'whsec_ZYCART-P16-CLERK-WEBHOOK-SECRET-0001',
   mongo: 'mongodb://zycart-p16:ZYCART-P16-DB-PASSWORD@db.invalid:27017/zycart-p16',
   razorpaySecret: 'ZYCART-P16-RZP-KEY-SECRET-0001',
   webhookSecret: 'ZYCART-P16-RZP-WEBHOOK-SECRET-0001',
@@ -55,6 +58,8 @@ const SECRETS = {
 const BASE: Record<string, string> = {
   MONGODB_URI: SECRETS.mongo,
   JWT_SECRET: SECRETS.jwt,
+  CLERK_SECRET_KEY: SECRETS.clerk,
+  CLERK_PUBLISHABLE_KEY: 'pk_test_Y2xlcmsuZXhhbXBsZS5jb20k',
   NODE_ENV: 'development',
   CLIENT_URL: 'http://localhost:3000',
   AI_ENABLED: 'false',
@@ -312,6 +317,9 @@ describe('Readiness — fitness for the environment', () => {
       ...SMTP,
       ...RAZORPAY,
       RAZORPAY_KEY_ID: 'rzp_live_ZYCARTP16LIVE',
+      CLERK_SECRET_KEY: SECRETS.clerkLive,
+      CLERK_PUBLISHABLE_KEY: 'pk_live_Y2xlcmsuenljYXJ0LmV4YW1wbGUk',
+      CLERK_WEBHOOK_SIGNING_SECRET: SECRETS.clerkWebhook,
       ...overrides,
     });
 
@@ -362,6 +370,34 @@ describe('Readiness — fitness for the environment', () => {
     assert.ok(
       report.findings.some(
         (finding) => finding.key === 'RAZORPAY_KEY_ID' && finding.severity === 'warning',
+      ),
+    );
+  });
+
+  it('refuses a Clerk development instance in production', () => {
+    const report = checkReadiness(
+      production({
+        CLERK_SECRET_KEY: SECRETS.clerk,
+        CLERK_PUBLISHABLE_KEY: 'pk_test_Y2xlcmsuZXhhbXBsZS5jb20k',
+      }),
+    );
+
+    assert.equal(report.ok, false);
+    assert.ok(
+      report.findings.some(
+        (finding) => finding.key === 'CLERK_SECRET_KEY' && finding.severity === 'error',
+      ),
+    );
+  });
+
+  it('warns, but does not refuse, production without the Clerk webhook', () => {
+    const report = checkReadiness(production({ CLERK_WEBHOOK_SIGNING_SECRET: '' }));
+
+    assert.equal(report.ok, true);
+    assert.ok(
+      report.findings.some(
+        (finding) =>
+          finding.key === 'CLERK_WEBHOOK_SIGNING_SECRET' && finding.severity === 'warning',
       ),
     );
   });

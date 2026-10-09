@@ -43,9 +43,6 @@ const SKU_PREFIX = 'ZYCART-P12';
 const SLUG_PREFIX = 'zycart-p12';
 const EMAIL_DOMAIN = 'zycart-p12.test';
 
-/** A bcrypt-shaped placeholder. This account cannot be signed in to. */
-const UNUSABLE_PASSWORD = '$2b$10$zycartp12verificationaccountnotsigninablexxxxxxxxxxxx';
-
 let passed = 0;
 let failed = 0;
 
@@ -109,7 +106,6 @@ async function createFixtures(): Promise<Fixtures> {
     firstName: 'Phase12',
     lastName: 'Verifier',
     email: `admin@${EMAIL_DOMAIN}`,
-    password: UNUSABLE_PASSWORD,
     role: 'ADMIN',
     isActive: true,
   });
